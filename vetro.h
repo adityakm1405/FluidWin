@@ -19,6 +19,35 @@
 
 namespace vetro {
 
+// Materiali condivisi da dock, pannelli e notch.
+// 1 = nessuno, 2 = Mica, 3 = Desktop Acrylic, 4 = Mica Alt,
+// 5 = Blur, 6 = Glass (blur + bordo/vetro D2D), 7 = Translucent (solo velo D2D).
+// SetWindowCompositionAttribute viene risolto dinamicamente: non richiede import non documentati a link-time.
+inline void applicaEffetto(HWND finestra, int effetto) {
+    if (!finestra) return;
+    effetto = std::clamp(effetto, 1, 7);
+    const int backdrop = (effetto >= 2 && effetto <= 4) ? effetto : 1;
+    DwmSetWindowAttribute(finestra, 38 /* DWMWA_SYSTEMBACKDROP_TYPE */, &backdrop, sizeof(backdrop));
+
+    struct AccentPolicy { int state, flags; DWORD gradient; int animation; };
+    struct CompositionData { int attribute; void* data; SIZE_T size; };
+    using SetComposition = BOOL(WINAPI*)(HWND, CompositionData*);
+    static SetComposition setComposition = []() -> SetComposition {
+        HMODULE user = GetModuleHandleW(L"user32.dll");
+        return user ? reinterpret_cast<SetComposition>(GetProcAddress(user, "SetWindowCompositionAttribute")) : nullptr;
+    }();
+    if (!setComposition) return;
+
+    // Acrylic nativo anche sulle superfici layered del notch; Glass usa blur leggero dietro il suo bordo D2D.
+    AccentPolicy policy{};
+    if (effetto == 3) { policy.state = 4; policy.gradient = 0xB0181818; }
+    else if (effetto == 5 || effetto == 6) { policy.state = 3; policy.gradient = 0x50181818; }
+    else { policy.state = 0; }
+    CompositionData data{19 /* WCA_ACCENT_POLICY */, &policy, sizeof(policy)};
+    setComposition(finestra, &data);
+}
+
+
 inline bool temaScuro() {
     DWORD v = 1, n = sizeof(v);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
