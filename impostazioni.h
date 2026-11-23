@@ -1058,6 +1058,15 @@ private:
             v.testo(testo, fSotto, {r.left + 16 * d, r.top + 28 * d, r.right - 16 * d - spazio, r.top + 48 * d}, tenueS);
             y += 60 * d;
         };
+        auto rigaClic = [&](const std::wstring& titolo, const std::wstring& dettaglio, int id) {
+            const D2D1_RECT_F r = {L, y, R, y + 54 * d};
+            riquadro(r, sopra == id);
+            zone.push_back({r, id});
+            v.testo(titolo, fVoce, {r.left + 16 * d, r.top + 7 * d, r.right - 42 * d, r.top + 29 * d}, inkS);
+            v.testo(dettaglio, fSotto, {r.left + 16 * d, r.top + 28 * d, r.right - 42 * d, r.top + 48 * d}, tenueS);
+            v.testo(L"›", fVoce, {r.right - 34 * d, r.top + 5 * d, r.right - 14 * d, r.bottom - 5 * d}, inkS);
+            y += 60 * d;
+        };
         auto palette = [&](const std::wstring& titolo, const std::wstring& dettaglio, DWORD scelto, int base) {
             const D2D1_RECT_F r = {L, y, R, y + 54 * d};
             riquadro(r, false);
@@ -1342,18 +1351,32 @@ private:
                 y += 70 * d;
             }
             palette(testi::t(L"Colore del vetro", L"Glass color"),
-                    testi::t(L"Dock e centro di controllo", L"Dock and Control Center"), valori().dockColore, Z_COLORE);
+                    testi::t(L"Dock, centro di controllo e Action Center", L"Dock, Control Center and Action Center"), valori().dockColore, Z_COLORE);
             palette(testi::t(L"Colore del testo", L"Text color"),
                     testi::t(L"Tutti i testi di FluidWin", L"All FluidWin text"), valori().dockTestoColore, Z_TESTO_DOCK);
-            const wchar_t* materiali[] = {L"Acrylic", L"Mica", L"Mica Alt", L"None"};
-            const int materialeScelto = valori().dockMateriale == 3 ? 0 : valori().dockMateriale == 2 ? 1 : valori().dockMateriale == 4 ? 2 : 3;
-            selettore(testi::t(L"Materiale", L"Backdrop material"),
-                      testi::t(L"Composto da Windows, senza blur software", L"Composed by Windows; no software blur"),
-                      materiali, 4, materialeScelto, Z_MATERIALE);
-            const wchar_t* loghi[] = {L"Windows", L"Apple"};
+            const wchar_t* materiali[] = {L"Acrylic", L"Mica", L"Mica Alt", L"Blur", L"Glass", L"Trans.", L"None"};
+            const int materialeScelto = valori().dockMateriale == 3 ? 0 : valori().dockMateriale == 2 ? 1 :
+                valori().dockMateriale == 4 ? 2 : valori().dockMateriale == 5 ? 3 :
+                valori().dockMateriale == 6 ? 4 : valori().dockMateriale == 7 ? 5 : 6;
+            selettore(testi::t(L"Effetto", L"Effect"),
+                      testi::t(L"Dock, Control Center e Action Center", L"Dock, Control Center and Action Center"),
+                      materiali, 7, materialeScelto, Z_MATERIALE);
+            const wchar_t* loghi[] = {L"Windows", L"macOS Dock", L"Custom"};
             selettore(testi::t(L"Icona Start", L"Start icon"),
-                      testi::t(L"Logo senza riquadro bianco", L"Logo without the white tile"),
-                      loghi, 2, valori().dockLogoStart, Z_LOGO_START);
+                      testi::t(L"Windows, Dock macOS o immagine personale", L"Windows, macOS Dock or your own image"),
+                      loghi, 3, valori().dockLogoStart, Z_LOGO_START);
+            rigaClic(testi::t(L"Scegli icona personale", L"Choose custom icon"),
+                     valori().dockStartIconPath.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
+                         : valori().dockStartIconPath, Z_START_ICON_FILE);
+            palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
+                    testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
+                    valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);
+            palette(testi::t(L"Colore visualizzatore", L"Visualizer color"),
+                    testi::t(L"Primo colore delle barrette", L"First color of the bars"),
+                    valori().coloreVisualizzatore, Z_COLORE_VISUALIZZATORE);
+            palette(testi::t(L"Fine gradiente visualizzatore", L"Visualizer gradient end"),
+                    testi::t(L"Secondo colore delle barrette", L"Second color of the bars"),
+                    valori().coloreVisualizzatoreFine, Z_COLORE_VISUALIZZATORE_FINE);
             if (nascDock.empty()) {
                 riga(testi::t(L"App nascoste dal dock", L"Hidden dock apps"),
                      testi::t(L"Nessuna. Clic destro su un'app aperta nel dock per nasconderla", L"None. Right-click an open app in the dock to hide it"));
@@ -1395,6 +1418,13 @@ private:
             }
         }
         if (sezione == S_NOTCH) {
+            const wchar_t* effettiNotch[] = {L"Acrylic", L"Mica", L"Mica Alt", L"Blur", L"Glass", L"Trans.", L"None"};
+            const int effettoNotchScelto = valori().notchMateriale == 3 ? 0 : valori().notchMateriale == 2 ? 1 :
+                valori().notchMateriale == 4 ? 2 : valori().notchMateriale == 5 ? 3 :
+                valori().notchMateriale == 6 ? 4 : valori().notchMateriale == 7 ? 5 : 6;
+            selettore(testi::t(L"Effetto", L"Effect"),
+                      testi::t(L"Materiale indipendente dal dock", L"Material independent from the dock"),
+                      effettiNotch, 7, effettoNotchScelto, Z_NOTCH_MATERIALE);
             palette(testi::t(L"Colore dello sfondo", L"Background color"),
                     testi::t(L"Colore della capsula del notch", L"Notch capsule color"), valori().notchSfondo, Z_NOTCH_SFONDO);
             palette(testi::t(L"Colore del testo", L"Text color"),
