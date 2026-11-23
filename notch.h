@@ -235,7 +235,7 @@ private:
     }
 
     HWND fin = nullptr;
-    bool acceso = false, visibile = false, abilitato = true, featureEnabled = true;
+    bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int modoAtt = NORMALE;
@@ -305,25 +305,28 @@ private:
     void visibilita() {
         const bool si = acceso && featureEnabled && modoAtt != NASCOSTO && fin;   // auto-hide e spegnimento completo sono indipendenti
         if (si == visibile) {
-            // Può uscire da fullscreen con il notch già disabilitato: in quel caso visibile resta false,
-            // ma va riattivato il polling lento della musica usata dal dock.
+            // Dopo l'uscita da fullscreen, riattiva il polling solo se non e' gia' in corso.
             if (fin && !si) {
-                KillTimer(fin, 2);
-                if (acceso && !featureEnabled && modoAtt != NASCOSTO) SetTimer(fin, 2, 500, nullptr);
+                const bool poll = acceso && !featureEnabled && modoAtt != NASCOSTO;
+                if (poll && !pollingMedia) { SetTimer(fin, 2, 500, nullptr); pollingMedia = true; }
+                else if (!poll && pollingMedia) { KillTimer(fin, 2); pollingMedia = false; }
             }
             return;
         }
         visibile = si;
         if (si) {
-            KillTimer(fin, 2); SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
+            KillTimer(fin, 2); pollingMedia = false;
+            SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
             sincronizzaSegni();   // (cambiati mentre era nascosto: controlla non girava)
             misuraOra(); bersagli(true); ridisegna();
             ShowWindow(fin, SW_SHOWNOACTIVATE);
             SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         } else {
             // Notch spento: niente disegno o animazioni. Il timer lento aggiorna solo i dati musicali del dock.
-            KillTimer(fin, 2);
-            if (acceso && !featureEnabled && modoAtt != NASCOSTO) SetTimer(fin, 2, 500, nullptr);
+            KillTimer(fin, 2); pollingMedia = false;
+            if (acceso && !featureEnabled && modoAtt != NASCOSTO) {
+                SetTimer(fin, 2, 500, nullptr); pollingMedia = true;
+            }
             vetro::fermaBattito(fin, 1); animando = false;
             sopra = false; attesa = 0; cliccabile(false);
             finisciNotifica(); fineVolume = 0; fineAvviso = 0;
