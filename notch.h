@@ -107,10 +107,32 @@ public:
         testoNotch = decodifica(testo, D2D1::ColorF(1, 1, 1, 1));
         if (visibile) ridisegna();
     }
+    void impostaEffetto(int effetto) {
+        effetto = std::clamp(effetto, 1, 7);
+        if (effetto == materialeNotch) return;
+        materialeNotch = effetto;
+        vetro::applicaEffetto(fin, materialeNotch);
+        if (visibile) ridisegna();
+    }
+    void impostaDimensione(int percento) {
+        percento = std::clamp(percento, 70, 130);
+        const float nuova = percento / 100.0f;
+        if (std::fabs(nuova - scalaDimensione) < 0.001f) return;
+        scalaDimensione = nuova;
+        dpi = dpiFisico * scalaDimensione;
+        superficie(); misuraOra(); bersagli(true);
+        if (visibile) ridisegna();
+    }
+    void impostaColoriMedia(DWORD pulsanti, DWORD vis1, DWORD vis2, bool gradiente) {
+        if (colorePulsanti == pulsanti && coloreBarrette == vis1 && coloreBarretteFine == vis2 && barretteGradiente == gradiente) return;
+        colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
+        if (visibile) ridisegna();
+    }
+    bool attivo() const { return featureEnabled; }
 
     // schermo su cui sta (in alto al centro) e scala del dock
     void posto(const RECT& s, float d) {
-        schermo = s; dpi = d;
+        schermo = s; dpiFisico = d; dpi = dpiFisico * scalaDimensione;
         superficie(); misuraOra(); bersagli(true); ridisegna();
     }
 
@@ -238,9 +260,12 @@ private:
     bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
+    int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
+    DWORD colorePulsanti = 0, coloreBarrette = 0, coloreBarretteFine = 0;
+    bool barretteGradiente = false;
     int modoAtt = NORMALE;
     RECT schermo{};
-    float dpi = 1, fDpi = 0;
+    float dpi = 1, dpiFisico = 1, scalaDimensione = 1, fDpi = 0;
     std::wstring testoOra, testoGiorno;
     const wchar_t *fontTesto = L"Segoe UI Variable Text", *fontTitoli = L"Segoe UI Variable Display";
     IDWriteTextFormat *fOra = nullptr, *fGiorno = nullptr, *fTitolo = nullptr, *fPiccolo = nullptr, *fTesto = nullptr, *fNumero = nullptr, *fGrande = nullptr;
@@ -738,6 +763,20 @@ private:
     // ---- disegno ----
 
     void colore(float r, float g, float b, float a) { pen->SetColor(D2D1::ColorF(r, g, b, a)); }
+    D2D1_COLOR_F coloreMedia(DWORD scelto, D2D1_COLOR_F base, float alfa) const {
+        if (!(scelto & 0x01000000)) return {base.r, base.g, base.b, base.a * alfa};
+        return D2D1::ColorF(((scelto >> 16) & 255) / 255.0f, ((scelto >> 8) & 255) / 255.0f,
+                            (scelto & 255) / 255.0f, alfa);
+    }
+    D2D1_COLOR_F coloreBarretta(int i, float alfa) const {
+        const D2D1_COLOR_F base = D2D1::ColorF(1, 1, 1, 1);
+        const D2D1_COLOR_F c1 = coloreMedia(coloreBarrette, base, 1);
+        if (!barretteGradiente || !(coloreBarretteFine & 0x01000000)) return {c1.r, c1.g, c1.b, c1.a * alfa};
+        const D2D1_COLOR_F c2 = coloreMedia(coloreBarretteFine, base, 1);
+        const float t = std::clamp(i / 3.0f, 0.0f, 1.0f);
+        return D2D1::ColorF(c1.r + (c2.r - c1.r) * t, c1.g + (c2.g - c1.g) * t,
+                            c1.b + (c2.b - c1.b) * t, alfa);
+    }
 
     void scrivi(const std::wstring& t, IDWriteTextFormat* f, D2D1_RECT_F r, float a) {
         if (!f || t.empty()) return;
@@ -830,9 +869,19 @@ private:
             }
             s->EndFigure(D2D1_FIGURE_END_CLOSED);
             s->Close(); s->Release();
-            if (stile == CLASSICO) colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, 1);
-            else colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f));
+            float alfaSfondo = materialeNotch == 7 ? 0.16f : materialeNotch == 6 ? 0.34f :
+                               materialeNotch == 5 ? 0.48f : materialeNotch == 3 ? 0.72f :
+                               (materialeNotch == 2 || materialeNotch == 4) ? 0.88f : 1.0f;
+            if (stile != CLASSICO) alfaSfondo *= (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f);
+            colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, alfaSfondo);
             rt->FillGeometry(g, pen);
+            if (materialeNotch == 6) {
+                colore(1, 1, 1, 0.48f * apertura);
+                rt->DrawGeometry(g, pen, 1.2f * dpi);
+            } else if (materialeNotch == 7) {
+                colore(1, 1, 1, 0.12f * apertura);
+                rt->DrawGeometry(g, pen, 0.8f * dpi);
+            }
             if (stile == ECO || stile == VELO) {
                 const float impulso = stile == ECO ? 1.0f - (float)std::clamp((adesso() - tOnda) / DURATA_ECO, 0.0, 1.0) : 0.0f;
                 colore(0.60f, 0.78f, 0.76f, apertura * (0.27f + 0.14f * impulso));
@@ -1385,7 +1434,8 @@ private:
             float k = 0.25f;
             if (brano.suona) k = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
             const float hb = std::max(2.4f * d, 12 * d * k);
-            colore(1, 1, 1, 0.9f * a);
+            const D2D1_COLOR_F c = coloreBarretta(i, 0.9f * a);
+            colore(c.r, c.g, c.b, c.a);
             rt->FillRoundedRectangle({{x + i * passo, cy - hb / 2, x + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
         }
     }
@@ -1405,7 +1455,8 @@ private:
         for (int i = 0; i < 3; i++) {
             const D2D1_POINT_2F c = centroTasto(i);
             if (i == pulsanteSopra) { colore(1, 1, 1, 0.16f * a); rt->FillEllipse({c, 17 * d, 17 * d}, pen); }
-            colore(1, 1, 1, a);
+            const D2D1_COLOR_F tintaPulsanti = coloreMedia(colorePulsanti, D2D1::ColorF(1, 1, 1, 1), a);
+            colore(tintaPulsanti.r, tintaPulsanti.g, tintaPulsanti.b, tintaPulsanti.a);
             if (i == 1) {
                 if (brano.suona) {   // pausa
                     rt->FillRoundedRectangle({{c.x - 6 * d, c.y - 8 * d, c.x - 2 * d, c.y + 8 * d}, 1.2f * d, 1.2f * d}, pen);
