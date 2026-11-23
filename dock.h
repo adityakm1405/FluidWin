@@ -2221,7 +2221,7 @@ private:
             }
             // testo disegnato a grandezza piena e rimpicciolito attorno al centro (pressione e icone piccole)
             dritto(cx, cy, s * k);
-            const D2D1_COLOR_F ink = inchiostroUI(scuro, 0.92f);
+            const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
             const float lt = larghezzaOra / 2 + 8 * dpi;
             pennello->SetColor(ink);
             dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {cx - lt, cy - h2 - 1 * dpi, cx + lt, cy + 1 * dpi}, pennello);
@@ -2495,7 +2495,7 @@ private:
         }
         // contenuti: entrano con la comparsa, tagliati alla capsula mentre si allarga
         dc->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        const D2D1_COLOR_F ink0 = scuro ? D2D1::ColorF(1, 1, 1, 0.92f * k) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f * k);
+        const D2D1_COLOR_F ink0 = inchiostroUI(scuro, k);
         float x = r.left + 10 * d, prima = 0;
         // segni: rimbalzo (scala con un poco di oltre) e un'onda che si allarga e sfuma, per 0,7 s dalla comparsa
         for (int i = 0; i < 2; i++) {
@@ -3637,7 +3637,7 @@ private:
         pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
         dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
         const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-        const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.9f * alfa) : D2D1::ColorF(0.25f, 0.25f, 0.3f, alfa);
+        const D2D1_COLOR_F ink = inchiostroUI(scuro, alfa);
         const float bw = d * 0.20f, top = cy - d * 0.12f, bot = cy + d * 0.27f, sp = std::max(1.2f, d * 0.035f);
         pennello->SetColor(ink);
         ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
