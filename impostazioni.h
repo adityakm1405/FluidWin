@@ -1416,6 +1416,8 @@ private:
                 }
                 y += 70 * d;
             }
+        }
+        if (sezione == S_DOCK_ASPETTO) {
             palette(testi::t(L"Colore del vetro", L"Glass color"),
                     testi::t(L"Dock, centro di controllo e Action Center", L"Dock, Control Center and Action Center"), valori().dockColore, Z_COLORE);
             palette(testi::t(L"Colore del testo", L"Text color"),
@@ -1437,15 +1439,8 @@ private:
             rigaClic(testi::t(L"Scegli icona personale", L"Choose custom icon"),
                      nomeIconaPersonale.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
                          : nomeIconaPersonale, Z_START_ICON_FILE);
-            palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
-                    testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
-                    valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);
-            palette(testi::t(L"Colore visualizzatore", L"Visualizer color"),
-                    testi::t(L"Primo colore delle barrette", L"First color of the bars"),
-                    valori().coloreVisualizzatore, Z_COLORE_VISUALIZZATORE);
-            palette(testi::t(L"Fine gradiente visualizzatore", L"Visualizer gradient end"),
-                    testi::t(L"Secondo colore delle barrette", L"Second color of the bars"),
-                    valori().coloreVisualizzatoreFine, Z_COLORE_VISUALIZZATORE_FINE);
+        }
+        if (sezione == S_DOCK) {
             if (nascDock.empty()) {
                 riga(testi::t(L"App nascoste dal dock", L"Hidden dock apps"),
                      testi::t(L"Nessuna. Clic destro su un'app aperta nel dock per nasconderla", L"None. Right-click an open app in the dock to hide it"));
@@ -1504,8 +1499,17 @@ private:
                 testi::t(L"Cerchio", L"Circle")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
-                      testi::t(L"Forma del segnale al centro del notch", L"Signal style in the notch center"),
+                      testi::t(L"Notch e capsula multimediale del dock", L"Notch and dock media capsule"),
                       stiliVisualizzatore, 5, valori().visualizzatoreStile, Z_STILE_VISUALIZZATORE);
+            palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
+                    testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
+                    valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);
+            palette(testi::t(L"Colore visualizzatore", L"Visualizer color"),
+                    testi::t(L"Primo colore delle barre", L"First visualizer color"),
+                    valori().coloreVisualizzatore, Z_COLORE_VISUALIZZATORE);
+            palette(testi::t(L"Fine gradiente visualizzatore", L"Visualizer gradient end"),
+                    testi::t(L"Secondo colore delle barre", L"Second visualizer color"),
+                    valori().coloreVisualizzatoreFine, Z_COLORE_VISUALIZZATORE_FINE);
             riga(testi::t(L"Nel notch, sempre", L"Always in the notch"),
                  testi::t(L"Musica, timer, scaffale dei file, microfono e webcam, batteria e cuffie", L"Music, timer, file shelf, microphone and camera, battery and headphones"));
         }
