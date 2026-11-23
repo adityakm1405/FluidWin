@@ -325,8 +325,8 @@ private:
     // il mouse sopra conta solo col notch fisso: a scomparsa musica e timer li controlla il dock, e passare sopra una
     // notifica non deve lasciare aperta la musica quando la notifica finisce
     bool sopraVale() const { return sopra && abilitato; }
-    // Con "Sempre visibile" spento si nasconde solo la scena statica: la musica in
-    // riproduzione deve invece far comparire il notch.
+    // Con "Sempre visibile" spento si nasconde solo l'orologio statico: una sessione
+    // multimediale resta visibile sia in riproduzione sia in pausa.
     static bool aRiposo(int s) { return s == ORA || s == TIMER; }
 
     std::vector<IDWriteTextFormat*> formati() const { return {fOra, fGiorno, fTitolo, fPiccolo, fTesto, fNumero, fGrande}; }
@@ -393,7 +393,9 @@ private:
         if (sv && !scaffale.empty()) return SCAFFALE;
         if (sv && brano.c) return APERTO;
         if (comodita::timerAttivo()) return TIMER;
-        if (brano.c && brano.suona) return MUSICA;
+        // Una sessione media presente resta nel notch anche in pausa. Scompare solo quando
+        // il lettore segnala che la sessione e' terminata (brano.c == false).
+        if (brano.c) return MUSICA;
         return ORA;
     }
     // Microfono e webcam in uso: pallini arancione e verde, come su iPhone. Solo col notch acceso: stanno dentro, a destra,
