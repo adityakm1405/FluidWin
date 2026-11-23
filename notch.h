@@ -1588,18 +1588,72 @@ private:
         rt->DrawLine({cx + 0.0f * d, cy - 5.5f * d}, {cx + 4.0f * d, cy - 3.5f * d}, pen, 1.3f * d);
     }
 
-    // Cinque barre sottili con un'onda fluida che attraversa il separatore (non movimenti indipendenti e nervosi).
-    void barrette(float x, float cy, float largo, float a) {
-        const float d = dpi, lb = 1.8f * d, passo = 3.0f * d;
-        const float totale = lb + 4 * passo;
-        const float inizio = x + (largo - totale) / 2;
+    // Transizione incrociata: la linea si dissolve mentre il visualizzatore nasce esattamente al suo centro.
+    void separatore(float x, float cy, float largo, float a, float mix) {
+        mix = std::clamp(mix, 0.0f, 1.0f);
+        if (mix > 0.001f) barrette(x, cy, largo, a, mix);
+        if (mix < 0.999f) {
+            const float cx = x + largo / 2;
+            colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.72f * a * (1.0f - mix));
+            rt->DrawLine({cx, cy - 4.5f * dpi}, {cx, cy + 4.5f * dpi}, pen, 1.3f * dpi);
+        }
+    }
+
+    // Quattro stili compatti. Quando la reattivita' e' attiva, l'ampiezza segue il picco reale
+    // dell'uscita audio predefinita di Windows; altrimenti resta un'animazione ambientale delicata.
+    void barrette(float x, float cy, float largo, float a, float mix) {
+        const float d = dpi;
         const double t = adesso();
-        for (int i = 0; i < 5; i++) {
-            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.2 - i * 0.72);
-            const float hb = (2.6f + 6.4f * onda) * d;
-            const D2D1_COLOR_F c = coloreBarretta(i * 3 / 4, 0.92f * a);
-            colore(c.r, c.g, c.b, c.a);
-            const float bx = inizio + i * passo;
+        const float forza = forzaVisualizzatore / 100.0f;
+        const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
+        const float picco = audioReale ? std::clamp(misuratoreAudio.livello() * 3.2f, 0.0f, 1.0f) : 0.0f;
+        auto ampiezza = [&](int i, int n) {
+            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82);
+            const float base = audioReale ? picco : onda;
+            const float dettaglio = 0.28f + 0.72f * onda;
+            return std::clamp(base * dettaglio * forza, 0.0f, 1.0f);
+        };
+        auto tinta = [&](int i, int n) {
+            const int indice = n > 1 ? i * 3 / (n - 1) : 0;
+            const D2D1_COLOR_F col = coloreBarretta(indice, 0.92f * a * mix);
+            colore(col.r, col.g, col.b, col.a);
+        };
+
+        if (stileVisualizzatore == 1) {   // Wave: linea sottile e continua
+            const int n = 7;
+            float px = x, py = cy;
+            for (int i = 0; i < n; i++) {
+                const float u = i / (float)(n - 1);
+                const float amp = ampiezza(i, n);
+                const float xx = x + u * largo;
+                const float yy = cy + (float)std::sin(t * 4.0 + i * 0.92) * (1.0f + 5.2f * amp) * d * mix;
+                tinta(i, n);
+                if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.45f * d);
+                px = xx; py = yy;
+            }
+            return;
+        }
+        if (stileVisualizzatore == 2) {   // Dots: punti che respirano
+            const int n = 5;
+            const float passo = largo / (n - 1);
+            for (int i = 0; i < n; i++) {
+                const float amp = ampiezza(i, n);
+                const float raggio = (0.85f + 1.25f * amp) * d * (0.35f + 0.65f * mix);
+                const float yy = cy + (float)std::sin(t * 3.4 - i * 0.9) * amp * 2.0f * d * mix;
+                tinta(i, n);
+                rt->FillEllipse({{x + i * passo, yy}, raggio, raggio}, pen);
+            }
+            return;
+        }
+        const int n = 5;
+        const float lb = (stileVisualizzatore == 3 ? 2.3f : 2.0f) * d;
+        const float passo = largo / n;
+        for (int i = 0; i < n; i++) {
+            const int indiceAmp = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+            const float amp = ampiezza(indiceAmp, n);
+            const float hb = (2.0f + 8.0f * amp) * d * mix;
+            const float bx = x + (i + 0.5f) * passo - lb / 2;
+            tinta(i, n);
             rt->FillRoundedRectangle({{bx, cy - hb / 2, bx + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
         }
     }
