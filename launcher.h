@@ -710,7 +710,7 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
         const float k = std::min(latoMax / std::max(1.0f, bs.width), latoMax / std::max(1.0f, bs.height));
         const float w = bs.width * k, h = bs.height * k;
         const D2D1_RECT_F icona = {cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f};
-        dc->DrawBitmap(iconaStartPersonale, icona, alfa, D2D1_BITMAP_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        dc->DrawBitmap(iconaStartPersonale, icona, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
         return;
     }
 
