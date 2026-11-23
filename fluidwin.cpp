@@ -4055,7 +4055,14 @@ static void applicaImpostazioni() {
     gTastoWin = v.tastoWin;
     gBanner.accendi(v.banner);
     gMenuDestro = v.menuDestro;
-    if (gDockOk) { gDock.impostaNotch(v.notch); gDock.impostaOraNelDock(v.oraDock); gDock.impostaLato(v.dockLato); }
+    if (gDockOk) {
+        gDock.impostaNotch(v.notch);
+        gDock.impostaNotchAttivo(v.notchAttivo);
+        gDock.impostaOraNotch12(v.notch12Ore);
+        gDock.impostaAspettoNotch(v.notchSfondo, v.notchTesto);
+        gDock.impostaOraNelDock(v.oraDock);
+        gDock.impostaLato(v.dockLato);
+    }
     // angoli di FluidWin (raggio.h): le finestre di vetro aperte cambiano subito, le altre nascono gia' cosi'
     if (raggio::stile() != v.angoli) {
         raggio::stile() = v.angoli;
@@ -4063,8 +4070,19 @@ static void applicaImpostazioni() {
         if (gDockOk) gDock.impostaAngoli();
         logf("angoli: %s", v.angoli == 0 ? "arrotondati" : v.angoli == 1 ? "poco arrotondati" : "squadrati");
     }
-    if (gDockOk) { gDock.impostaAutoNascondi(v.dockAuto); gDock.impostaOpacita(v.dockOpacita / 100.0f); gDock.impostaSpazio(v.dockSpazio); gDock.impostaAltriSchermi(v.dockSchermi); gDock.impostaAnteprime(v.dockAnteprime);
-                   gDock.impostaLatoIcone(v.dockIcone); gDock.impostaDistanzaIcone(v.dockDistanza); gDock.impostaColore(v.dockColore); }
+    if (gDockOk) {
+        gDock.impostaAutoNascondi(v.dockAuto);
+        gDock.impostaOpacita(v.dockOpacita / 100.0f);
+        gDock.impostaMateriale(v.dockMateriale);
+        gDock.impostaSpazio(v.dockSpazio);
+        gDock.impostaAltriSchermi(v.dockSchermi);
+        gDock.impostaAnteprime(v.dockAnteprime);
+        gDock.impostaLatoIcone(v.dockIcone);
+        gDock.impostaDistanzaIcone(v.dockDistanza);
+        gDock.impostaColore(v.dockColore);
+        gDock.impostaColoreTesto(v.dockTestoColore);
+        gDock.impostaLogoStart(v.dockLogoStart);
+    }
     // Arabo acceso o spento: i formati di testo prendono la direzione (da destra a sinistra) quando nascono, e molti
     // vivono quanto FluidWin. Riavviare e' il modo sicuro di rifarli tutti
 
