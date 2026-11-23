@@ -751,8 +751,11 @@ private:
         preparaFormati();
         if (!fOra || !fGiorno) return;
         lo = larghezza(testoOra, fOra); lg = larghezza(testoGiorno, fGiorno);
-        // Un solo blocco centrato: ora, separatore (o visualizzatore) e data, con margini uguali.
-        largoOra = std::round(std::max(210 * dpi, larghezzaBloccoOra() + 36 * dpi));
+        // Separatore fisso al centro: ogni lato ha spazio sufficiente anche quando ora e data hanno larghezze diverse.
+        const float mezzoSep = larghezzaSeparatoreOra() / 2;
+        const float latoOra = lo + spazioOra() + mezzoSep;
+        const float latoData = lg + spazioOra() + mezzoSep;
+        largoOra = std::round(std::max(210 * dpi, 2 * std::max(latoOra, latoData) + 36 * dpi));
     }
     float spazioOra() const { return std::round(7 * dpi); }
     float larghezzaSeparatoreOra() const { return std::round(15 * dpi); }
