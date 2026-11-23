@@ -943,70 +943,10 @@ private:
     }
 
     void ridisegnaBarrette() {
-        D2D1_RECT_F r; D2D1_POINT_2F o;
-        if (!rt || !pen || !visibile || !zonaBarrette(r, o)) return;
-
-        // Il ridisegno parziale deve ripristinare la vera sagoma del notch sotto le barrette.
-        // Cancellare con un colore pieno lasciava un piccolo rettangolo opaco dietro al visualizzatore.
-        // Qui ricostruiamo solo la porzione interessata della sagoma, poi ridisegniamo le barrette.
-        if (bordo() != CLASSICO) { ridisegna(); return; }
-
-        const float f = std::round(6 * dpi);
-        const float w = (float)std::max(2.0, mw.x);
-        const float h = (float)std::max((double)f + 2, mh.x);
-        const float k = raggio::fattore(), fr = f * k;
-        const float R = std::clamp((float)mr.x, 0.0f, std::min(w / 2, h - f)) * k;
-        const float x0 = (W2 - w) / 2, x1 = x0 + w;
-        const float su = (float)salita();
-        const D2D1_MATRIX_3X2_F forma = basso
-            ? D2D1::Matrix3x2F(1, 0, 0, -1, 0, (float)H2 + su)
-            : (su > 0 ? D2D1::Matrix3x2F::Translation(0, -su) : D2D1::Matrix3x2F::Identity());
-
-        ID2D1PathGeometry* g = nullptr;
-        ID2D1GeometrySink* s = nullptr;
-        ID2D1Factory* f2d = fabbriche::d2d();
-        if (!f2d || FAILED(f2d->CreatePathGeometry(&g)) || !g || FAILED(g->Open(&s)) || !s) {
-            if (s) s->Release();
-            if (g) g->Release();
-            ridisegna();
-            return;
-        }
-        s->BeginFigure({x0 - fr, 0}, D2D1_FIGURE_BEGIN_FILLED);
-        if (fr >= 0.5f) s->AddArc({{x0, fr}, {fr, fr}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
-        s->AddLine({x0, h - R});
-        if (R >= 0.5f) s->AddArc({{x0 + R, h}, {R, R}, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
-        s->AddLine({x1 - R, h});
-        if (R >= 0.5f) s->AddArc({{x1, h - R}, {R, R}, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
-        s->AddLine({x1, fr});
-        if (fr >= 0.5f) s->AddArc({{x1 + fr, 0}, {fr, fr}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
-        s->EndFigure(D2D1_FIGURE_END_CLOSED);
-        const HRESULT chiudi = s->Close();
-        s->Release(); s = nullptr;
-        if (FAILED(chiudi)) { g->Release(); ridisegna(); return; }
-
-        rt->BeginDraw();
-        rt->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_ALIASED);
-        rt->Clear(D2D1::ColorF(0, 0, 0, 0));
-        rt->SetTransform(forma);
-        float alfaSfondo = materialeNotch == 7 ? 0.16f : materialeNotch == 6 ? 0.34f :
-                           materialeNotch == 5 ? 0.48f : materialeNotch == 3 ? 0.72f :
-                           (materialeNotch == 2 || materialeNotch == 4) ? 0.88f : 1.0f;
-        colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, alfaSfondo);
-        rt->FillGeometry(g, pen);
-        if (materialeNotch == 6) {
-            colore(1, 1, 1, 0.48f);
-            rt->DrawGeometry(g, pen, 1.2f * dpi);
-        } else if (materialeNotch == 7) {
-            colore(1, 1, 1, 0.12f);
-            rt->DrawGeometry(g, pen, 0.8f * dpi);
-        }
-        rt->SetTransform(D2D1::Matrix3x2F::Identity());
-        barrette(o.x, o.y, 13 * dpi, 1);
-        rt->PopAxisAlignedClip();
-        g->Release();
-        if (rt->EndDraw() == (HRESULT)D2DERR_RECREATE_TARGET) { libera(); return; }
-        const RECT sporco = {(LONG)r.left, (LONG)r.top, (LONG)r.right, (LONG)r.bottom};
-        mostraAlfa(&sporco);
+        // Ridisegna la sagoma completa del notch: il vecchio aggiornamento parziale
+        // cancellava la zona delle barrette con un rettangolo opaco dietro al visualizzatore.
+        // Il disegno normale ripristina la forma arrotondata e mantiene lo sfondo trasparente fuori dal notch.
+        ridisegna();
     }
 
     // 'sporco': solo quella parte e' cambiata (Windows copia meno)
