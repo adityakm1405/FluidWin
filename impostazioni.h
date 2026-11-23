@@ -751,6 +751,25 @@ private:
         if (scelto) installa(p);
     }
 
+    void scegliIconaStart() {
+        static bool aperta = false;
+        if (aperta) return;
+        aperta = true;
+        wchar_t percorso[MAX_PATH] = L"";
+        OPENFILENAMEW of{};
+        of.lStructSize = sizeof(of); of.hwndOwner = v.fin;
+        of.lpstrFile = percorso; of.nMaxFile = MAX_PATH;
+        of.lpstrFilter = L"Immagini e icone (*.png;*.jpg;*.jpeg;*.bmp;*.ico)\0*.png;*.jpg;*.jpeg;*.bmp;*.ico\0Tutti i file (*.*)\0*.*\0\0";
+        of.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        const bool scelto = GetOpenFileNameW(&of) != FALSE;
+        aperta = false;
+        if (scelto) {
+            valori().dockStartIconPath = percorso;
+            valori().dockLogoStart = 2;
+            salva(); if (cambiato) cambiato(); disegna();
+        }
+    }
+
     int zonaIn(float x, float y) const {
         for (const auto& z : zone) if (x >= z.r.left && x < z.r.right && y >= z.r.top && y < z.r.bottom) return z.id;
         return -1;
@@ -783,13 +802,31 @@ private:
             scegliColore(valori().notchTesto, id, Z_NOTCH_TESTO);
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
-        if (id >= Z_MATERIALE && id < Z_MATERIALE + 4) {
-            static constexpr int tipi[] = {3, 2, 4, 1};
+        if (id >= Z_COLORI_PULSANTI_MEDIA && id <= Z_COLORI_PULSANTI_MEDIA + N_COLORI + 1) {
+            scegliColore(valori().colorePulsantiMedia, id, Z_COLORI_PULSANTI_MEDIA);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_COLORE_VISUALIZZATORE && id <= Z_COLORE_VISUALIZZATORE + N_COLORI + 1) {
+            scegliColore(valori().coloreVisualizzatore, id, Z_COLORE_VISUALIZZATORE);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_COLORE_VISUALIZZATORE_FINE && id <= Z_COLORE_VISUALIZZATORE_FINE + N_COLORI + 1) {
+            scegliColore(valori().coloreVisualizzatoreFine, id, Z_COLORE_VISUALIZZATORE_FINE);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_MATERIALE && id < Z_MATERIALE + 7) {
+            static constexpr int tipi[] = {3, 2, 4, 5, 6, 7, 1};
             valori().dockMateriale = tipi[id - Z_MATERIALE];
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
-        if (id >= Z_LOGO_START && id < Z_LOGO_START + 2) {
+        if (id >= Z_LOGO_START && id < Z_LOGO_START + 3) {
             valori().dockLogoStart = id - Z_LOGO_START;
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
+        if (id >= Z_NOTCH_MATERIALE && id < Z_NOTCH_MATERIALE + 7) {
+            static constexpr int tipi[] = {3, 2, 4, 5, 6, 7, 1};
+            valori().notchMateriale = tipi[id - Z_NOTCH_MATERIALE];
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_MOSTRA_TUTTE) {
