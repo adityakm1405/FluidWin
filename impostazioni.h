@@ -46,7 +46,8 @@ struct Valori {
     int dockIcone = 42;           // lato delle icone del dock a riposo, px a 100% (ICONE_MIN..ICONE_MAX); l'altezza segue
     int dockDistanza = 6;         // distanza fra le icone del dock, px a 100% (DISTANZA_MIN..DISTANZA_MAX)
     int dockMargine = 8;          // distanza fra dock e bordo dello schermo, px
-    bool dockCapsula = false;     // capsula media nel dock, opt-in se il notch non e' sempre visibile
+    bool dockCapsula = false;     // capsula media nel dock, alternativa al notch
+    bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza musica
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
     std::wstring dockStartIconPath;
@@ -153,6 +154,10 @@ inline void carica() {
     v.dockDistanza = std::clamp((int)leggiDword(L"DockDistanza", 6), DISTANZA_MIN, DISTANZA_MAX);
     v.dockMargine = std::clamp((int)leggiDword(L"DockMargine", 8), MARGINE_MIN, MARGINE_MAX);
     v.dockCapsula = leggiDword(L"DockCapsula", 0) != 0;
+    v.dockCapsulaSempre = leggiDword(L"DockCapsulaSempre", 0) != 0;
+    // La capsula del dock sostituisce il notch: le due modalita' non devono partire insieme.
+    if (v.dockCapsula) { v.notchAttivo = false; v.notch = false; }
+    if (!v.notchAttivo) v.notch = false;
     v.colorePulsantiMedia = leggiDword(L"ColorePulsantiMedia", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatoreFine = leggiDword(L"ColoreVisualizzatoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
@@ -191,6 +196,7 @@ inline void salva() {
     scriviDword(L"DockTestoColore", v.dockTestoColore); scriviDword(L"DockMateriale", (DWORD)v.dockMateriale);
     scriviDword(L"DockLogoStart", (DWORD)v.dockLogoStart); scriviDword(L"DockDistanza", (DWORD)v.dockDistanza);
     scriviDword(L"DockMargine", (DWORD)v.dockMargine); scriviDword(L"DockCapsula", v.dockCapsula);
+    scriviDword(L"DockCapsulaSempre", v.dockCapsulaSempre);
     scriviDword(L"ColorePulsantiMedia", v.colorePulsantiMedia); scriviDword(L"ColoreVisualizzatore", v.coloreVisualizzatore);
     scriviDword(L"ColoreVisualizzatoreFine", v.coloreVisualizzatoreFine); scriviDword(L"VisualizzatoreGradiente", v.visualizzatoreGradiente);
     scriviTesto(L"DockStartIconPath", v.dockStartIconPath);
@@ -476,7 +482,9 @@ private:
         {L"Anteprime delle finestre", L"Window previews",
          L"Mouse fermo su un'icona: le sue finestre dal vivo", L"Hover an icon: its windows, live", &Valori::dockAnteprime, S_DOCK},
         {L"Capsula multimediale nel dock", L"Media capsule in dock",
-         L"Mostra i comandi solo quando il notch non è sempre visibile", L"Show media controls only when the notch is not always visible", &Valori::dockCapsula, S_DOCK},
+         L"Spegne il notch e sposta i controlli multimediali nel dock", L"Turns off the notch and moves media controls to the dock", &Valori::dockCapsula, S_DOCK},
+        {L"Sempre visibile", L"Always visible",
+         L"La capsula resta nel dock anche senza musica in riproduzione", L"The capsule stays in the dock even when no media is playing", &Valori::dockCapsulaSempre, S_DOCK},
         {L"Visualizzatore a gradiente", L"Gradient visualizer",
          L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_DOCK},
         {L"Finestre di gelatina", L"Jelly windows",
@@ -498,7 +506,7 @@ private:
         {L"Notch", L"Notch",
          L"Abilita o disabilita completamente il notch", L"Enable or completely disable the notch", &Valori::notchAttivo, S_NOTCH},
         {L"Sempre visibile", L"Always visible",
-         L"Spento: il notch compare solo quando serve", L"Off: the notch appears only when needed", &Valori::notch, S_NOTCH},
+         L"Spento: il notch compare solo durante la riproduzione multimediale", L"Off: the notch appears only while media is playing", &Valori::notch, S_NOTCH},
         {L"Orologio a 12 ore", L"12-hour clock",
          L"Mostra AM/PM nel notch; il dock resta a 24 ore", L"Show AM/PM in the notch; the dock stays 24-hour", &Valori::notch12Ore, S_NOTCH},
         {L"Ora e data nel dock", L"Time and date in the dock",
@@ -876,8 +884,23 @@ private:
         else if (id >= 140 && id <= 143) valori().dockLato = id - 140;   // posizione del dock (1.3.0, Fase 3)
         else if (id >= 100 && id < 100 + testi::N_LINGUE) { valori().lingua = id - 100; testi::lingua() = valori().lingua; }
         else if (id < (int)voci.size()) {
-            bool& b = valori().*(voci[id].campo); b = !b;
-            if (voci[id].campo == &Valori::avvio) impostaAvvio(b);   // (sta nel registro di Windows, non in salva)
+            const auto campo = voci[id].campo;
+            bool& b = valori().*campo;
+            b = !b;
+            if (campo == &Valori::avvio) impostaAvvio(b);   // (sta nel registro di Windows, non in salva)
+
+            // Le due modalita' sono alternative. Attivando la capsula si spegne
+            // completamente il notch e anche la sua opzione "Sempre visibile".
+            if (campo == &Valori::dockCapsula && b) {
+                valori().notchAttivo = false;
+                valori().notch = false;
+            } else if (campo == &Valori::notchAttivo) {
+                if (b) valori().dockCapsula = false;
+                else valori().notch = false;
+            } else if (campo == &Valori::notch && b) {
+                valori().notchAttivo = true;
+                valori().dockCapsula = false;
+            }
         }
         salva();
         if (cambiato) cambiato();
@@ -1132,6 +1155,7 @@ private:
         };
         for (size_t i = 0; i < voci.size(); i++) {
             if (voci[i].sezione != sezione) continue;
+            if (voci[i].campo == &Valori::dockCapsulaSempre && !valori().dockCapsula) continue;
             const D2D1_RECT_F r = {L, y, R, y + 54 * d};
             aggiungiZona(r, (int)i);
             riquadro(r, sopra == (int)i);
