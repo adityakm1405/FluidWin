@@ -93,6 +93,19 @@ public:
         misuraOra(); bersagli(); ridisegna();
     }
 
+    // 0 = colori predefiniti; 0x01RRGGBB = colore scelto. Nessun lavoro aggiuntivo per fotogramma.
+    void impostaAspetto(DWORD sfondo, DWORD testo) {
+        if (sfondo == impostazioneSfondo && testo == impostazioneTesto) return;
+        impostazioneSfondo = sfondo; impostazioneTesto = testo;
+        auto decodifica = [](DWORD x, D2D1_COLOR_F base) {
+            if (!(x & 0x01000000)) return base;
+            return D2D1::ColorF(((x >> 16) & 255) / 255.0f, ((x >> 8) & 255) / 255.0f, (x & 255) / 255.0f, 1.0f);
+        };
+        sfondoNotch = decodifica(sfondo, D2D1::ColorF(0, 0, 0, 1));
+        testoNotch = decodifica(testo, D2D1::ColorF(1, 1, 1, 1));
+        if (visibile) ridisegna();
+    }
+
     // schermo su cui sta (in alto al centro) e scala del dock
     void posto(const RECT& s, float d) {
         schermo = s; dpi = d;
@@ -129,7 +142,16 @@ public:
         bersagli(); anima();
         if (!animando) ridisegna();   // (non visibile: niente animazione, solo il disegno)
     }
-    bool fisso() const { return abilitato; }
+    // Spegnimento completo, distinto dalla modalita' "sempre visibile".
+    // Il polling media continua a 500 ms per aggiornare la capsula musicale del dock.
+    void attivaFeature(bool si) {
+        if (si == featureEnabled) return;
+        featureEnabled = si;
+        if (!si) { sopra = false; attesa = 0; finisciNotifica(); fineVolume = 0; fineAvviso = 0; }
+        visibilita();
+        if (si && visibile) { bersagli(true); ridisegna(); }
+    }
+    bool fisso() const { return featureEnabled && abilitato; }
     void aggiornaAngoli() { ridisegna(); }   // impostazione "Angoli" cambiata (vedi ridisegna)
     // col dock in alto il notch sta sul bordo in basso (impostazione "Posizione" del dock)
     bool basso = false;
@@ -211,7 +233,9 @@ private:
     }
 
     HWND fin = nullptr;
-    bool acceso = false, visibile = false, abilitato = true;
+    bool acceso = false, visibile = false, abilitato = true, featureEnabled = true;
+    DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
+    D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int modoAtt = NORMALE;
     RECT schermo{};
     float dpi = 1, fDpi = 0;
@@ -277,7 +301,7 @@ private:
     static double adesso() { return vetro::secondi(); }
 
     void visibilita() {
-        const bool si = acceso && modoAtt != NASCOSTO && fin;   // (spento: a scomparsa, la finestra c'e' lo stesso)
+        const bool si = acceso && featureEnabled && modoAtt != NASCOSTO && fin;   // auto-hide e spegnimento completo sono indipendenti
         if (si == visibile) return;
         visibile = si;
         if (si) {
@@ -287,7 +311,10 @@ private:
             ShowWindow(fin, SW_SHOWNOACTIVATE);
             SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         } else {
-            KillTimer(fin, 2); vetro::fermaBattito(fin, 1); animando = false;
+            // Notch spento: niente disegno o animazioni. Il timer lento aggiorna solo i dati musicali del dock.
+            KillTimer(fin, 2);
+            if (acceso && !featureEnabled && modoAtt != NASCOSTO) SetTimer(fin, 2, 500, nullptr);
+            vetro::fermaBattito(fin, 1); animando = false;
             sopra = false; attesa = 0; cliccabile(false);
             finisciNotifica(); fineVolume = 0; fineAvviso = 0;
             ShowWindow(fin, SW_HIDE);
@@ -329,7 +356,7 @@ private:
     // in uno spazio che il notch a riposo (ora, musica, timer) si tiene in piu'. Prima stavano fuori, nel vuoto accanto al
     // notch; col notch spento non ci sono (l'utente non li voleva nel dock)
     int nPunti() const {
-        if (!abilitato) return 0;
+        if (!featureEnabled || !abilitato) return 0;
         const sensori::Sensori& se = sensori::Sensori::io();
         return (se.micApp.empty() ? 0 : 1) + (se.camApp.empty() ? 0 : 1);
     }
@@ -449,7 +476,24 @@ private:
         return cambiato;
     }
     void controlla() {
-        if (!visibile) return;
+        if (!visibile) {
+            if (acceso && !featureEnabled && modoAtt != NASCOSTO) {
+                const double t = adesso();
+                if (risincronizzaAlle > 0 && t >= risincronizzaAlle) {
+                    risincronizzaAlle = 0;
+                    const bool vero = lettore.stato().suona;
+                    if (vero != brano.suona) brano.suona = vero;
+                }
+                const UINT versione = lettore.versione();
+                if (versione != versioneBrano) {
+                    versioneBrano = versione;
+                    musica::Brano b = lettore.stato();
+                    if (b.versione != brano.versione || b.copertina.size() != brano.copertina.size()) copertinaNuova = true;
+                    brano = std::move(b);
+                }
+            }
+            return;
+        }
         const double t = adesso();
         bool ridisegnare = false;
         // musica
@@ -684,7 +728,7 @@ private:
 
     void scrivi(const std::wstring& t, IDWriteTextFormat* f, D2D1_RECT_F r, float a) {
         if (!f || t.empty()) return;
-        colore(1, 1, 1, a);
+        colore(testoNotch.r, testoNotch.g, testoNotch.b, a);
         rt->DrawText(t.c_str(), (UINT32)t.size(), f, r, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
 
@@ -773,8 +817,8 @@ private:
             }
             s->EndFigure(D2D1_FIGURE_END_CLOSED);
             s->Close(); s->Release();
-            if (stile == CLASSICO) colore(0, 0, 0, 1);
-            else colore(0, 0, 0, (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f));
+            if (stile == CLASSICO) colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, 1);
+            else colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f));
             rt->FillGeometry(g, pen);
             if (stile == ECO || stile == VELO) {
                 const float impulso = stile == ECO ? 1.0f - (float)std::clamp((adesso() - tOnda) / DURATA_ECO, 0.0, 1.0) : 0.0f;
@@ -832,7 +876,7 @@ private:
         if (!rt || !pen || !visibile || !zonaBarrette(r, o)) return;
         rt->BeginDraw();
         rt->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_ALIASED);
-        rt->Clear(D2D1::ColorF(0, 0, 0, 1));   // li' sotto c'e' solo il nero del notch
+        rt->Clear(D2D1::ColorF(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, 1));   // ripristina il colore personalizzato del notch
         barrette(o.x, o.y, 13 * dpi, 1);
         rt->PopAxisAlignedClip();
         if (rt->EndDraw() == (HRESULT)D2DERR_RECREATE_TARGET) { libera(); return; }
@@ -979,7 +1023,7 @@ private:
         scrivi(testoOra, fOra, {xt, yOra, xt + lo + 2, yOra + altoOra}, a);
         const float xg = xt + lo + spazio;
         scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 2, yGiorno + altoGiorno}, 0.66f * a);
-        colore(1, 1, 1, 0.38f * a);
+        colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.38f * a);
         rt->DrawLine({xg, baseOra + 0.5f}, {xg + lg, baseOra + 0.5f}, pen, 1.0f);
     }
 
