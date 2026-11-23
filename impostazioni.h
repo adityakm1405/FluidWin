@@ -540,6 +540,22 @@ private:
     static constexpr DWORD COLORI[] = {0x2C2C2E, 0xF2F2F7, 0x0A84FF, 0x5E5CE6, 0xBF5AF2, 0xFF375F, 0xFF9F0A, 0x30D158};
     static constexpr int N_COLORI = sizeof(COLORI) / sizeof(COLORI[0]);
     static constexpr int Z_COLORE_MIO = Z_COLORE + 1 + N_COLORI;
+    static constexpr int Z_TESTO_DOCK = 620, Z_NOTCH_SFONDO = 2000, Z_NOTCH_TESTO = 2020;
+    static constexpr int Z_MATERIALE = 2040, Z_LOGO_START = 2050;
+    void scegliColore(DWORD& c, int id, int base) {
+        if (id == base) c = 0;
+        else if (id <= base + N_COLORI) c = COLORE_SCELTO | COLORI[id - base - 1];
+        else {
+            static COLORREF propri[16] = {};
+            const DWORD prima = c & 0xFFFFFF;
+            CHOOSECOLORW cc{}; cc.lStructSize = sizeof(cc); cc.hwndOwner = v.fin; cc.lpCustColors = propri;
+            cc.rgbResult = RGB((prima >> 16) & 255, (prima >> 8) & 255, prima & 255);
+            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+            if (!ChooseColorW(&cc)) return;
+            c = COLORE_SCELTO | ((DWORD)GetRValue(cc.rgbResult) << 16) | ((DWORD)GetGValue(cc.rgbResult) << 8) | GetBValue(cc.rgbResult);
+        }
+    }
+    void scegliColore(int id) { scegliColore(valori().dockColore, id, Z_COLORE); }
     void scegliColore(int id) {
         DWORD& c = valori().dockColore;
         if (id == Z_COLORE) c = 0;
