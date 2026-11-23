@@ -902,7 +902,7 @@ public:
         opacita = a;
         // Il pannello usa opacita' nel velo Direct2D, non nell'alpha DComp animato.
         for (HWND v : {vetro, vetroStato, vetroOra}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
-        dirty = pDirty = altra.pDirty = true;
+        dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaMateriale(int tipo) {
         // DWMSBT_NONE, MAINWINDOW (Mica), TRANSIENTWINDOW (Desktop Acrylic), TABBEDWINDOW (Mica Alt).
