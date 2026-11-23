@@ -1039,6 +1039,66 @@ public:
         return D2D1::ColorF(c1.r + (c2.r - c1.r) * t, c1.g + (c2.g - c1.g) * t,
                             c1.b + (c2.b - c1.b) * t, a);
     }
+    void disegnaVisualizzatoreCapsula(float x, float cy, float d, D2D1_COLOR_F ink, float alfa, bool suona, double t) {
+        const float forza = forzaVisualizzatore / 100.0f;
+        const float picco = visualizzatoreReattivo && suona
+            ? std::clamp(notch.livelloVisualizzatore() * 3.2f, 0.0f, 1.0f) : 0.0f;
+        auto ampiezza = [&](int i, int n) {
+            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82);
+            if (!suona) return 0.12f;
+            const float base = visualizzatoreReattivo ? picco : onda;
+            return std::clamp(base * (0.28f + 0.72f * onda) * forza, 0.0f, 1.0f);
+        };
+        auto tinta = [&](int i, int n) {
+            const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
+            pennello->SetColor(coloreBarraMedia(gradiente, ink, alfa));
+        };
+        dritto(x + 7 * d, cy);
+        if (stileVisualizzatore == 1) {   // Wave
+            const int n = 7;
+            float px = x, py = cy;
+            for (int i = 0; i < n; i++) {
+                const float u = i / (float)(n - 1), amp = ampiezza(i, n);
+                const float xx = x + u * 14 * d;
+                const float yy = cy + (float)std::sin(t * 4.0 + i * 0.92) * (1.0f + 4.8f * amp) * d;
+                tinta(i, n);
+                if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
+                px = xx; py = yy;
+            }
+        } else if (stileVisualizzatore == 2) {   // Dots
+            const int n = 5;
+            for (int i = 0; i < n; i++) {
+                const float amp = ampiezza(i, n);
+                const float r = (0.85f + 1.1f * amp) * d;
+                const float yy = cy + (float)std::sin(t * 3.4 - i * 0.9) * amp * 1.5f * d;
+                tinta(i, n);
+                dc->FillEllipse({{x + (i + 0.5f) * (14.0f / n) * d, yy}, r, r}, pennello);
+            }
+        } else if (stileVisualizzatore == 4) {   // Circle
+            const int n = 8;
+            const float r = 4.1f * d;
+            for (int i = 0; i < n; i++) {
+                const float amp = ampiezza(i, n);
+                const float fase = t * 2.4f + i * (float)(2.0 * M_PI / n);
+                const float rr = r + 0.3f * amp * d, dot = (0.75f + 0.9f * amp) * d;
+                tinta(i, n);
+                dc->FillEllipse({{x + 7 * d + std::cos(fase) * rr,
+                                  cy + std::sin(fase) * rr}, dot, dot}, pennello);
+            }
+        } else {   // Bars / Mirror
+            const int n = 4;
+            const float lb = 2.4f * d, passo = 3.5f * d;
+            for (int i = 0; i < n; i++) {
+                const int index = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+                const float amp = ampiezza(index, n);
+                const float h = std::max(2.4f * d, (2.4f + 8.2f * amp) * d);
+                tinta(i, n);
+                dc->FillRoundedRectangle({{x + i * passo, cy - h / 2, x + i * passo + lb, cy + h / 2},
+                                          lb / 2, lb / 2}, pennello);
+            }
+        }
+        piano();
+    }
     void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
     void impostaEffettoNotch(int tipo) { notch.impostaEffetto(tipo); }
     void impostaDimensioneNotch(int percento) { notch.impostaDimensione(percento); }
@@ -2695,16 +2755,9 @@ private:
             piano();
             // barrette: ballano mentre suona, ferme e basse in pausa (come nel notch)
             const musica::Brano& br = notch.musicaOra();
-            const float bx = rc.right + 8 * d, lb = 2.4f * d, passo = (14 * d - lb) / 3;
-            dritto(bx + 7 * d, cy);   // (barrette in piedi anche ai lati)
-            for (int i = 0; i < 4; i++) {
-                float kb = 0.25f;
-                if (br.suona) kb = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
-                const float hb = std::max(2.4f * d, 12 * d * kb);
-                pennello->SetColor(coloreBarraMedia(i, ink, k * p));
-                dc->FillRoundedRectangle({{bx + i * passo, cy - hb / 2, bx + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pennello);
-            }
-            piano();
+            const float bx = rc.right + 8 * d;
+            // Stesso stile e lo stesso picco audio del notch: nessun visualizzatore separato o hard-coded.
+            disegnaVisualizzatoreCapsula(bx, cy, d, ink, k * p, br.suona, t);
             x = bx + 14 * d;
             // tasti (col mouse sopra): indietro, play/pausa, avanti; disegnati solo nello spazio gia' concesso
             const float km = (float)std::clamp(kMus, 0.0, 1.0);
