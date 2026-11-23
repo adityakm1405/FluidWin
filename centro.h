@@ -1223,7 +1223,8 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     y += th + tg;
     const bool tScuro = sistema::Sistema::temaScuro();
     piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_TEMA, tScuro, testi::t(L"Tema scuro", L"Dark theme"), tScuro ? testi::t(L"Attivo", L"On") : testi::t(L"Spento", L"Off"), scuro, ink);
-    piastrella({16 * dpi + mezzo + 10 * dpi, y, PW - 16 * dpi, y + th}, A_FLUIDWIN, false, L"FluidWin", testi::t(L"Impostazioni", L"Settings"), scuro, ink);
+    piastrella({16 * dpi + mezzo + 10 * dpi, y, PW - 16 * dpi, y + th}, A_FLUIDWIN, false,
+               testi::t(L"Settings", L"Settings"), testi::t(L"Impostazioni di Windows", L"Windows Settings"), scuro, ink);
     // tieni sveglio e non disturbare (comodita.h): il clic apre il menu delle durate
     y += th + tg;
     piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_SVEGLIO, comodita::sveglio(), testi::t(L"Non dormire", L"Keep awake"),
@@ -2193,13 +2194,11 @@ inline auto Motore::eseguiPannello(const Elemento& e) -> void {
             sistema::Sistema::impostaTema(!sistema::Sistema::temaScuro());
             aggiornaTemaVetri(); dirty = true; pDirty = true;
             break;
-        case A_FLUIDWIN: {   // le impostazioni crescono dal vetro del pannello (il contenuto qui svanisce sul posto)
-            RECT r{};
-            const bool da = impostazioni && GetWindowRect(vetroPannello, &r) && !IsRectEmpty(&r);
-            if (da) cediPannello(); else chiudiPannello();
-            if (impostazioni) impostazioni(da ? &r : nullptr);
+        case A_FLUIDWIN:
+            // Apri l'app Impostazioni di Windows, non il pannello delle preferenze di FluidWin.
+            chiudiPannello();
+            apriPagina(L"ms-settings:");
             break;
-        }
         case A_TIMER: {
             std::vector<menu::Voce> voci = {menu::titolo(testi::t(L"Timer", L"Timer"))};
             const int minuti[] = {1, 3, 5, 10, 15, 25, 30, 45, 60};
