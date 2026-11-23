@@ -556,20 +556,7 @@ private:
         }
     }
     void scegliColore(int id) { scegliColore(valori().dockColore, id, Z_COLORE); }
-    void scegliColore(int id) {
-        DWORD& c = valori().dockColore;
-        if (id == Z_COLORE) c = 0;
-        else if (id < Z_COLORE_MIO) c = COLORE_SCELTO | COLORI[id - Z_COLORE - 1];
-        else {   // la finestra dei colori di Windows
-            static COLORREF propri[16] = {};
-            const DWORD prima = c & 0xFFFFFF;
-            CHOOSECOLORW cc{}; cc.lStructSize = sizeof(cc); cc.hwndOwner = v.fin; cc.lpCustColors = propri;
-            cc.rgbResult = RGB((prima >> 16) & 255, (prima >> 8) & 255, prima & 255);
-            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-            if (!ChooseColorW(&cc)) return;
-            c = COLORE_SCELTO | ((DWORD)GetRValue(cc.rgbResult) << 16) | ((DWORD)GetGValue(cc.rgbResult) << 8) | GetBValue(cc.rgbResult);
-        }
-    }
+
     static D2D1_COLOR_F colore(DWORD rgb, float a = 1) { return D2D1::ColorF(((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, a); }
 
     static bool stato(const Voce& x) { return valori().*(x.campo); }
