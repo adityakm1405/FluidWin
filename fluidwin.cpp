@@ -4060,6 +4060,8 @@ static void applicaImpostazioni() {
         gDock.impostaNotchAttivo(v.notchAttivo);
         gDock.impostaOraNotch12(v.notch12Ore);
         gDock.impostaAspettoNotch(v.notchSfondo, v.notchTesto);
+        gDock.impostaEffettoNotch(v.notchMateriale);
+        gDock.impostaDimensioneNotch(v.notchDimensione);
         gDock.impostaOraNelDock(v.oraDock);
         gDock.impostaLato(v.dockLato);
     }
@@ -4082,6 +4084,11 @@ static void applicaImpostazioni() {
         gDock.impostaColore(v.dockColore);
         gDock.impostaColoreTesto(v.dockTestoColore);
         gDock.impostaLogoStart(v.dockLogoStart);
+        gDock.impostaFileIconaStart(v.dockStartIconPath);
+        gDock.impostaMargineBordo(v.dockMargine);
+        gDock.impostaCapsulaDock(v.dockCapsula);
+        gDock.impostaColoriMedia(v.colorePulsantiMedia, v.coloreVisualizzatore,
+                                 v.coloreVisualizzatoreFine, v.visualizzatoreGradiente);
     }
     // Arabo acceso o spento: i formati di testo prendono la direzione (da destra a sinistra) quando nascono, e molti
     // vivono quanto FluidWin. Riavviare e' il modo sicuro di rifarli tutti
