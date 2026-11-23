@@ -109,7 +109,10 @@ public:
     }
     void impostaEffetto(int effetto) {
         effetto = std::clamp(effetto, 1, 7);
-        if (effetto == materialeNotch) return;
+        if (effetto == materialeNotch) {
+            vetro::applicaEffetto(fin, materialeNotch);
+            return;
+        }
         materialeNotch = effetto;
         vetro::applicaEffetto(fin, materialeNotch);
         if (visibile) ridisegna();
