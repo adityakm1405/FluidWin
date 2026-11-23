@@ -899,6 +899,13 @@ public:
     void impostaCapsulaDock(bool si) {
         if (si == capsulaDock) return;
         capsulaDock = si;
+        firmaTesta = 0xFFFFFFFF;
+        dirty = true;
+    }
+    void impostaCapsulaSempreVisibile(bool si) {
+        if (si == capsulaSempreVisibile) return;
+        capsulaSempreVisibile = si;
+        firmaTesta = 0xFFFFFFFF;
         dirty = true;
     }
     void impostaColoriMedia(DWORD pulsanti, DWORD visualizzatore, DWORD visualizzatoreFine, bool gradiente) {
@@ -1185,6 +1192,7 @@ private:
     D2D1_COLOR_F coloreFondo{};
     int margineBordo = 8;          // distanza fra il dock e il bordo dello schermo, px a 100%
     bool capsulaDock = false;      // mostra i controlli media nel dock solo se l'utente lo chiede
+    bool capsulaSempreVisibile = false; // tiene la capsula nel dock anche senza musica in riproduzione
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
@@ -2407,11 +2415,13 @@ private:
     bool statoTesta(double t) {
         const musica::Brano& br = notch.musicaOra();
         if (br.c && br.suona) ultimaMusica = t;
-        const bool fisso = notch.fisso();
-        const bool capsulaAbilitata = capsulaDock && notch.attivo() && !fisso;
+        // La capsula e' un'alternativa al notch: non deve dipendere dal fatto che il notch
+        // sia attivo o sempre visibile.
+        const bool capsulaAbilitata = capsulaDock;
         // in pausa resta 8 s (e finche' ci sono sopra il mouse o un tasto premuto): pausa e ripresa non fanno ballare il dock
         const bool sullaMusica = mouseDentro && testaMusica && dentro(rettMus, mouseX, mouseY);
-        testaMusica = capsulaAbilitata && br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
+        const bool musicaRecente = br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
+        testaMusica = capsulaAbilitata && (capsulaSempreVisibile || musicaRecente);
         testaTimer = capsulaAbilitata && comodita::timerAttivo();
         const bool sv = capsulaAbilitata && comodita::sveglio(), si = capsulaAbilitata && comodita::silenzio();
         if (sv && !testaSveglio) tSveglio = t;      // (comparsa: rimbalzo e onda)
@@ -2488,7 +2498,8 @@ private:
         // anche col dock giu' (nessun disegno): gli 8 s della pausa contano da quando ha smesso davvero (R20261120-141156-S2)
         if (br.c && br.suona) ultimaMusica = adesso();
         const UINT f = (notch.fisso() ? 1u : 0u) | (br.c ? 2u : 0u) | (br.suona ? 4u : 0u) | (comodita::timerAttivo() ? 8u : 0u) |
-                       (comodita::sveglio() ? 16u : 0u) | (comodita::silenzio() ? 32u : 0u) | (br.versione << 6);
+                       (comodita::sveglio() ? 16u : 0u) | (comodita::silenzio() ? 32u : 0u) |
+                       (capsulaDock ? 64u : 0u) | (capsulaSempreVisibile ? 128u : 0u) | (br.versione << 8);
         const bool scaduta = testaMusica && !br.suona && adesso() - ultimaMusica >= 8;
         if (f == firmaTesta && !scaduta) return false;
         firmaTesta = f;
@@ -2620,7 +2631,7 @@ private:
             const D2D1_RECT_F rc = {x, cy - q / 2, x + q, cy + q / 2};
             dritto((rc.left + rc.right) / 2, cy);   // (copertina dritta)
             ID2D1BitmapBrush* bb = nullptr;
-            if (bTesta && SUCCEEDED(dc->CreateBitmapBrush(bTesta, &bb)) && bb) {
+            if (notch.musicaOra().c && bTesta && SUCCEEDED(dc->CreateBitmapBrush(bTesta, &bb)) && bb) {
                 const D2D1_SIZE_F bs = bTesta->GetSize();
                 bb->SetTransform(D2D1::Matrix3x2F::Scale(q / bs.width, q / bs.height) * D2D1::Matrix3x2F::Translation(rc.left, rc.top));
                 bb->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
