@@ -46,6 +46,8 @@ struct Valori {
     int dockIcone = 42;           // lato delle icone del dock a riposo, px a 100% (ICONE_MIN..ICONE_MAX); l'altezza segue
     int dockDistanza = 6;         // distanza fra le icone del dock, px a 100% (DISTANZA_MIN..DISTANZA_MAX)
     int dockMargine = 8;          // distanza fra dock e bordo dello schermo, px
+    int dockIngrandimentoHover = 100; // intensita' della lente (0 = spento)
+    int dockSeparatoreAltezza = 70, dockSeparatoreOpacita = 22, dockSeparatoreSpessore = 1;
     bool dockCapsula = false;     // capsula media nel dock, alternativa al notch
     bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
@@ -156,6 +158,10 @@ inline void carica() {
     v.dockIcone = std::clamp((int)leggiDword(L"DockIcone", 42), ICONE_MIN, ICONE_MAX);
     v.dockDistanza = std::clamp((int)leggiDword(L"DockDistanza", 6), DISTANZA_MIN, DISTANZA_MAX);
     v.dockMargine = std::clamp((int)leggiDword(L"DockMargine", 8), MARGINE_MIN, MARGINE_MAX);
+    v.dockIngrandimentoHover = std::clamp((int)leggiDword(L"DockIngrandimentoHover", 100), 0, 150);
+    v.dockSeparatoreAltezza = std::clamp((int)leggiDword(L"DockSeparatoreAltezza", 70), 20, 100);
+    v.dockSeparatoreOpacita = std::clamp((int)leggiDword(L"DockSeparatoreOpacita", 22), 0, 100);
+    v.dockSeparatoreSpessore = std::clamp((int)leggiDword(L"DockSeparatoreSpessore", 1), 1, 4);
     v.dockCapsula = leggiDword(L"DockCapsula", 0) != 0;
     v.dockCapsulaSempre = leggiDword(L"DockCapsulaSempre", 0) != 0;
     // La capsula del dock sostituisce il notch: le due modalita' non devono partire insieme.
@@ -201,7 +207,12 @@ inline void salva() {
     scriviDword(L"DockIcone", (DWORD)v.dockIcone); scriviDword(L"DockColore", v.dockColore);
     scriviDword(L"DockTestoColore", v.dockTestoColore); scriviDword(L"DockMateriale", (DWORD)v.dockMateriale);
     scriviDword(L"DockLogoStart", (DWORD)v.dockLogoStart); scriviDword(L"DockDistanza", (DWORD)v.dockDistanza);
-    scriviDword(L"DockMargine", (DWORD)v.dockMargine); scriviDword(L"DockCapsula", v.dockCapsula);
+    scriviDword(L"DockMargine", (DWORD)v.dockMargine);
+    scriviDword(L"DockIngrandimentoHover", (DWORD)v.dockIngrandimentoHover);
+    scriviDword(L"DockSeparatoreAltezza", (DWORD)v.dockSeparatoreAltezza);
+    scriviDword(L"DockSeparatoreOpacita", (DWORD)v.dockSeparatoreOpacita);
+    scriviDword(L"DockSeparatoreSpessore", (DWORD)v.dockSeparatoreSpessore);
+    scriviDword(L"DockCapsula", v.dockCapsula);
     scriviDword(L"DockCapsulaSempre", v.dockCapsulaSempre);
     scriviDword(L"ColorePulsantiMedia", v.colorePulsantiMedia); scriviDword(L"ColoreVisualizzatore", v.coloreVisualizzatore);
     scriviDword(L"ColoreVisualizzatoreFine", v.coloreVisualizzatoreFine); scriviDword(L"VisualizzatoreGradiente", v.visualizzatoreGradiente);
@@ -477,7 +488,7 @@ public:
 
 private:
     static constexpr float LARGO = 780, ALTO = 500, BARRA = 240;
-    enum { S_GENERALE, S_DOCK, S_ANIMAZIONI, S_NOTCH, S_TASTIERA, S_CURSORE, SEZIONI };
+    enum { S_GENERALE, S_DOCK, S_DOCK_ASPETTO, S_ANIMAZIONI, S_NOTCH, S_TASTIERA, S_CURSORE, SEZIONI };
     // nome e spiegazione in italiano e in inglese, sezione
     struct Voce { const wchar_t *nome, *name, *spiega, *explain; bool Valori::*campo; int sezione; };
     const std::vector<Voce> voci = {
@@ -491,11 +502,11 @@ private:
         {L"Anteprime delle finestre", L"Window previews",
          L"Mouse fermo su un'icona: le sue finestre dal vivo", L"Hover an icon: its windows, live", &Valori::dockAnteprime, S_DOCK},
         {L"Capsula multimediale nel dock", L"Media capsule in dock",
-         L"Spegne il notch e sposta i controlli multimediali nel dock", L"Turns off the notch and moves media controls to the dock", &Valori::dockCapsula, S_DOCK},
+         L"Spegne il notch e sposta i controlli multimediali nel dock", L"Turns off the notch and moves media controls to the dock", &Valori::dockCapsula, S_NOTCH},
         {L"Sempre visibile", L"Always visible",
-         L"La capsula resta visibile solo quando non ci sono sessioni multimediali", L"Keep the capsule visible even when no media session exists", &Valori::dockCapsulaSempre, S_DOCK},
+         L"La capsula resta visibile solo quando non ci sono sessioni multimediali", L"Keep the capsule visible even when no media session exists", &Valori::dockCapsulaSempre, S_NOTCH},
         {L"Visualizzatore a gradiente", L"Gradient visualizer",
-         L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_DOCK},
+         L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_NOTCH},
         {L"Finestre di gelatina", L"Jelly windows",
          L"Le finestre si deformano mentre le trascini", L"Windows wobble while you drag them", &Valori::gelatina, S_ANIMAZIONI},
         {L"Avvia con Windows", L"Start with Windows",
@@ -521,7 +532,7 @@ private:
         {L"Visualizzatore reattivo", L"Reactive visualizer",
          L"Le barre seguono il livello reale dell'audio in uscita", L"Bars respond to the live Windows audio output level", &Valori::visualizzatoreReattivo, S_NOTCH},
         {L"Ora e data nel dock", L"Time and date in the dock",
-         L"In fondo al dock, dopo il centro di controllo", L"At the end of the dock, after the control center", &Valori::oraDock, S_NOTCH},
+         L"In fondo al dock, dopo il centro di controllo", L"At the end of the dock, after the control center", &Valori::oraDock, S_DOCK},
         {L"Notifiche di FluidWin", L"FluidWin notifications",
          L"Escono dal notch, con il numero sulle icone del dock", L"They come out of the notch, with badges on the dock", &Valori::banner, S_NOTCH},
         {L"Volume nel notch", L"Volume in the notch",
@@ -567,6 +578,14 @@ private:
          L" px", &Valori::dockDistanza, DISTANZA_MIN, DISTANZA_MAX, DISTANZA_PASSO, S_DOCK},
         {L"Margine dal bordo", L"Edge margin", L"Distanza fra dock e bordo dello schermo", L"Space between dock and screen edge",
          L" px", &Valori::dockMargine, MARGINE_MIN, MARGINE_MAX, MARGINE_PASSO, S_DOCK},
+        {L"Ingrandimento al passaggio", L"Hover magnification", L"0% disattiva la lente; 100% e' il valore standard", L"0% disables zoom; 100% is the standard amount",
+         L" %", &Valori::dockIngrandimentoHover, 0, 150, 5, S_DOCK},
+        {L"Altezza separatori", L"Separator height", L"Altezza delle linee fra i gruppi di icone", L"Height of the lines between icon groups",
+         L" %", &Valori::dockSeparatoreAltezza, 20, 100, 5, S_DOCK_ASPETTO},
+        {L"Visibilita' separatori", L"Separator visibility", L"Opacita' delle linee fra i gruppi di icone", L"Opacity of the lines between icon groups",
+         L" %", &Valori::dockSeparatoreOpacita, 0, 100, 5, S_DOCK_ASPETTO},
+        {L"Spessore separatori", L"Separator thickness", L"Spessore delle linee in pixel", L"Line thickness in pixels",
+         L" px", &Valori::dockSeparatoreSpessore, 1, 4, 1, S_DOCK_ASPETTO},
         {L"Dimensione notch", L"Notch size", L"Scala indipendente dalla dimensione delle icone", L"Scale independent from dock icon size",
          L" %", &Valori::notchDimensione, NOTCH_SCALA_MIN, NOTCH_SCALA_MAX, NOTCH_SCALA_PASSO, S_NOTCH},
         {L"Intensità visualizzatore", L"Visualizer strength", L"Regola l'ampiezza delle barre", L"Adjust the visualizer bar height",
