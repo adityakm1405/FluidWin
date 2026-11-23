@@ -4080,6 +4080,8 @@ static void applicaImpostazioni() {
         gDock.impostaAltriSchermi(v.dockSchermi);
         gDock.impostaAnteprime(v.dockAnteprime);
         gDock.impostaLatoIcone(v.dockIcone);
+        gDock.impostaIngrandimentoHover(v.dockIngrandimentoHover);
+        gDock.impostaSeparatoriDock(v.dockSeparatoreAltezza, v.dockSeparatoreOpacita, v.dockSeparatoreSpessore);
         gDock.impostaDistanzaIcone(v.dockDistanza);
         gDock.impostaColore(v.dockColore);
         gDock.impostaColoreTesto(v.dockTestoColore);
