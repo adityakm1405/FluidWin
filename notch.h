@@ -99,7 +99,7 @@ public:
     void impostaAspetto(DWORD sfondo, DWORD testo) {
         if (sfondo == impostazioneSfondo && testo == impostazioneTesto) return;
         impostazioneSfondo = sfondo; impostazioneTesto = testo;
-        auto decodifica = [](DWORD x, D2D1_COLOR_F base) {
+        auto decodifica = [](DWORD x, D2D1_COLOR_F base) -> D2D1_COLOR_F {
             if (!(x & 0x01000000)) return base;
             return D2D1::ColorF(((x >> 16) & 255) / 255.0f, ((x >> 8) & 255) / 255.0f, (x & 255) / 255.0f, 1.0f);
         };
