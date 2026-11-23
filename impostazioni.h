@@ -915,7 +915,9 @@ private:
             W = fw; H = fh;
         }
         const float d = v.dpi, B = BARRA * d;
-        const D2D1_COLOR_F ink = v.inchiostro(), tenue = v.inchiostro(0.6f);
+        const DWORD coloreTesto = valori().dockTestoColore;
+        const D2D1_COLOR_F ink = (coloreTesto & COLORE_SCELTO) ? colore(coloreTesto) : v.inchiostro();
+        const D2D1_COLOR_F tenue = {ink.r, ink.g, ink.b, ink.a * 0.6f};
         const D2D1_COLOR_F blu = v.scuro ? D2D1::ColorF(0.40f, 0.68f, 1.0f, 1) : D2D1::ColorF(0.0f, 0.42f, 0.95f, 1);
         zone.clear();
         if (anim.size() != voci.size()) { anim.clear(); for (const auto& x : voci) anim.push_back(stato(x) ? 1 : 0); }
@@ -1271,7 +1273,7 @@ private:
             palette(testi::t(L"Colore del vetro", L"Glass color"),
                     testi::t(L"Dock e centro di controllo", L"Dock and Control Center"), valori().dockColore, Z_COLORE);
             palette(testi::t(L"Colore del testo", L"Text color"),
-                    testi::t(L"Dock e centro di controllo", L"Dock and Control Center text"), valori().dockTestoColore, Z_TESTO_DOCK);
+                    testi::t(L"Tutti i testi di FluidWin", L"All FluidWin text"), valori().dockTestoColore, Z_TESTO_DOCK);
             const wchar_t* materiali[] = {L"Acrylic", L"Mica", L"Mica Alt", L"None"};
             const int materialeScelto = valori().dockMateriale == 3 ? 0 : valori().dockMateriale == 2 ? 1 : valori().dockMateriale == 4 ? 2 : 3;
             selettore(testi::t(L"Materiale", L"Backdrop material"),
