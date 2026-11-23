@@ -411,7 +411,7 @@ public:
         // schermo all'altro subito, senza ricreare niente. Prima si faceva con la scala del suo schermo e ogni
         // passaggio a uno con un'altra scala riavviava FluidWin (2 s senza dock, con la barra di Windows che ricompariva)
         dpi = ::vetro::dpiMonitor(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY));
-        S = latoIcone * dpi; M = S * INGRANDITE;   // icone a riposo e ingrandite (impostazione: impostaLatoIcone)
+        S = latoIcone * dpi; M = S * fattoreIngrandimentoHover();   // ingrandimento regolabile nelle Impostazioni
         PAD = 8 * dpi; GAP = distanzaIcone * dpi; MARGINE = margineBordo * dpi;   // (GAP/MARGINE: impostazioni)
         RAGGIO = raggio::vetro() * dpi;   // come gli angoli DWM del vetro: fondo e vetro devono coincidere
         altezzaDock = S + 2 * PAD;
@@ -861,7 +861,7 @@ public:
         if (px == latoIcone) return;
         latoIcone = px;
         if (!attivo) return;   // (all'avvio le misure le prende inizializza)
-        S = latoIcone * dpi; M = S * INGRANDITE;
+        S = latoIcone * dpi; M = S * fattoreIngrandimentoHover();
         altezzaDock = S + 2 * PAD;
         const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
         if (h != H) ridimensiona(W, h);
@@ -870,6 +870,30 @@ public:
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (appbarOk) aggiornaAppbar();
         controllaFinestre(true);
+        dirty = true;
+    }
+    // Impostazione: ingrandimento al passaggio del mouse. 0% disattiva la lente senza alterare le altre animazioni.
+    void impostaIngrandimentoHover(int percento) {
+        percento = std::clamp(percento, 0, 150);
+        if (percento == ingrandimentoHover) return;
+        ingrandimentoHover = percento;
+        M = S * fattoreIngrandimentoHover();
+        const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
+        if (attivo && h != H) ridimensiona(W, h);
+        if (attivo) {
+            posizionaFinestra();
+            if (appbarOk) aggiornaAppbar();
+            controllaFinestre(true);
+        }
+        dirty = true;
+    }
+    // Impostazione: altezza, opacita' e spessore dei separatori fra i gruppi di icone.
+    void impostaSeparatoriDock(int altezza, int opacita_, int spessore) {
+        altezza = std::clamp(altezza, 20, 100);
+        opacita_ = std::clamp(opacita_, 0, 100);
+        spessore = std::clamp(spessore, 1, 4);
+        if (altezza == separatoreAltezza && opacita_ == separatoreOpacita && spessore == separatoreSpessore) return;
+        separatoreAltezza = altezza; separatoreOpacita = opacita_; separatoreSpessore = spessore;
         dirty = true;
     }
     // impostazione: distanza fra le icone (px a 100%). Anche i separatori si allargano con lei; la finestra delle
@@ -899,6 +923,7 @@ public:
     void impostaCapsulaDock(bool si) {
         if (si == capsulaDock) return;
         capsulaDock = si;
+        notch.impostaVisualizzatore(stileVisualizzatore, visualizzatoreReattivo, forzaVisualizzatore, capsulaDock);
         firmaTesta = 0xFFFFFFFF;
         dirty = true;
     }
@@ -1022,7 +1047,14 @@ public:
         notch12Ore = si; aggiornaStato(true);
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
-    void impostaVisualizzatore(int stile, bool reattivo, int forza) { notch.impostaVisualizzatore(stile, reattivo, forza); }
+    void impostaVisualizzatore(int stile, bool reattivo, int forza) {
+        stile = std::clamp(stile, 0, 4);
+        forza = std::clamp(forza, 50, 200);
+        stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
+        notch.impostaVisualizzatore(stile, reattivo, forza, capsulaDock);
+        firmaTesta = 0xFFFFFFFF;
+        dirty = true;
+    }
     D2D1_COLOR_F inchiostroUI(bool temaScuro, float a = 0.9f) const {
         if (coloreTestoUI & 0x01000000)
             return D2D1::ColorF(((coloreTestoUI >> 16) & 255) / 255.0f,
@@ -1187,7 +1219,12 @@ private:
     float opacita = 1;                // impostazione: opacita' del fondo del dock (vetro e velo), 0.2..1
     int latoIcone = 42;               // impostazione: lato delle icone a riposo, px a 100%
     int distanzaIcone = 6;            // impostazione: distanza fra le icone, px a 100% (GAP)
-    static constexpr float INGRANDITE = 66.0f / 42.0f;   // icone ingrandite dalla lente: proporzione fissa con quelle a riposo
+    static constexpr float INGRANDITE = 66.0f / 42.0f;   // ingrandimento standard al 100%
+    int ingrandimentoHover = 100;       // percento della lente: 0 = nessun ingrandimento
+    int separatoreAltezza = 70, separatoreOpacita = 22, separatoreSpessore = 1;
+    float fattoreIngrandimentoHover() const {
+        return 1.0f + (INGRANDITE - 1.0f) * (std::clamp(ingrandimentoHover, 0, 150) / 100.0f);
+    }
     bool coloreAuto = true, fondoScuro = false;           // impostazione: colore del fondo (vedi impostaColore)
     D2D1_COLOR_F coloreFondo{};
     int margineBordo = 8;          // distanza fra il dock e il bordo dello schermo, px a 100%
@@ -1195,6 +1232,8 @@ private:
     bool capsulaSempreVisibile = false; // tiene la capsula nel dock anche senza musica in riproduzione
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
+    int stileVisualizzatore = 0, forzaVisualizzatore = 100;
+    bool visualizzatoreReattivo = true;
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
@@ -2065,6 +2104,17 @@ private:
         return 0;
     }
 
+    void disegnaLineaSeparatore(float x, float yBase, float scala, float dissolvenza, bool scuro) {
+        const float h = S * scala * (separatoreAltezza / 100.0f);
+        const float cy = yBase - S * scala * 0.5f;
+        const float alfa = (separatoreOpacita / 100.0f) * std::clamp(dissolvenza, 0.0f, 1.0f);
+        if (alfa <= 0.001f || h <= 0.1f) return;
+        const float tr = separatoreSpessore * dpi * scala;
+        pennello->SetColor(D2D1::ColorF(scuro ? 1.0f : 0.0f, scuro ? 1.0f : 0.0f,
+                                        scuro ? 1.0f : 0.0f, alfa));
+        dc->DrawLine({x, cy - h / 2}, {x, cy + h / 2}, pennello, tr);
+    }
+
     // ora e data in fondo al dock: separatore e testo (larghezzaOra la misura render quando il testo cambia)
     // (ai lati l'ora e la data stanno una sopra l'altra nello spessore del dock: lungo il dock conta l'altezza delle due righe)
     float larghezzaCoda() const {
@@ -2230,8 +2280,7 @@ private:
             const float x = presa_ ? std::clamp(mouseX - presa * d, sinistra - d / 2, sinistra + tot - d / 2) : xs[i] + (float)v.dx;
             if (sepPrima(i) > 0) {
                 const float sep = sepPrima(i), sx = xs[i] - (sep + GAP * sc) / 2;
-                pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f * sep / (GAP * 2 + 1)));
-                dc->DrawLine({sx, yb - S * 0.85f}, {sx, yb - S * 0.15f}, pennello, 1.0f);
+                disegnaLineaSeparatore(sx, yb, 1.0f, sep / (GAP * 2 + 1), scuro);
             }
             float salto = 0;
             if (v.rimbalzoT0 >= 0) {
@@ -2571,9 +2620,8 @@ private:
         const D2D1_RECT_F r = {x0, yb - Ss, x0 + cw, yb};
         rettTesta = r;
         // separatore fra la testa e la prima icona
-        pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f * k));
         const float sx = x0 + cw + (GAP + 0.5f) * k;
-        dc->DrawLine({sx, yb - S * 0.85f}, {sx, yb - S * 0.15f}, pennello, 1.0f);
+        disegnaLineaSeparatore(sx, yb, sc, k, scuro);
         // capsula: fondo come ora e data in coda (solo col vetro trasparente), evidenza col mouse sopra
         const float cy = (r.top + r.bottom) / 2, ph = Ss * 0.42f;
         const D2D1_ROUNDED_RECT capsula = {{r.left, cy - ph, r.right, cy + ph}, std::min(10 * d, ph) * raggio::fattore(), std::min(10 * d, ph) * raggio::fattore()};
