@@ -419,7 +419,7 @@ private:
         const sensori::Sensori& se = sensori::Sensori::io();
         const float d = dpi, Rv = (W2 + (float)mw.x) / 2;   // (il bordo vero, che con la molla si muove)
         float x0 = Rv - puntiW();                            // inizio dello spazio libero a destra
-        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + larghezzaBloccoOra() / 2;   // (fine della data, vedi ora)
+        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + larghezzaSeparatoreOra() / 2 + spazioOra() + lg;   // dopo la data, che parte dal centro del notch
         float cx = (x0 + Rv) / 2 - (n - 1) * 4 * d;
         if (!se.micApp.empty()) { colore(1.0f, 0.62f, 0.04f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); cx += 8 * d; }
         if (!se.camApp.empty()) { colore(0.2f, 0.84f, 0.29f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); }
@@ -939,11 +939,10 @@ private:
         const float margine = puntiW() + segniW();
         const float L = sinistra(scena) + margine, d = dpi;
         w -= 2 * margine;
-        const float blocco = larghezzaBloccoOra();
-        const float xt = std::round(L + (w - blocco) / 2);
-        o = {xt + lo + spazioOra(), h / 2};
-        o.y += scesa(scena);   // (notch in basso: contro il bordo in basso)
         const float sep = larghezzaSeparatoreOra();
+        const float centro = std::round(L + w / 2);
+        o = {std::round(centro - sep / 2), h / 2};   // il visualizzatore e' ancorato al centro esatto del notch
+        o.y += scesa(scena);   // (notch in basso: contro il bordo in basso)
         r = {std::floor(o.x - 2 * d), std::floor(o.y - 8 * d),
              std::ceil(o.x + sep + 2 * d), std::ceil(o.y + 8 * d)};
         return true;
@@ -1142,14 +1141,13 @@ private:
             return base;
         };
         const float spazio = spazioOra(), sep = larghezzaSeparatoreOra();
-        const float blocco = larghezzaBloccoOra();
-        const float xt = std::round(L + (w - blocco) / 2);
+        const float xs = std::round(L + w / 2 - sep / 2);  // il separatore resta sempre al centro del notch
+        const float xt = std::round(xs - spazio - lo);
         float altoOra = 0, altoGiorno = 0;
         const float bOra = lineaBase(fOra, testoOra, altoOra), bGiorno = lineaBase(fGiorno, testoGiorno, altoGiorno);
         const float yOra = std::round((h - altoOra) / 2), baseOra = yOra + bOra;
         const float yGiorno = std::round(baseOra - bGiorno + 1.0f * dpi);   // piccolo compenso ottico: la data non sembra piu' sollevata
-        const float xs = xt + lo + spazio;
-        const float xg = xs + sep + spazio;
+        const float xg = std::round(xs + sep + spazio);
         scrivi(testoOra, fOra, {xt, yOra, xt + lo + 3 * dpi, yOra + altoOra}, a);
         scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.98f * a);
         if (visualizzatore && brano.suona) {
