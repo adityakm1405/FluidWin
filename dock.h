@@ -2999,7 +2999,7 @@ private:
             // con un calendario non gregoriano scelto in Windows la data del pannello (sopra il calendario) e' nel suo
             // (issue #24); ora, data breve del dock e notch restano quelle di sempre
             if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty()) testoDataLunga = cm.dataLunga;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM", L"dddd, MMMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
+            if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
         }
         if (notch12Ore) {
             if (!GetTimeFormatEx(loc, 0, &st, L"h:mm tt", oraNotch, 96))
