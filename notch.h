@@ -1007,7 +1007,7 @@ private:
             rt->DrawGeometry(g, pen, 0.8f * dpi);
         }
         rt->SetTransform(D2D1::Matrix3x2F::Identity());
-        barrette(o.x, o.y, 13 * dpi, 1);
+        barrette(o.x, o.y, larghezzaSeparatoreOra(), 1);
         rt->PopAxisAlignedClip();
         g->Release();
         if (rt->EndDraw() == (HRESULT)D2DERR_RECREATE_TARGET) { libera(); return; }
