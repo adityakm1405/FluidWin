@@ -2885,18 +2885,26 @@ private:
     void aggiornaStato(bool tutto) {
         bool cambiato = false;
         SYSTEMTIME st; GetLocalTime(&st);
-        wchar_t b[96];
-        swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
+        wchar_t b[96], oraNotch[96] = L"";
+        swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);  // il dock conserva il formato 24 ore
+        const wchar_t* loc = testi::locale();
+        const std::wstring giornoPrima = testoNotch;
         if (testoOra != b) {
             testoOra = b; cambiato = true;
-            const wchar_t* loc = testi::locale();
             if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), b, 96, nullptr)) testoData = b;
             if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM yyyy", L"dddd, MMMM d, yyyy"), b, 96, nullptr)) { testoDataLunga = b; if (!testoDataLunga.empty()) testoDataLunga[0] = (wchar_t)towupper(testoDataLunga[0]); }
             // con un calendario non gregoriano scelto in Windows la data del pannello (sopra il calendario) e' nel suo
             // (issue #24); ora, data breve del dock e notch restano quelle di sempre
             if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty()) testoDataLunga = cm.dataLunga;
             if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM", L"dddd, MMMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
-            notch.testi(testoOra, testoNotch);   // il notch mostra ora e data
+        }
+        if (notch12Ore) {
+            if (!GetTimeFormatEx(loc, TIME_FORCEHOUR12, &st, L"h:mm tt", oraNotch, 96))
+                swprintf(oraNotch, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12, st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
+        } else swprintf(oraNotch, 96, L"%02d:%02d", st.wHour, st.wMinute);
+        if (testoOraNotch != oraNotch || testoNotch != giornoPrima) {
+            testoOraNotch = oraNotch;
+            notch.testi(testoOraNotch, testoNotch);
         }
         const float v0 = volume; const bool m0 = muto, ok0 = audioOk;
         leggiVolume();
