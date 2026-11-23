@@ -1022,6 +1022,7 @@ public:
         notch12Ore = si; aggiornaStato(true);
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
+    void impostaVisualizzatore(int stile, bool reattivo, int forza) { notch.impostaVisualizzatore(stile, reattivo, forza); }
     D2D1_COLOR_F inchiostroUI(bool temaScuro, float a = 0.9f) const {
         if (coloreTestoUI & 0x01000000)
             return D2D1::ColorF(((coloreTestoUI >> 16) & 255) / 255.0f,
