@@ -32,14 +32,21 @@ struct Valori {
     bool winS = true;             // Win+Tab apre la ricerca di FluidWin (il nome nel registro e' rimasto WinS)
     bool banner = false;          // banner delle notifiche di FluidWin (spegne quelli di Windows, app per app)
     bool menuDestro = true;       // menu del tasto destro di FluidWin su desktop ed Esplora file (destro.h)
-    bool notch = true;            // il notch in alto al centro sempre visibile (spento: a scomparsa, scende solo per volume, notifiche e avvisi; musica e timer nel dock)
+    bool notch = true;            // sempre visibile; spento = compare solo quando serve
+    bool notchAttivo = true;      // consente di disabilitare completamente il notch
+    bool notch12Ore = false;      // formato 12 ore solo per l'orologio del notch
+    DWORD notchSfondo = 0;        // 0 automatico (nero), altrimenti 0x01RRGGBB
+    DWORD notchTesto = 0;         // 0 automatico (bianco), altrimenti 0x01RRGGBB
     bool oraDock = false;         // ora e data in fondo al dock, dopo il centro di controllo
     int dockLato = 0;             // bordo del dock: 0 in basso, 1 in alto, 2 a sinistra, 3 a destra (1.3.0, Fase 3; il notch va in basso col dock in alto)
     bool dockAuto = true;         // dock a scomparsa sotto le finestre ingrandite o che lo coprono
     int dockOpacita = 100;        // opacita' del fondo del dock, in percento (OPACITA_MIN..100)
     int dockIcone = 42;           // lato delle icone del dock a riposo, px a 100% (ICONE_MIN..ICONE_MAX); l'altezza segue
     int dockDistanza = 6;         // distanza fra le icone del dock, px a 100% (DISTANZA_MIN..DISTANZA_MAX)
-    DWORD dockColore = 0;         // colore del fondo del dock: 0 automatico (tema), altrimenti 0x01RRGGBB
+    DWORD dockColore = 0;         // colore condiviso dal vetro dock e centro di controllo
+    DWORD dockTestoColore = 0;    // colore condiviso del testo; 0 segue il tema
+    int dockMateriale = 3;        // DWM: 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
+    int dockLogoStart = 0;        // 0 Windows, 1 Apple
     bool dockSpazio = false;      // le finestre ingrandite si fermano sopra il dock (spazio riservato, come la barra di Windows)
     bool dockSchermi = true;      // il dock segue il mouse sul bordo in basso degli altri schermi (spento: resta sul principale)
     bool dockAnteprime = true;    // anteprime delle finestre col mouse fermo su un'icona del dock (issue #24)
@@ -123,13 +130,20 @@ inline void carica() {
     { const DWORD a = leggiDword(L"Angoli", 0); v.angoli = a <= 2 ? (int)a : 0; }
     v.volume = leggiDword(L"Volume", 1); v.angolo = leggiDword(L"AngoloPanoramica", 1); v.winTab = leggiDword(L"WinTab", 1);
     v.winS = leggiDword(L"WinS", 1); v.tastoWin = leggiDword(L"TastoWin", 1); v.banner = leggiDword(L"Banner", 0); v.menuDestro = leggiDword(L"MenuDestro", 1);
-    v.notch = leggiDword(L"Notch", 1); v.oraDock = leggiDword(L"OraDock", 0);
+    v.notch = leggiDword(L"Notch", 1); v.notchAttivo = leggiDword(L"NotchAttivo", 1);
+    v.notch12Ore = leggiDword(L"Notch12Ore", 0);
+    v.notchSfondo = leggiDword(L"NotchSfondo", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.notchTesto = leggiDword(L"NotchTesto", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.oraDock = leggiDword(L"OraDock", 0);
     v.dockAuto = leggiDword(L"DockAutoNascosto", 1);
     { const DWORD l = leggiDword(L"DockLato", 0); v.dockLato = l <= 3 ? (int)l : 0; }
     v.dockOpacita = std::clamp((int)leggiDword(L"DockOpacita", 100), OPACITA_MIN, 100);
     v.dockIcone = std::clamp((int)leggiDword(L"DockIcone", 42), ICONE_MIN, ICONE_MAX);
     v.dockDistanza = std::clamp((int)leggiDword(L"DockDistanza", 6), DISTANZA_MIN, DISTANZA_MAX);
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    { const DWORD m = leggiDword(L"DockMateriale", 3); v.dockMateriale = (m >= 1 && m <= 4) ? (int)m : 3; }
+    { const DWORD l = leggiDword(L"DockLogoStart", 0); v.dockLogoStart = l <= 1 ? (int)l : 0; }
     v.dockSpazio = leggiDword(L"DockSpazio", 0);
     v.dockSchermi = leggiDword(L"DockAltriSchermi", 1);
     v.dockAnteprime = leggiDword(L"DockAnteprime", 1);
@@ -150,10 +164,12 @@ inline void salva() {
     scriviDword(L"Apertura", v.apertura); scriviDword(L"OndaRicerca", v.onda); scriviDword(L"Riduzione", (DWORD)v.riduzione); scriviDword(L"Angoli", (DWORD)v.angoli);
     scriviDword(L"Volume", v.volume); scriviDword(L"AngoloPanoramica", v.angolo); scriviDword(L"WinTab", v.winTab);
     scriviDword(L"WinS", v.winS); scriviDword(L"TastoWin", v.tastoWin); scriviDword(L"Banner", v.banner); scriviDword(L"MenuDestro", v.menuDestro); scriviDword(L"Lingua", (DWORD)v.lingua);
-    scriviDword(L"Notch", v.notch); scriviDword(L"OraDock", v.oraDock);
+    scriviDword(L"Notch", v.notch); scriviDword(L"NotchAttivo", v.notchAttivo); scriviDword(L"Notch12Ore", v.notch12Ore);
+    scriviDword(L"NotchSfondo", v.notchSfondo); scriviDword(L"NotchTesto", v.notchTesto); scriviDword(L"OraDock", v.oraDock);
     scriviDword(L"DockAutoNascosto", v.dockAuto); scriviDword(L"DockLato", (DWORD)v.dockLato); scriviDword(L"DockOpacita", (DWORD)v.dockOpacita);
     scriviDword(L"DockIcone", (DWORD)v.dockIcone); scriviDword(L"DockColore", v.dockColore);
-    scriviDword(L"DockDistanza", (DWORD)v.dockDistanza);
+    scriviDword(L"DockTestoColore", v.dockTestoColore); scriviDword(L"DockMateriale", (DWORD)v.dockMateriale);
+    scriviDword(L"DockLogoStart", (DWORD)v.dockLogoStart); scriviDword(L"DockDistanza", (DWORD)v.dockDistanza);
     scriviDword(L"DockSpazio", v.dockSpazio); scriviDword(L"DockAltriSchermi", v.dockSchermi); scriviDword(L"DockAnteprime", v.dockAnteprime); scriviDword(L"Aggiornamenti", v.aggiornamenti); scriviDword(L"Affiancamento", v.affianca);
     scriviTesto(L"Cursore", v.cursore);
 }
@@ -452,7 +468,11 @@ private:
         {L"Onda di luce della ricerca", L"Search light wave",
          L"I bordi dello schermo si accendono di colori", L"The edges of the screen light up with color", &Valori::onda, S_ANIMAZIONI},
         {L"Notch", L"Notch",
-         L"Sempre visibile. Spento: compare solo quando serve", L"Always visible. Off: it appears only when needed", &Valori::notch, S_NOTCH},
+         L"Abilita o disabilita completamente il notch", L"Enable or completely disable the notch", &Valori::notchAttivo, S_NOTCH},
+        {L"Sempre visibile", L"Always visible",
+         L"Spento: il notch compare solo quando serve", L"Off: the notch appears only when needed", &Valori::notch, S_NOTCH},
+        {L"Orologio a 12 ore", L"12-hour clock",
+         L"Mostra AM/PM nel notch; il dock resta a 24 ore", L"Show AM/PM in the notch; the dock stays 24-hour", &Valori::notch12Ore, S_NOTCH},
         {L"Ora e data nel dock", L"Time and date in the dock",
          L"In fondo al dock, dopo il centro di controllo", L"At the end of the dock, after the control center", &Valori::oraDock, S_NOTCH},
         {L"Notifiche di FluidWin", L"FluidWin notifications",
