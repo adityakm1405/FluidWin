@@ -50,6 +50,9 @@ struct Valori {
     bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
+    int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Dots, 3 Mirror
+    bool visualizzatoreReattivo = true; // reagisce al livello reale dell'uscita audio di Windows
+    int visualizzatoreForza = 100;      // ampiezza delle barre, percento
     std::wstring dockStartIconPath;
     DWORD dockColore = 0;         // colore condiviso dal vetro dock e centro di controllo
     DWORD dockTestoColore = 0;    // colore condiviso del testo; 0 segue il tema
@@ -162,6 +165,9 @@ inline void carica() {
     v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatoreFine = leggiDword(L"ColoreVisualizzatoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.visualizzatoreGradiente = leggiDword(L"VisualizzatoreGradiente", 0) != 0;
+    { const DWORD s = leggiDword(L"VisualizzatoreStile", 0); v.visualizzatoreStile = s <= 3 ? (int)s : 0; }
+    v.visualizzatoreReattivo = leggiDword(L"VisualizzatoreReattivo", 1) != 0;
+    v.visualizzatoreForza = std::clamp((int)leggiDword(L"VisualizzatoreForza", 100), 50, 200);
     v.dockStartIconPath = leggiTesto(L"DockStartIconPath");
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
@@ -199,6 +205,9 @@ inline void salva() {
     scriviDword(L"DockCapsulaSempre", v.dockCapsulaSempre);
     scriviDword(L"ColorePulsantiMedia", v.colorePulsantiMedia); scriviDword(L"ColoreVisualizzatore", v.coloreVisualizzatore);
     scriviDword(L"ColoreVisualizzatoreFine", v.coloreVisualizzatoreFine); scriviDword(L"VisualizzatoreGradiente", v.visualizzatoreGradiente);
+    scriviDword(L"VisualizzatoreStile", (DWORD)v.visualizzatoreStile);
+    scriviDword(L"VisualizzatoreReattivo", v.visualizzatoreReattivo);
+    scriviDword(L"VisualizzatoreForza", (DWORD)v.visualizzatoreForza);
     scriviTesto(L"DockStartIconPath", v.dockStartIconPath);
     scriviDword(L"DockSpazio", v.dockSpazio); scriviDword(L"DockAltriSchermi", v.dockSchermi); scriviDword(L"DockAnteprime", v.dockAnteprime); scriviDword(L"Aggiornamenti", v.aggiornamenti); scriviDword(L"Affiancamento", v.affianca);
     scriviTesto(L"Cursore", v.cursore);
@@ -509,6 +518,8 @@ private:
          L"Spento: il notch compare solo durante la riproduzione multimediale", L"Off: the notch appears only while media is playing", &Valori::notch, S_NOTCH},
         {L"Orologio a 12 ore", L"12-hour clock",
          L"Mostra AM/PM nel notch; il dock resta a 24 ore", L"Show AM/PM in the notch; the dock stays 24-hour", &Valori::notch12Ore, S_NOTCH},
+        {L"Visualizzatore reattivo", L"Reactive visualizer",
+         L"Le barre seguono il livello reale dell'audio in uscita", L"Bars respond to the live Windows audio output level", &Valori::visualizzatoreReattivo, S_NOTCH},
         {L"Ora e data nel dock", L"Time and date in the dock",
          L"In fondo al dock, dopo il centro di controllo", L"At the end of the dock, after the control center", &Valori::oraDock, S_NOTCH},
         {L"Notifiche di FluidWin", L"FluidWin notifications",
@@ -558,6 +569,8 @@ private:
          L" px", &Valori::dockMargine, MARGINE_MIN, MARGINE_MAX, MARGINE_PASSO, S_DOCK},
         {L"Dimensione notch", L"Notch size", L"Scala indipendente dalla dimensione delle icone", L"Scale independent from dock icon size",
          L" %", &Valori::notchDimensione, NOTCH_SCALA_MIN, NOTCH_SCALA_MAX, NOTCH_SCALA_PASSO, S_NOTCH},
+        {L"Intensità visualizzatore", L"Visualizer strength", L"Regola l'ampiezza delle barre", L"Adjust the visualizer bar height",
+         L" %", &Valori::visualizzatoreForza, 50, 200, 5, S_NOTCH},
         {L"Opacità", L"Opacity", L"Il vetro di dock e centro di controllo; le icone restano piene", L"Dock and Control Center glass; icons stay solid",
          L"%", &Valori::dockOpacita, OPACITA_MIN, 100, OPACITA_PASSO, S_DOCK},
     };
@@ -584,6 +597,7 @@ private:
     static constexpr int Z_MATERIALE = 2040, Z_LOGO_START = 2050, Z_NOTCH_MATERIALE = 2070;
     static constexpr int Z_COLORI_PULSANTI_MEDIA = 2100, Z_COLORE_VISUALIZZATORE = 2120;
     static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140, Z_START_ICON_FILE = 2160;
+    static constexpr int Z_STILE_VISUALIZZATORE = 2180;
     void scegliColore(DWORD& c, int id, int base) {
         if (id == base) c = 0;
         else if (id <= base + N_COLORI) c = COLORE_SCELTO | COLORI[id - base - 1];
@@ -832,6 +846,10 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
+        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 4) {
+            valori().visualizzatoreStile = id - Z_STILE_VISUALIZZATORE;
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
         if (id >= Z_NOTCH_MATERIALE && id < Z_NOTCH_MATERIALE + 7) {
             static constexpr int tipi[] = {3, 2, 4, 5, 6, 7, 1};
             valori().notchMateriale = tipi[id - Z_NOTCH_MATERIALE];
@@ -1455,6 +1473,13 @@ private:
                     testi::t(L"Colore della capsula del notch", L"Notch capsule color"), valori().notchSfondo, Z_NOTCH_SFONDO);
             palette(testi::t(L"Colore del testo", L"Text color"),
                     testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
+            const wchar_t* stiliVisualizzatore[] = {
+                testi::t(L"Barre", L"Bars"), testi::t(L"Onda", L"Wave"),
+                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror")
+            };
+            selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
+                      testi::t(L"Forma del segnale al centro del notch", L"Signal style in the notch center"),
+                      stiliVisualizzatore, 4, valori().visualizzatoreStile, Z_STILE_VISUALIZZATORE);
             riga(testi::t(L"Nel notch, sempre", L"Always in the notch"),
                  testi::t(L"Musica, timer, scaffale dei file, microfono e webcam, batteria e cuffie", L"Music, timer, file shelf, microphone and camera, battery and headphones"));
         }
