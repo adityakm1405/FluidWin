@@ -698,17 +698,35 @@ inline auto Motore::selezionaVisibile() -> void {
 }
 
 // icona "App" nel dock: il logo di Windows 11 (quattro riquadri azzurri sfumati) su vetro chiaro
+// Icona Start: logo Windows senza il riquadro bianco, oppure una variante Apple.
 inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro) -> void {
     const float d = r.right - r.left;
-    pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-    dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-    pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-    dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
-    const float lato = d * 0.50f, fessura = d * 0.028f, q = (lato - fessura) / 2;
-    const float x0 = (r.left + r.right - lato) / 2, y0 = (r.top + r.bottom - lato) / 2;
-    // una sola sfumatura su tutto il logo, dall'azzurro chiaro in alto a sinistra al blu in basso a destra
-    const D2D1_GRADIENT_STOP fermate[2] = {{0, D2D1::ColorF(0.33f, 0.80f, 1.00f, alfa)}, {1, D2D1::ColorF(0.00f, 0.42f, 0.86f, alfa)}};
-    ID2D1GradientStopCollection* fc = nullptr; ID2D1LinearGradientBrush* sf = nullptr;
+    const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+
+    if (logoStart == 1) {
+        // Apple monocromatico, disegnato con primitive Direct2D sullo stesso target del dock.
+        // Nessuna bitmap o risorsa persistente per singolo fotogramma.
+        pennello->SetColor(inchiostroUI(scuro, alfa));
+        dc->FillEllipse({{cx - d * 0.11f, cy + d * 0.07f}, d * 0.19f, d * 0.24f}, pennello);
+        dc->FillEllipse({{cx + d * 0.11f, cy + d * 0.07f}, d * 0.19f, d * 0.24f}, pennello);
+        dc->FillEllipse({{cx, cy + d * 0.17f}, d * 0.27f, d * 0.19f}, pennello);
+        D2D1_MATRIX_3X2_F precedente{};
+        dc->GetTransform(&precedente);
+        dc->SetTransform(D2D1::Matrix3x2F::Rotation(-38.0f, {cx + d * 0.10f, cy - d * 0.18f}) * precedente);
+        dc->FillEllipse({{cx + d * 0.10f, cy - d * 0.18f}, d * 0.075f, d * 0.13f}, pennello);
+        dc->SetTransform(precedente);
+        return;
+    }
+
+    // Simbolo Windows 11 disegnato direttamente, come sulla taskbar: nessuna piastrella di fondo.
+    const float lato = d * 0.56f, fessura = d * 0.035f, q = (lato - fessura) * 0.5f;
+    const float x0 = cx - lato * 0.5f, y0 = cy - lato * 0.5f;
+    const D2D1_GRADIENT_STOP fermate[2] = {
+        {0, D2D1::ColorF(0.33f, 0.80f, 1.00f, alfa)},
+        {1, D2D1::ColorF(0.00f, 0.42f, 0.86f, alfa)}
+    };
+    ID2D1GradientStopCollection* fc = nullptr;
+    ID2D1LinearGradientBrush* sf = nullptr;
     if (SUCCEEDED(dc->CreateGradientStopCollection(fermate, 2, &fc)))
         dc->CreateLinearGradientBrush({{x0, y0}, {x0 + lato, y0 + lato}}, fc, &sf);
     if (!sf) pennello->SetColor(D2D1::ColorF(0.10f, 0.58f, 0.95f, alfa));
@@ -716,7 +734,8 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
         const float x = x0 + (k % 2) * (q + fessura), y = y0 + (k / 2) * (q + fessura);
         const D2D1_RECT_F p{x, y, x + q, y + q};
         const float ra = d * 0.012f;
-        if (sf) dc->FillRoundedRectangle({p, ra, ra}, sf); else dc->FillRoundedRectangle({p, ra, ra}, pennello);
+        if (sf) dc->FillRoundedRectangle({p, ra, ra}, sf);
+        else dc->FillRoundedRectangle({p, ra, ra}, pennello);
     }
     if (sf) sf->Release();
     if (fc) fc->Release();
