@@ -865,7 +865,7 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
-        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 4) {
+        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 5) {
             valori().visualizzatoreStile = id - Z_STILE_VISUALIZZATORE;
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
