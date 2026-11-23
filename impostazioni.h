@@ -1365,9 +1365,12 @@ private:
             selettore(testi::t(L"Icona Start", L"Start icon"),
                       testi::t(L"Windows, Dock macOS o immagine personale", L"Windows, macOS Dock or your own image"),
                       loghi, 3, valori().dockLogoStart, Z_LOGO_START);
+            std::wstring nomeIconaPersonale = valori().dockStartIconPath;
+            const size_t separatoreIcona = nomeIconaPersonale.find_last_of(L"\\/");
+            if (separatoreIcona != std::wstring::npos) nomeIconaPersonale = nomeIconaPersonale.substr(separatoreIcona + 1);
             rigaClic(testi::t(L"Scegli icona personale", L"Choose custom icon"),
-                     valori().dockStartIconPath.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
-                         : valori().dockStartIconPath, Z_START_ICON_FILE);
+                     nomeIconaPersonale.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
+                         : nomeIconaPersonale, Z_START_ICON_FILE);
             palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
                     testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
                     valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);
