@@ -1657,7 +1657,8 @@ private:
                 const float u = i / (float)(n - 1);
                 const float amp = ampiezza(i, n);
                 const float xx = x + u * largo;
-                const float yy = cy + (float)std::sin(t * 4.0 + i * 0.92) * (1.0f + 5.2f * amp) * d * mix;
+                const float forma = audioReale ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 4.0 + i * 0.92);
+                const float yy = cy + forma * (audioReale ? (1.0f + 5.2f * amp) : (1.0f + 5.2f * amp) * d * mix);
                 tinta(i, n);
                 if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.45f * d);
                 px = xx; py = yy;
@@ -1670,7 +1671,7 @@ private:
             for (int i = 0; i < n; i++) {
                 const float amp = ampiezza(i, n);
                 const float raggio = (0.85f + 1.25f * amp) * d * (0.35f + 0.65f * mix);
-                const float yy = cy + (float)std::sin(t * 3.4 - i * 0.9) * amp * 2.0f * d * mix;
+                const float yy = cy + (audioReale ? 0.0f : (float)std::sin(t * 3.4 - i * 0.9) * amp * 2.0f * d * mix);
                 tinta(i, n);
                 rt->FillEllipse({{x + i * passo, yy}, raggio, raggio}, pen);
             }
