@@ -419,7 +419,7 @@ private:
         const sensori::Sensori& se = sensori::Sensori::io();
         const float d = dpi, Rv = (W2 + (float)mw.x) / 2;   // (il bordo vero, che con la molla si muove)
         float x0 = Rv - puntiW();                            // inizio dello spazio libero a destra
-        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + (lo + std::round(7 * d) + lg) / 2;   // (fine della data, vedi ora)
+        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + larghezzaBloccoOra() / 2;   // (fine della data, vedi ora)
         float cx = (x0 + Rv) / 2 - (n - 1) * 4 * d;
         if (!se.micApp.empty()) { colore(1.0f, 0.62f, 0.04f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); cx += 8 * d; }
         if (!se.camApp.empty()) { colore(0.2f, 0.84f, 0.29f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); }
@@ -428,7 +428,7 @@ private:
     void misura(int s, float& w, float& h, float& R) const {
         const float d = dpi;
         switch (s) {
-            case MUSICA:   w = largoOra + 62 * d + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;   // (puntiW: microfono e webcam)
+            case MUSICA:   w = largoOra + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;   // stessa larghezza dell'orologio: niente copertina o visualizzatore laterale
             case APERTO:   w = 372 * d; h = 96 * d; R = 26 * d; break;
             case VOLUME:   w = 292 * d; h = 32 * d; R = 14 * d; break;
             case NOTIFICA: w = 372 * d; h = 78 * d; R = 26 * d; break;
@@ -607,7 +607,7 @@ private:
         if (scena != prima) ridisegnare = false;   // ci pensa l'animazione
         if (ridisegnare && !animando) ridisegna();
         // le barrette della musica si muovono: si ridisegna solo il loro rettangolino (tutto il notch costava ~3% di CPU)
-        else if (brano.suona && (scena == MUSICA || scena == APERTO) && !animando && salita() < 0.5) ridisegnaBarrette();
+        else if (brano.suona && scena == MUSICA && !animando && salita() < 0.5) ridisegnaBarrette();
         // ogni 2 s di nuovo in cima (un'app sempre in primo piano aperta dopo poteva coprirlo)
         if (GetTickCount64() - tCima > 2000) { tCima = GetTickCount64(); SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
     }
@@ -738,7 +738,7 @@ private:
             }
         };
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.5f, &fOra, false);
-        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 9.5f, &fGiorno, false);
+        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 10.5f, &fGiorno, false);
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.5f, &fTitolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 11.0f, &fPiccolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_NORMAL, 12.0f, &fTesto, true);
@@ -751,8 +751,12 @@ private:
         preparaFormati();
         if (!fOra || !fGiorno) return;
         lo = larghezza(testoOra, fOra); lg = larghezza(testoGiorno, fGiorno);
-        largoOra = std::round(std::max(200 * dpi, lo + 7 * dpi + lg + 48 * dpi));
+        // Un solo blocco centrato: ora, separatore (o visualizzatore) e data, con margini uguali.
+        largoOra = std::round(std::max(210 * dpi, larghezzaBloccoOra() + 36 * dpi));
     }
+    float spazioOra() const { return std::round(7 * dpi); }
+    float larghezzaSeparatoreOra() const { return std::round(15 * dpi); }
+    float larghezzaBloccoOra() const { return lo + 2 * spazioOra() + larghezzaSeparatoreOra() + lg; }
 
     static float larghezza(const std::wstring& s, IDWriteTextFormat* f) {
         IDWriteTextLayout* l = nullptr; float w = 0;
@@ -928,17 +932,20 @@ private:
         mostraAlfa();
     }
 
-    // dove stanno le barrette nella scena attuale (coordinate della finestra)
+    // zona del visualizzatore centrale nella scena MUSICA (coordinate della finestra)
     bool zonaBarrette(D2D1_RECT_F& r, D2D1_POINT_2F& o) const {
+        if (scena != MUSICA) return false;   // nello stato aperto non c'e' un visualizzatore nell'angolo
         float w, h, R; misura(scena, w, h, R);
-        const float L = sinistra(scena), d = dpi;
-        // (vedi contenutoScena: lo spazio dei pallini e quello di luna e tazzina. Senza segniW il ridisegno parziale
-        // metteva un secondo gruppo di barrette 22 px piu' a destra, sopra la luna: R20261121-002056-S12)
-        if (scena == MUSICA) o = {L + w - puntiW() - segniW() - 25 * d, h / 2};
-        else if (scena == APERTO) o = {L + w - 35 * d, 24 * d};
-        else return false;
+        const float margine = puntiW() + segniW();
+        const float L = sinistra(scena) + margine, d = dpi;
+        w -= 2 * margine;
+        const float blocco = larghezzaBloccoOra();
+        const float xt = std::round(L + (w - blocco) / 2);
+        o = {xt + lo + spazioOra(), h / 2};
         o.y += scesa(scena);   // (notch in basso: contro il bordo in basso)
-        r = {std::floor(o.x - 2), std::floor(o.y - 8 * d), std::ceil(o.x + 13 * d + 2), std::ceil(o.y + 8 * d)};
+        const float sep = larghezzaSeparatoreOra();
+        r = {std::floor(o.x - 2 * d), std::floor(o.y - 8 * d),
+             std::ceil(o.x + sep + 2 * d), std::ceil(o.y + 8 * d)};
         return true;
     }
 
@@ -1072,14 +1079,10 @@ private:
                 scrivi(testoAvviso, fPiccolo, {xt, 0, std::min(xt + tw + 4 * d, L + w - AV_MARGINE * d / 2), h}, a);
                 break;
             }
-            case MUSICA: {
-                ora(L, w, h, a);
-                const float q = 14 * d, y = (h - q) / 2;   // copertina piccola a sinistra, barrette a destra
-                if (bCopertina) immagine(bCopertina, {L + 12 * d, y, L + 12 * d + q, y + q}, 3.5f * d, a);
-                else nota(L + 12 * d + q / 2, h / 2, a);
-                barrette(L + w - 12 * d - 13 * d, h / 2, 13 * d, a);
+            case MUSICA:
+                // La musica sostituisce il separatore centrale con il visualizzatore: niente copertina in miniatura.
+                ora(L, w, h, a, true);
                 break;
-            }
             case APERTO: aperto(L, w, h, a); break;
             case SCAFFALE: scaffaleScena(L, w, h, a); break;
             case TIMER: {   // ora al centro, anello del timer a sinistra e il tempo che resta a destra, in arancio
@@ -1127,8 +1130,8 @@ private:
         }
     }
 
-    // ora (piu' grande) e giorno su una riga, con la stessa linea di base; sotto il giorno una linea sottile
-    void ora(float L, float w, float h, float a) {
+    // Ora | data sulla stessa linea di base; nella scena MUSICA il separatore diventa un piccolo visualizzatore.
+    void ora(float L, float w, float h, float a, bool visualizzatore = false) {
         IDWriteFactory* fdw = fabbriche::testo();
         auto lineaBase = [&](IDWriteTextFormat* fmt, const std::wstring& t, float& alto) {
             IDWriteTextLayout* l = nullptr; float base = 0; alto = 0;
@@ -1138,17 +1141,24 @@ private:
             }
             return base;
         };
-        const float spazio = std::round(7 * dpi);
-        const float xt = std::round(L + (w - (lo + spazio + lg)) / 2);
+        const float spazio = spazioOra(), sep = larghezzaSeparatoreOra();
+        const float blocco = larghezzaBloccoOra();
+        const float xt = std::round(L + (w - blocco) / 2);
         float altoOra = 0, altoGiorno = 0;
         const float bOra = lineaBase(fOra, testoOra, altoOra), bGiorno = lineaBase(fGiorno, testoGiorno, altoGiorno);
         const float yOra = std::round((h - altoOra) / 2), baseOra = yOra + bOra;
-        const float yGiorno = baseOra - 3 * dpi - bGiorno;
-        scrivi(testoOra, fOra, {xt, yOra, xt + lo + 2, yOra + altoOra}, a);
-        const float xg = xt + lo + spazio;
-        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 2, yGiorno + altoGiorno}, 0.66f * a);
-        colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.38f * a);
-        rt->DrawLine({xg, baseOra + 0.5f}, {xg + lg, baseOra + 0.5f}, pen, 1.0f);
+        const float yGiorno = std::round(baseOra - bGiorno);   // baseline identica: la data non resta piu' sollevata
+        const float xs = xt + lo + spazio;
+        const float xg = xs + sep + spazio;
+        scrivi(testoOra, fOra, {xt, yOra, xt + lo + 3 * dpi, yOra + altoOra}, a);
+        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.86f * a);
+        if (visualizzatore && brano.suona) {
+            barrette(xs, h / 2, sep, a);
+        } else {
+            const float x = xs + sep / 2;
+            colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.72f * a);
+            rt->DrawLine({x, h / 2 - 4.5f * dpi}, {x, h / 2 + 4.5f * dpi}, pen, 1.3f * dpi);
+        }
     }
 
     void lunetta(float cx, float cy, float a) {
@@ -1488,17 +1498,19 @@ private:
         rt->DrawLine({cx + 0.0f * d, cy - 5.5f * d}, {cx + 4.0f * d, cy - 3.5f * d}, pen, 1.3f * d);
     }
 
-    // barrette che ballano mentre suona (ferme e basse in pausa)
+    // Cinque barre sottili con un'onda fluida che attraversa il separatore (non movimenti indipendenti e nervosi).
     void barrette(float x, float cy, float largo, float a) {
-        const float d = dpi, lb = 2.4f * d, passo = (largo - lb) / 3;
+        const float d = dpi, lb = 1.8f * d, passo = 3.0f * d;
+        const float totale = lb + 4 * passo;
+        const float inizio = x + (largo - totale) / 2;
         const double t = adesso();
-        for (int i = 0; i < 4; i++) {
-            float k = 0.25f;
-            if (brano.suona) k = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
-            const float hb = std::max(2.4f * d, 12 * d * k);
-            const D2D1_COLOR_F c = coloreBarretta(i, 0.9f * a);
+        for (int i = 0; i < 5; i++) {
+            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.2 - i * 0.72);
+            const float hb = (2.6f + 6.4f * onda) * d;
+            const D2D1_COLOR_F c = coloreBarretta(i * 3 / 4, 0.92f * a);
             colore(c.r, c.g, c.b, c.a);
-            rt->FillRoundedRectangle({{x + i * passo, cy - hb / 2, x + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
+            const float bx = inizio + i * passo;
+            rt->FillRoundedRectangle({{bx, cy - hb / 2, bx + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
         }
     }
 
@@ -1513,7 +1525,6 @@ private:
         const float tx = L + 100 * d, tr = L + w - 22 * d;
         scrivi(brano.titolo.empty() ? std::wstring(testi::t(L"In riproduzione", L"Now playing")) : brano.titolo, fTitolo, {tx, 14 * d, tr - 22 * d, 34 * d}, a);
         scrivi(brano.artista, fPiccolo, {tx, 34 * d, tr, 50 * d}, 0.62f * a);
-        barrette(tr - 13 * d, 24 * d, 13 * d, a);   // (stessa posizione di zonaBarrette)
         for (int i = 0; i < 3; i++) {
             const D2D1_POINT_2F c = centroTasto(i);
             if (i == pulsanteSopra) { colore(1, 1, 1, 0.16f * a); rt->FillEllipse({c, 17 * d, 17 * d}, pen); }
