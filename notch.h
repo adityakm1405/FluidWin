@@ -322,9 +322,10 @@ private:
     int attesa = 0, fuori = 0, pulsanteSopra = -1;
     bool sopraX = false, mouseDentro = false;
     ULONGLONG tCima = 0;
-    // il mouse sopra conta solo col notch fisso: a scomparsa musica e timer li controlla il dock, e passare sopra una
-    // notifica non deve lasciare aperta la musica quando la notifica finisce
-    bool sopraVale() const { return sopra && abilitato; }
+    // Il mouse sopra conta col notch fisso e, a scomparsa, quando c'e' una sessione multimediale:
+    // cosi' il player si espande al passaggio del mouse anche con "Sempre visibile" spento.
+    // Senza una sessione, l'orologio a scomparsa resta controllato dal comportamento automatico.
+    bool sopraVale() const { return sopra && (abilitato || brano.c); }
     // Con "Sempre visibile" spento si nasconde solo l'orologio statico: una sessione
     // multimediale resta visibile sia in riproduzione sia in pausa.
     static bool aRiposo(int s) { return s == ORA || s == TIMER; }
