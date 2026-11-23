@@ -47,7 +47,7 @@ struct Valori {
     int dockDistanza = 6;         // distanza fra le icone del dock, px a 100% (DISTANZA_MIN..DISTANZA_MAX)
     int dockMargine = 8;          // distanza fra dock e bordo dello schermo, px
     bool dockCapsula = false;     // capsula media nel dock, alternativa al notch
-    bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza musica
+    bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
     std::wstring dockStartIconPath;
@@ -484,7 +484,7 @@ private:
         {L"Capsula multimediale nel dock", L"Media capsule in dock",
          L"Spegne il notch e sposta i controlli multimediali nel dock", L"Turns off the notch and moves media controls to the dock", &Valori::dockCapsula, S_DOCK},
         {L"Sempre visibile", L"Always visible",
-         L"La capsula resta nel dock anche senza musica in riproduzione", L"The capsule stays in the dock even when no media is playing", &Valori::dockCapsulaSempre, S_DOCK},
+         L"La capsula resta visibile solo quando non ci sono sessioni multimediali", L"Keep the capsule visible even when no media session exists", &Valori::dockCapsulaSempre, S_DOCK},
         {L"Visualizzatore a gradiente", L"Gradient visualizer",
          L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_DOCK},
         {L"Finestre di gelatina", L"Jelly windows",
@@ -1155,7 +1155,6 @@ private:
         };
         for (size_t i = 0; i < voci.size(); i++) {
             if (voci[i].sezione != sezione) continue;
-            if (voci[i].campo == &Valori::dockCapsulaSempre && !valori().dockCapsula) continue;
             const D2D1_RECT_F r = {L, y, R, y + 54 * d};
             aggiungiZona(r, (int)i);
             riquadro(r, sopra == (int)i);
