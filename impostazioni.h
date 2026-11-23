@@ -37,12 +37,19 @@ struct Valori {
     bool notch12Ore = false;      // formato 12 ore solo per l'orologio del notch
     DWORD notchSfondo = 0;        // 0 automatico (nero), altrimenti 0x01RRGGBB
     DWORD notchTesto = 0;         // 0 automatico (bianco), altrimenti 0x01RRGGBB
+    int notchMateriale = 3;       // 1 none, 2 Mica, 3 Acrylic, 4 Mica Alt, 5 Blur, 6 Glass, 7 Translucent
+    int notchDimensione = 100;    // scala del notch, percento
     bool oraDock = false;         // ora e data in fondo al dock, dopo il centro di controllo
     int dockLato = 0;             // bordo del dock: 0 in basso, 1 in alto, 2 a sinistra, 3 a destra (1.3.0, Fase 3; il notch va in basso col dock in alto)
     bool dockAuto = true;         // dock a scomparsa sotto le finestre ingrandite o che lo coprono
     int dockOpacita = 100;        // opacita' del fondo del dock, in percento (OPACITA_MIN..100)
     int dockIcone = 42;           // lato delle icone del dock a riposo, px a 100% (ICONE_MIN..ICONE_MAX); l'altezza segue
     int dockDistanza = 6;         // distanza fra le icone del dock, px a 100% (DISTANZA_MIN..DISTANZA_MAX)
+    int dockMargine = 8;          // distanza fra dock e bordo dello schermo, px
+    bool dockCapsula = false;     // capsula media nel dock, opt-in se il notch non e' sempre visibile
+    DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
+    bool visualizzatoreGradiente = false;
+    std::wstring dockStartIconPath;
     DWORD dockColore = 0;         // colore condiviso dal vetro dock e centro di controllo
     DWORD dockTestoColore = 0;    // colore condiviso del testo; 0 segue il tema
     int dockMateriale = 3;        // DWM: 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
@@ -56,8 +63,10 @@ struct Valori {
     std::wstring cursore;         // pacchetto di cursori di FluidWin in uso ("" = quelli di Windows; vedi cursori.h)
 };
 constexpr int OPACITA_MIN = 20, OPACITA_PASSO = 5;
-constexpr int ICONE_MIN = 32, ICONE_MAX = 64, ICONE_PASSO = 2;
+constexpr int ICONE_MIN = 28, ICONE_MAX = 64, ICONE_PASSO = 2;
 constexpr int DISTANZA_MIN = 2, DISTANZA_MAX = 24, DISTANZA_PASSO = 2;
+constexpr int MARGINE_MIN = 0, MARGINE_MAX = 40, MARGINE_PASSO = 2;
+constexpr int NOTCH_SCALA_MIN = 70, NOTCH_SCALA_MAX = 130, NOTCH_SCALA_PASSO = 5;
 constexpr DWORD COLORE_SCELTO = 0x01000000;   // segno di "colore scelto" (senza: automatico)
 
 inline Valori& valori() { static Valori v; return v; }
@@ -134,16 +143,25 @@ inline void carica() {
     v.notch12Ore = leggiDword(L"Notch12Ore", 0);
     v.notchSfondo = leggiDword(L"NotchSfondo", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.notchTesto = leggiDword(L"NotchTesto", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    { const DWORD m = leggiDword(L"NotchMateriale", 3); v.notchMateriale = (m >= 1 && m <= 7) ? (int)m : 3; }
+    v.notchDimensione = std::clamp((int)leggiDword(L"NotchDimensione", 100), NOTCH_SCALA_MIN, NOTCH_SCALA_MAX);
     v.oraDock = leggiDword(L"OraDock", 0);
     v.dockAuto = leggiDword(L"DockAutoNascosto", 1);
     { const DWORD l = leggiDword(L"DockLato", 0); v.dockLato = l <= 3 ? (int)l : 0; }
     v.dockOpacita = std::clamp((int)leggiDword(L"DockOpacita", 100), OPACITA_MIN, 100);
     v.dockIcone = std::clamp((int)leggiDword(L"DockIcone", 42), ICONE_MIN, ICONE_MAX);
     v.dockDistanza = std::clamp((int)leggiDword(L"DockDistanza", 6), DISTANZA_MIN, DISTANZA_MAX);
+    v.dockMargine = std::clamp((int)leggiDword(L"DockMargine", 8), MARGINE_MIN, MARGINE_MAX);
+    v.dockCapsula = leggiDword(L"DockCapsula", 0) != 0;
+    v.colorePulsantiMedia = leggiDword(L"ColorePulsantiMedia", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.coloreVisualizzatoreFine = leggiDword(L"ColoreVisualizzatoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    v.visualizzatoreGradiente = leggiDword(L"VisualizzatoreGradiente", 0) != 0;
+    v.dockStartIconPath = leggiTesto(L"DockStartIconPath");
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
-    { const DWORD m = leggiDword(L"DockMateriale", 3); v.dockMateriale = (m >= 1 && m <= 4) ? (int)m : 3; }
-    { const DWORD l = leggiDword(L"DockLogoStart", 0); v.dockLogoStart = l <= 1 ? (int)l : 0; }
+    { const DWORD m = leggiDword(L"DockMateriale", 3); v.dockMateriale = (m >= 1 && m <= 7) ? (int)m : 3; }
+    { const DWORD l = leggiDword(L"DockLogoStart", 0); v.dockLogoStart = l <= 2 ? (int)l : 0; }
     v.dockSpazio = leggiDword(L"DockSpazio", 0);
     v.dockSchermi = leggiDword(L"DockAltriSchermi", 1);
     v.dockAnteprime = leggiDword(L"DockAnteprime", 1);
@@ -165,11 +183,17 @@ inline void salva() {
     scriviDword(L"Volume", v.volume); scriviDword(L"AngoloPanoramica", v.angolo); scriviDword(L"WinTab", v.winTab);
     scriviDword(L"WinS", v.winS); scriviDword(L"TastoWin", v.tastoWin); scriviDword(L"Banner", v.banner); scriviDword(L"MenuDestro", v.menuDestro); scriviDword(L"Lingua", (DWORD)v.lingua);
     scriviDword(L"Notch", v.notch); scriviDword(L"NotchAttivo", v.notchAttivo); scriviDword(L"Notch12Ore", v.notch12Ore);
-    scriviDword(L"NotchSfondo", v.notchSfondo); scriviDword(L"NotchTesto", v.notchTesto); scriviDword(L"OraDock", v.oraDock);
+    scriviDword(L"NotchSfondo", v.notchSfondo); scriviDword(L"NotchTesto", v.notchTesto);
+    scriviDword(L"NotchMateriale", (DWORD)v.notchMateriale); scriviDword(L"NotchDimensione", (DWORD)v.notchDimensione);
+    scriviDword(L"OraDock", v.oraDock);
     scriviDword(L"DockAutoNascosto", v.dockAuto); scriviDword(L"DockLato", (DWORD)v.dockLato); scriviDword(L"DockOpacita", (DWORD)v.dockOpacita);
     scriviDword(L"DockIcone", (DWORD)v.dockIcone); scriviDword(L"DockColore", v.dockColore);
     scriviDword(L"DockTestoColore", v.dockTestoColore); scriviDword(L"DockMateriale", (DWORD)v.dockMateriale);
     scriviDword(L"DockLogoStart", (DWORD)v.dockLogoStart); scriviDword(L"DockDistanza", (DWORD)v.dockDistanza);
+    scriviDword(L"DockMargine", (DWORD)v.dockMargine); scriviDword(L"DockCapsula", v.dockCapsula);
+    scriviDword(L"ColorePulsantiMedia", v.colorePulsantiMedia); scriviDword(L"ColoreVisualizzatore", v.coloreVisualizzatore);
+    scriviDword(L"ColoreVisualizzatoreFine", v.coloreVisualizzatoreFine); scriviDword(L"VisualizzatoreGradiente", v.visualizzatoreGradiente);
+    scriviTesto(L"DockStartIconPath", v.dockStartIconPath);
     scriviDword(L"DockSpazio", v.dockSpazio); scriviDword(L"DockAltriSchermi", v.dockSchermi); scriviDword(L"DockAnteprime", v.dockAnteprime); scriviDword(L"Aggiornamenti", v.aggiornamenti); scriviDword(L"Affiancamento", v.affianca);
     scriviTesto(L"Cursore", v.cursore);
 }
@@ -451,6 +475,10 @@ private:
          L"Mouse on the bottom edge of another screen. Off: main only", &Valori::dockSchermi, S_DOCK},
         {L"Anteprime delle finestre", L"Window previews",
          L"Mouse fermo su un'icona: le sue finestre dal vivo", L"Hover an icon: its windows, live", &Valori::dockAnteprime, S_DOCK},
+        {L"Capsula multimediale nel dock", L"Media capsule in dock",
+         L"Mostra i comandi solo quando il notch non è sempre visibile", L"Show media controls only when the notch is not always visible", &Valori::dockCapsula, S_DOCK},
+        {L"Visualizzatore a gradiente", L"Gradient visualizer",
+         L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_DOCK},
         {L"Finestre di gelatina", L"Jelly windows",
          L"Le finestre si deformano mentre le trascini", L"Windows wobble while you drag them", &Valori::gelatina, S_ANIMAZIONI},
         {L"Avvia con Windows", L"Start with Windows",
@@ -518,6 +546,10 @@ private:
          L" px", &Valori::dockIcone, ICONE_MIN, ICONE_MAX, ICONE_PASSO, S_DOCK},
         {L"Distanza fra le icone", L"Space between icons", L"Anche i separatori seguono", L"Separators follow too",
          L" px", &Valori::dockDistanza, DISTANZA_MIN, DISTANZA_MAX, DISTANZA_PASSO, S_DOCK},
+        {L"Margine dal bordo", L"Edge margin", L"Distanza fra dock e bordo dello schermo", L"Space between dock and screen edge",
+         L" px", &Valori::dockMargine, MARGINE_MIN, MARGINE_MAX, MARGINE_PASSO, S_DOCK},
+        {L"Dimensione notch", L"Notch size", L"Scala indipendente dalla dimensione delle icone", L"Scale independent from dock icon size",
+         L" %", &Valori::notchDimensione, NOTCH_SCALA_MIN, NOTCH_SCALA_MAX, NOTCH_SCALA_PASSO, S_NOTCH},
         {L"Opacità", L"Opacity", L"Il vetro di dock e centro di controllo; le icone restano piene", L"Dock and Control Center glass; icons stay solid",
          L"%", &Valori::dockOpacita, OPACITA_MIN, 100, OPACITA_PASSO, S_DOCK},
     };
@@ -541,7 +573,9 @@ private:
     static constexpr int N_COLORI = sizeof(COLORI) / sizeof(COLORI[0]);
     static constexpr int Z_COLORE_MIO = Z_COLORE + 1 + N_COLORI;
     static constexpr int Z_TESTO_DOCK = 620, Z_NOTCH_SFONDO = 2000, Z_NOTCH_TESTO = 2020;
-    static constexpr int Z_MATERIALE = 2040, Z_LOGO_START = 2050;
+    static constexpr int Z_MATERIALE = 2040, Z_LOGO_START = 2050, Z_NOTCH_MATERIALE = 2070;
+    static constexpr int Z_COLORI_PULSANTI_MEDIA = 2100, Z_COLORE_VISUALIZZATORE = 2120;
+    static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140, Z_START_ICON_FILE = 2160;
     void scegliColore(DWORD& c, int id, int base) {
         if (id == base) c = 0;
         else if (id <= base + N_COLORI) c = COLORE_SCELTO | COLORI[id - base - 1];
