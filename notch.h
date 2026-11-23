@@ -649,6 +649,7 @@ private:
                     if ((b.c && b.suona) != (brano.c && brano.suona)) iniziaTransizioneVisualizzatore();
                     brano = std::move(b);
                 }
+                aggiornaMisuratoreAudio();   // anche la capsula del dock puo' essere visibile col notch spento
             }
             return;
         }
