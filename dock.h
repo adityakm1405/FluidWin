@@ -1191,7 +1191,7 @@ private:
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
     std::wstring fileIconaStart;
-    ID2D1Bitmap* iconaStartPersonale = nullptr;
+    ID2D1Bitmap1* iconaStartPersonale = nullptr;
     bool notch12Ore = false;
     std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
