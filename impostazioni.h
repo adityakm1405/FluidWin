@@ -171,7 +171,7 @@ inline void carica() {
     v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatoreFine = leggiDword(L"ColoreVisualizzatoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.visualizzatoreGradiente = leggiDword(L"VisualizzatoreGradiente", 0) != 0;
-    { const DWORD s = leggiDword(L"VisualizzatoreStile", 0); v.visualizzatoreStile = s <= 3 ? (int)s : 0; }
+    { const DWORD s = leggiDword(L"VisualizzatoreStile", 0); v.visualizzatoreStile = s <= 4 ? (int)s : 0; }
     v.visualizzatoreReattivo = leggiDword(L"VisualizzatoreReattivo", 1) != 0;
     v.visualizzatoreForza = std::clamp((int)leggiDword(L"VisualizzatoreForza", 100), 50, 200);
     v.dockStartIconPath = leggiTesto(L"DockStartIconPath");
@@ -964,9 +964,10 @@ private:
     static const wchar_t* nomeSezione(int s) {
         switch (s) {
             case S_GENERALE: return testi::t(L"Generale", L"General");
-            case S_DOCK: return testi::t(L"Dock", L"Dock");
+            case S_DOCK: return testi::t(L"Dock e barra", L"Dock & taskbar");
+            case S_DOCK_ASPETTO: return testi::t(L"Aspetto del dock", L"Dock appearance");
             case S_ANIMAZIONI: return testi::t(L"Animazioni", L"Animations");
-            case S_NOTCH: return testi::t(L"Notch e notifiche", L"Notch & notifications");
+            case S_NOTCH: return testi::t(L"Media e notch", L"Media & notch");
             case S_TASTIERA: return testi::t(L"Tastiera e mouse", L"Keyboard and mouse");
             case S_CURSORE: return testi::t(L"Cursore", L"Cursor");
         }
@@ -983,10 +984,15 @@ private:
                 v.rt->DrawEllipse({{cx, cy}, 4.5f * d, 4.5f * d}, v.pen, sp);
                 for (int i = 0; i < 8; i++) { const float a = i * 3.14159265f / 4; l(6 * std::cos(a), 6 * std::sin(a), 8.5f * std::cos(a), 8.5f * std::sin(a)); }
                 break;
-            case S_DOCK:       // il dock: barra arrotondata in basso con tre icone
+            case S_DOCK:       // il dock: barra arrotondata con tre icone
                 v.rt->DrawRoundedRectangle({{cx - 9 * d, cy + 1 * d, cx + 9 * d, cy + 7 * d}, 2.5f * d, 2.5f * d}, v.pen, sp);
                 for (int i = 0; i < 3; i++) v.rt->FillRoundedRectangle({{cx + (-6.5f + i * 5) * d, cy + 2.5f * d, cx + (-3.5f + i * 5) * d, cy + 5.5f * d}, 0.8f * d, 0.8f * d}, v.pen);
                 l(-7, -6, 7, -6); break;
+            case S_DOCK_ASPETTO: // un piccolo cursore e i controlli di aspetto
+                l(-8, -5, 8, -5); l(-8, 0, 8, 0); l(-8, 5, 8, 5);
+                v.rt->FillEllipse({{cx - 2 * d, cy - 5 * d}, 2.2f * d, 2.2f * d}, v.pen);
+                v.rt->FillEllipse({{cx + 4 * d, cy}, 2.2f * d, 2.2f * d}, v.pen);
+                v.rt->FillEllipse({{cx - 5 * d, cy + 5 * d}, 2.2f * d, 2.2f * d}, v.pen); break;
             case S_ANIMAZIONI: // scintilla e una piccola
                 l(-2, -8, -2, 4); l(-8, -2, 4, -2); l(-5.5f, -5.5f, 1.5f, 1.5f); l(1.5f, -5.5f, -5.5f, 1.5f);
                 l(5, 3, 5, 8); l(2.5f, 5.5f, 7.5f, 5.5f); break;
@@ -1494,11 +1500,12 @@ private:
                     testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
             const wchar_t* stiliVisualizzatore[] = {
                 testi::t(L"Barre", L"Bars"), testi::t(L"Onda", L"Wave"),
-                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror")
+                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror"),
+                testi::t(L"Cerchio", L"Circle")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
                       testi::t(L"Forma del segnale al centro del notch", L"Signal style in the notch center"),
-                      stiliVisualizzatore, 4, valori().visualizzatoreStile, Z_STILE_VISUALIZZATORE);
+                      stiliVisualizzatore, 5, valori().visualizzatoreStile, Z_STILE_VISUALIZZATORE);
             riga(testi::t(L"Nel notch, sempre", L"Always in the notch"),
                  testi::t(L"Musica, timer, scaffale dei file, microfono e webcam, batteria e cuffie", L"Music, timer, file shelf, microphone and camera, battery and headphones"));
         }
