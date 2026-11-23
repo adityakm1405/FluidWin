@@ -304,7 +304,15 @@ private:
 
     void visibilita() {
         const bool si = acceso && featureEnabled && modoAtt != NASCOSTO && fin;   // auto-hide e spegnimento completo sono indipendenti
-        if (si == visibile) return;
+        if (si == visibile) {
+            // Può uscire da fullscreen con il notch già disabilitato: in quel caso visibile resta false,
+            // ma va riattivato il polling lento della musica usata dal dock.
+            if (fin && !si) {
+                KillTimer(fin, 2);
+                if (acceso && !featureEnabled && modoAtt != NASCOSTO) SetTimer(fin, 2, 500, nullptr);
+            }
+            return;
+        }
         visibile = si;
         if (si) {
             KillTimer(fin, 2); SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
