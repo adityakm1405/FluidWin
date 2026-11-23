@@ -412,7 +412,7 @@ public:
         // passaggio a uno con un'altra scala riavviava FluidWin (2 s senza dock, con la barra di Windows che ricompariva)
         dpi = ::vetro::dpiMonitor(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY));
         S = latoIcone * dpi; M = S * INGRANDITE;   // icone a riposo e ingrandite (impostazione: impostaLatoIcone)
-        PAD = 8 * dpi; GAP = distanzaIcone * dpi; MARGINE = 8 * dpi;   // (GAP: impostazione, impostaDistanzaIcone)
+        PAD = 8 * dpi; GAP = distanzaIcone * dpi; MARGINE = margineBordo * dpi;   // (GAP/MARGINE: impostazioni)
         RAGGIO = raggio::vetro() * dpi;   // come gli angoli DWM del vetro: fondo e vetro devono coincidere
         altezzaDock = S + 2 * PAD;
         W = lunghezzaBordo();   // (ai lati: l'altezza dello schermo; lato si sceglie prima di inizializza)
@@ -857,7 +857,7 @@ public:
     // impostazione: lato delle icone a riposo (px a 100%). Con loro cambiano le ingrandite (stessa proporzione),
     // l'altezza del dock, la finestra delle icone e lo spazio riservato
     void impostaLatoIcone(int px) {
-        px = std::clamp(px, 24, 96);
+        px = std::clamp(px, 28, 96);
         if (px == latoIcone) return;
         latoIcone = px;
         if (!attivo) return;   // (all'avvio le misure le prende inizializza)
@@ -879,6 +879,36 @@ public:
         if (px == distanzaIcone) return;
         distanzaIcone = px;
         GAP = distanzaIcone * dpi;
+        dirty = true;
+    }
+    // Spazio visibile fra la superficie del dock e il bordo fisico dello schermo.
+    void impostaMargineBordo(int px) {
+        px = std::clamp(px, 0, 40);
+        if (px == margineBordo) return;
+        margineBordo = px;
+        MARGINE = margineBordo * dpi;
+        const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
+        if (attivo && h != H) ridimensiona(W, h);
+        if (attivo) {
+            posizionaFinestra();
+            if (appbarOk) aggiornaAppbar();
+            controllaFinestre(true);
+        }
+        dirty = true;
+    }
+    void impostaCapsulaDock(bool si) {
+        if (si == capsulaDock) return;
+        capsulaDock = si;
+        dirty = true;
+    }
+    void impostaColoriMedia(DWORD pulsanti, DWORD visualizzatore, DWORD visualizzatoreFine, bool gradiente) {
+        if (colorePulsantiMedia == pulsanti && coloreVisualizzatore == visualizzatore &&
+            coloreVisualizzatoreFine == visualizzatoreFine && visualizzatoreGradiente == gradiente) return;
+        colorePulsantiMedia = pulsanti;
+        coloreVisualizzatore = visualizzatore;
+        coloreVisualizzatoreFine = visualizzatoreFine;
+        visualizzatoreGradiente = gradiente;
+        notch.impostaColoriMedia(pulsanti, visualizzatore, visualizzatoreFine, gradiente);
         dirty = true;
     }
     // impostazione: colore del fondo del dock. 0 = automatico (chiaro o scuro col tema), altrimenti 0x01RRGGBB.
@@ -906,12 +936,12 @@ public:
     }
     void impostaMateriale(int tipo) {
         // DWMSBT_NONE, MAINWINDOW (Mica), TRANSIENTWINDOW (Desktop Acrylic), TABBEDWINDOW (Mica Alt).
-        if (tipo != 1 && tipo != 2 && tipo != 3 && tipo != 4) tipo = 3;
+        if (tipo < 1 || tipo > 7) tipo = 3;
         if (tipo == materialeVetro) return;
         materialeVetro = tipo;
-        // DWM compone questi materiali: l'API viene chiamata solo al cambio impostazione, non nei frame.
+        // DWM/Windows Composition compongono gli effetti; applicati solo al cambio setting, mai nel loop dei frame.
         for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher})
-            if (v) DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &materialeVetro, sizeof(materialeVetro));
+            vetro::applicaEffetto(v, materialeVetro);
         dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaColoreTesto(DWORD c) {
@@ -920,9 +950,50 @@ public:
         dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaLogoStart(int s) {
-        s = std::clamp(s, 0, 1);
+        s = std::clamp(s, 0, 2);
         if (s == logoStart) return;
         logoStart = s; dirty = true;
+    }
+    void impostaFileIconaStart(const std::wstring& percorso) {
+        if (percorso == fileIconaStart) return;
+        fileIconaStart = percorso;
+        if (iconaStartPersonale) { iconaStartPersonale->Release(); iconaStartPersonale = nullptr; }
+        if (dc && !fileIconaStart.empty()) {
+            IWICImagingFactory* fabbrica = nullptr;
+            IWICBitmapDecoder* decodificatore = nullptr;
+            IWICBitmapFrameDecode* fotogramma = nullptr;
+            IWICFormatConverter* convertitore = nullptr;
+            if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                           IID_PPV_ARGS(&fabbrica))) &&
+                SUCCEEDED(fabbrica->CreateDecoderFromFilename(fileIconaStart.c_str(), nullptr, GENERIC_READ,
+                                                               WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+                SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(fotogramma, GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &iconaStartPersonale);
+            }
+            if (convertitore) convertitore->Release();
+            if (fotogramma) fotogramma->Release();
+            if (decodificatore) decodificatore->Release();
+            if (fabbrica) fabbrica->Release();
+        }
+        logoStart = fileIconaStart.empty() ? 0 : 2;
+        dirty = true;
+    }
+    D2D1_COLOR_F coloreMedia(DWORD scelto, D2D1_COLOR_F automatico, float a) const {
+        if (!(scelto & 0x01000000)) return {automatico.r, automatico.g, automatico.b, automatico.a * a};
+        return D2D1::ColorF(((scelto >> 16) & 255) / 255.0f, ((scelto >> 8) & 255) / 255.0f,
+                            (scelto & 255) / 255.0f, a);
+    }
+    D2D1_COLOR_F coloreBarraMedia(int i, D2D1_COLOR_F automatico, float a) const {
+        const D2D1_COLOR_F c1 = coloreMedia(coloreVisualizzatore, automatico, 1);
+        if (!visualizzatoreGradiente || !(coloreVisualizzatoreFine & 0x01000000))
+            return {c1.r, c1.g, c1.b, c1.a * a};
+        const D2D1_COLOR_F c2 = coloreMedia(coloreVisualizzatoreFine, automatico, 1);
+        const float t = std::clamp(i / 3.0f, 0.0f, 1.0f);
+        return D2D1::ColorF(c1.r + (c2.r - c1.r) * t, c1.g + (c2.g - c1.g) * t,
+                            c1.b + (c2.b - c1.b) * t, a);
     }
     void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
     void impostaOraNotch12(bool si) {
@@ -1098,9 +1169,15 @@ private:
     static constexpr float INGRANDITE = 66.0f / 42.0f;   // icone ingrandite dalla lente: proporzione fissa con quelle a riposo
     bool coloreAuto = true, fondoScuro = false;           // impostazione: colore del fondo (vedi impostaColore)
     D2D1_COLOR_F coloreFondo{};
+    int margineBordo = 8;          // distanza fra il dock e il bordo dello schermo, px a 100%
+    bool capsulaDock = false;      // mostra i controlli media nel dock solo se l'utente lo chiede
+    DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
+    bool visualizzatoreGradiente = false;
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
-    int logoStart = 0;                // 0 Windows, 1 Apple
+    int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
+    std::wstring fileIconaStart;
+    ID2D1Bitmap* iconaStartPersonale = nullptr;
     bool notch12Ore = false;
     std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
@@ -2317,11 +2394,12 @@ private:
         const musica::Brano& br = notch.musicaOra();
         if (br.c && br.suona) ultimaMusica = t;
         const bool fisso = notch.fisso();
+        const bool capsulaAbilitata = capsulaDock && notch.attivo() && !fisso;
         // in pausa resta 8 s (e finche' ci sono sopra il mouse o un tasto premuto): pausa e ripresa non fanno ballare il dock
         const bool sullaMusica = mouseDentro && testaMusica && dentro(rettMus, mouseX, mouseY);
-        testaMusica = !fisso && br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
-        testaTimer = !fisso && comodita::timerAttivo();
-        const bool sv = !fisso && comodita::sveglio(), si = !fisso && comodita::silenzio();
+        testaMusica = capsulaAbilitata && br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
+        testaTimer = capsulaAbilitata && comodita::timerAttivo();
+        const bool sv = capsulaAbilitata && comodita::sveglio(), si = capsulaAbilitata && comodita::silenzio();
         if (sv && !testaSveglio) tSveglio = t;      // (comparsa: rimbalzo e onda)
         if (si && !testaSilenzio) tSilenzio = t;
         testaSveglio = sv; testaSilenzio = si;
@@ -2549,11 +2627,11 @@ private:
             const musica::Brano& br = notch.musicaOra();
             const float bx = rc.right + 8 * d, lb = 2.4f * d, passo = (14 * d - lb) / 3;
             dritto(bx + 7 * d, cy);   // (barrette in piedi anche ai lati)
-            pennello->SetColor(ink);
             for (int i = 0; i < 4; i++) {
                 float kb = 0.25f;
                 if (br.suona) kb = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
                 const float hb = std::max(2.4f * d, 12 * d * kb);
+                pennello->SetColor(coloreBarraMedia(i, ink, k * p));
                 dc->FillRoundedRectangle({{bx + i * passo, cy - hb / 2, bx + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pennello);
             }
             piano();
@@ -2567,7 +2645,7 @@ private:
                 if (km < 0.02f) continue;
                 fondoTasto(i, scuro, km * k * p);
                 dritto(tc, cy);   // (simboli dritti: ai lati i tasti stanno in colonna)
-                pennello->SetColor({ink.r, ink.g, ink.b, ink.a * km});
+                pennello->SetColor(coloreMedia(colorePulsantiMedia, ink, km));
                 const float tr = 4.2f * d;
                 auto triangolo = [&](float ax, bool destra) {   // punta a destra o a sinistra
                     ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
@@ -2676,11 +2754,15 @@ private:
     // fondo di vetro (velo e bordi sopra il vetro acrilico); a: opacita' (quella del dock, impostazione; 1 i pannelli)
     // tinta: colore scelto per il dock (nullptr: chiaro o scuro col tema), piu' coprente perche' si veda
     void disegnaFondo(const D2D1_RECT_F& f, bool scuro, float a = 1, const D2D1_COLOR_F* tinta = nullptr) {
-        pennello->SetColor(tinta ? D2D1::ColorF(tinta->r, tinta->g, tinta->b, 0.62f * a)
-                                 : scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.35f * a) : D2D1::ColorF(1, 1, 1, 0.38f * a));
+        const float velo = materialeVetro == 6 ? 0.25f : materialeVetro == 7 ? 0.12f : tinta ? 0.62f : (scuro ? 0.35f : 0.38f);
+        pennello->SetColor(tinta ? D2D1::ColorF(tinta->r, tinta->g, tinta->b, velo * a)
+                                 : scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, velo * a) : D2D1::ColorF(1, 1, 1, velo * a));
         dc->FillRoundedRectangle({f, RAGGIO, RAGGIO}, pennello);
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.14f * a) : D2D1::ColorF(1, 1, 1, 0.75f * a));
-        dc->DrawRoundedRectangle({{f.left + 0.5f, f.top + 0.5f, f.right - 0.5f, f.bottom - 0.5f}, std::max(0.0f, RAGGIO - 0.5f), std::max(0.0f, RAGGIO - 0.5f)}, pennello, 1.0f);
+        if (materialeVetro != 7) {
+            const float bordo = materialeVetro == 6 ? 0.58f : (scuro ? 0.14f : 0.75f);
+            pennello->SetColor(D2D1::ColorF(1, 1, 1, bordo * a));
+            dc->DrawRoundedRectangle({{f.left + 0.5f, f.top + 0.5f, f.right - 0.5f, f.bottom - 0.5f}, std::max(0.0f, RAGGIO - 0.5f), std::max(0.0f, RAGGIO - 0.5f)}, pennello, materialeVetro == 6 ? 1.5f : 1.0f);
+        }
         pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.45f : 0.10f) * a));
         dc->DrawRoundedRectangle({{f.left - 0.5f, f.top - 0.5f, f.right + 0.5f, f.bottom + 0.5f}, RAGGIO + 0.5f, RAGGIO + 0.5f}, pennello, 1.0f);
     }
@@ -3632,13 +3714,10 @@ private:
     // Con dei file trascinati sopra il coperchio si alza un poco
     void disegnaIconaCestino(const D2D1_RECT_F& r, float alfa, bool scuro, bool sopraDrop) {
         const float d = r.right - r.left;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-        dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-        pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-        dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
+        // Nessuna piastrella bianca: il simbolo usa quasi tutta l'area dell'icona.
         const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
         const D2D1_COLOR_F ink = inchiostroUI(scuro, alfa);
-        const float bw = d * 0.20f, top = cy - d * 0.12f, bot = cy + d * 0.27f, sp = std::max(1.2f, d * 0.035f);
+        const float bw = d * 0.34f, top = cy - d * 0.22f, bot = cy + d * 0.34f, sp = std::max(1.4f, d * 0.045f);
         pennello->SetColor(ink);
         ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
         if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&s))) {   // secchio un poco piu' stretto in basso
@@ -3659,14 +3738,11 @@ private:
 
     void disegnaIconaControllo(const D2D1_RECT_F& r, float alfa, bool scuro) {
         const float d = r.right - r.left;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-        dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-        pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-        dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
+        // Simbolo Control Center senza piastrella, allineato alle dimensioni delle altre icone.
         const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-        const float lw = d * 0.27f, lh = d * 0.115f, rk = lh * 0.78f;   // mezza larghezza, mezza altezza, pomello
+        const float lw = d * 0.40f, lh = d * 0.16f, rk = lh * 0.78f;
         for (int k = 0; k < 2; k++) {
-            const float y = cy + (k == 0 ? -1 : 1) * d * 0.15f;
+            const float y = cy + (k == 0 ? -1 : 1) * d * 0.21f;
             const D2D1_RECT_F p = {cx - lw, y - lh, cx + lw, y + lh};
             if (k == 0) pennello->SetColor(D2D1::ColorF(0.0f, 0.478f, 1.0f, alfa));
             else pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.28f * alfa) : D2D1::ColorF(0, 0, 0, 0.16f * alfa));
