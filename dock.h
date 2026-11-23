@@ -1181,7 +1181,6 @@ private:
     int tastoPremuto = -1;            // tasto premuto (-2: la testa fuori dai tasti, -1: niente)
     double evTesta = 0;
     ID2D1Bitmap* bTesta = nullptr; UINT versioneTesta = 0xFFFFFFFF;   // copertina del brano
-    double ultimaMusica = -100;       // quando suonava l'ultima volta (in pausa resta qualche secondo)
     int periodoTesta = 0;             // TIMER_TESTA (ms, 0 spento): 60 con le barrette che ballano, 250 per i secondi del timer
     bool autoNascondi = true;         // impostazione: il dock scende sotto le finestre ingrandite o che lo coprono
     float opacita = 1;                // impostazione: opacita' del fondo del dock (vetro e velo), 0.2..1
@@ -2419,9 +2418,9 @@ private:
         // sia attivo o sempre visibile.
         const bool capsulaAbilitata = capsulaDock;
         // in pausa resta 8 s (e finche' ci sono sopra il mouse o un tasto premuto): pausa e ripresa non fanno ballare il dock
-        const bool sullaMusica = mouseDentro && testaMusica && dentro(rettMus, mouseX, mouseY);
-        const bool musicaRecente = br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
-        testaMusica = capsulaAbilitata && (capsulaSempreVisibile || musicaRecente);
+        // La presenza della sessione, non lo stato Playing, decide la visibilita':
+        // una sessione in pausa resta nel dock finche' l'app/tab non la chiude.
+        testaMusica = capsulaAbilitata && (capsulaSempreVisibile || br.c);
         testaTimer = capsulaAbilitata && comodita::timerAttivo();
         const bool sv = capsulaAbilitata && comodita::sveglio(), si = capsulaAbilitata && comodita::silenzio();
         if (sv && !testaSveglio) tSveglio = t;      // (comparsa: rimbalzo e onda)
@@ -2495,13 +2494,12 @@ private:
     UINT firmaTesta = 0xFFFFFFFF;
     bool testaCambiata() {
         const musica::Brano& br = notch.musicaOra();
-        // anche col dock giu' (nessun disegno): gli 8 s della pausa contano da quando ha smesso davvero (R20261120-141156-S2)
-        if (br.c && br.suona) ultimaMusica = adesso();
+        // Sessione, stato Play/Pausa e versione sono gia' nella firma: nessun timer
+        // artificiale serve per far sparire la capsula dopo una pausa.
         const UINT f = (notch.fisso() ? 1u : 0u) | (br.c ? 2u : 0u) | (br.suona ? 4u : 0u) | (comodita::timerAttivo() ? 8u : 0u) |
                        (comodita::sveglio() ? 16u : 0u) | (comodita::silenzio() ? 32u : 0u) |
                        (capsulaDock ? 64u : 0u) | (capsulaSempreVisibile ? 128u : 0u) | (br.versione << 8);
-        const bool scaduta = testaMusica && !br.suona && adesso() - ultimaMusica >= 8;
-        if (f == firmaTesta && !scaduta) return false;
+        if (f == firmaTesta) return false;
         firmaTesta = f;
         return true;
     }
