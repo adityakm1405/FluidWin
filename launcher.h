@@ -780,12 +780,12 @@ inline auto Motore::renderLauncher() -> bool {
     if (sc != lScroll) { lScroll = sc; anim = true; }
     raccogliIcone();   // (quelle che arrivano dal thread rimettono lDirty)
 
-    const bool scuro = temaScuro();
-    const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.88f);
+    const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
+    const D2D1_COLOR_F ink = inchiostroUI(scuro, 0.92f);
     dc->SetTarget(bersaglioL);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
-    disegnaFondo({0.5f, 0.5f, LW - 0.5f, LH - 0.5f}, scuro);
+    disegnaFondo({0.5f, 0.5f, LW - 0.5f, LH - 0.5f}, scuro, opacita, coloreAuto ? nullptr : &coloreFondo);
 
     // pulsante di accensione (sospendi, riavvia, arresta, blocca, disconnetti) a destra della ricerca
     {
