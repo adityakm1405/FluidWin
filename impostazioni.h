@@ -734,11 +734,29 @@ private:
         if (id == 200) { chiudi(); return; }
         if (id >= Z_CURSORE && id < Z_COLORE) return;   // (i cursori si usano trascinando: WM_LBUTTONDOWN)
         if (id >= Z_COLORE && id <= Z_COLORE_MIO) {
-            scegliColore(id);
-            salva();
-            if (cambiato) cambiato();
-            disegna();
-            return;
+            scegliColore(valori().dockColore, id, Z_COLORE);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_TESTO_DOCK && id <= Z_TESTO_DOCK + N_COLORI + 1) {
+            scegliColore(valori().dockTestoColore, id, Z_TESTO_DOCK);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_NOTCH_SFONDO && id <= Z_NOTCH_SFONDO + N_COLORI + 1) {
+            scegliColore(valori().notchSfondo, id, Z_NOTCH_SFONDO);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_NOTCH_TESTO && id <= Z_NOTCH_TESTO + N_COLORI + 1) {
+            scegliColore(valori().notchTesto, id, Z_NOTCH_TESTO);
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_MATERIALE && id < Z_MATERIALE + 4) {
+            static constexpr int tipi[] = {3, 2, 4, 1};
+            valori().dockMateriale = tipi[id - Z_MATERIALE];
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
+        if (id >= Z_LOGO_START && id < Z_LOGO_START + 2) {
+            valori().dockLogoStart = id - Z_LOGO_START;
+            salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_MOSTRA_TUTTE) {
             if (mostraNascosta) mostraNascosta(L"");
