@@ -955,25 +955,38 @@ public:
         logoStart = s; dirty = true;
     }
     void impostaFileIconaStart(const std::wstring& percorso) {
-        if (percorso == fileIconaStart) return;
+        // Se lo stesso percorso e' gia' caricato non si fa lavoro; se il target D2D e' stato ricreato,
+        // il puntatore nullo permette invece di ricaricare l'immagine.
+        if (percorso == fileIconaStart && (percorso.empty() || iconaStartPersonale)) return;
         fileIconaStart = percorso;
         if (iconaStartPersonale) { iconaStartPersonale->Release(); iconaStartPersonale = nullptr; }
         if (dc && !fileIconaStart.empty()) {
             IWICImagingFactory* fabbrica = nullptr;
             IWICBitmapDecoder* decodificatore = nullptr;
             IWICBitmapFrameDecode* fotogramma = nullptr;
+            IWICBitmapScaler* ridimensionatore = nullptr;
             IWICFormatConverter* convertitore = nullptr;
+            UINT sorgenteW = 0, sorgenteH = 0;
+            UINT destinazioneW = 0, destinazioneH = 0;
             if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                            IID_PPV_ARGS(&fabbrica))) &&
                 SUCCEEDED(fabbrica->CreateDecoderFromFilename(fileIconaStart.c_str(), nullptr, GENERIC_READ,
                                                                WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
                 SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
-                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
-                SUCCEEDED(convertitore->Initialize(fotogramma, GUID_WICPixelFormat32bppPBGRA,
-                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
-                dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &iconaStartPersonale);
+                SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
+                const double scala = std::min({1.0, 256.0 / sorgenteW, 256.0 / sorgenteH});
+                destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
+                destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
+                if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
+                    SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
+                    SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                    SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
+                        WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                    dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &iconaStartPersonale);
+                }
             }
             if (convertitore) convertitore->Release();
+            if (ridimensionatore) ridimensionatore->Release();
             if (fotogramma) fotogramma->Release();
             if (decodificatore) decodificatore->Release();
             if (fabbrica) fabbrica->Release();
