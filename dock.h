@@ -2413,11 +2413,9 @@ private:
     // di colpo all'accendersi di un segno e il dock scattava)
     bool statoTesta(double t) {
         const musica::Brano& br = notch.musicaOra();
-        if (br.c && br.suona) ultimaMusica = t;
         // La capsula e' un'alternativa al notch: non deve dipendere dal fatto che il notch
         // sia attivo o sempre visibile.
         const bool capsulaAbilitata = capsulaDock;
-        // in pausa resta 8 s (e finche' ci sono sopra il mouse o un tasto premuto): pausa e ripresa non fanno ballare il dock
         // La presenza della sessione, non lo stato Playing, decide la visibilita':
         // una sessione in pausa resta nel dock finche' l'app/tab non la chiude.
         testaMusica = capsulaAbilitata && (capsulaSempreVisibile || br.c);
@@ -2490,7 +2488,7 @@ private:
 
     static bool dentro(const D2D1_RECT_F& r, float x, float y) { return r.right > r.left && x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
 
-    // (ogni 500 ms da aggiornaStato) brano, pausa, timer, segni o notch fisso cambiati, o pausa da piu' di 8 s
+    // (ogni 500 ms da aggiornaStato) sessione media, stato Play/Pausa, timer, segni o notch fisso cambiati
     UINT firmaTesta = 0xFFFFFFFF;
     bool testaCambiata() {
         const musica::Brano& br = notch.musicaOra();
