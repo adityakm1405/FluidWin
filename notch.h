@@ -3,8 +3,8 @@
 // A riposo mostra ora e giorno. Si trasforma, con una molla, per mostrare:
 //  - il volume, mentre si premono i tasti (al posto dell'indicatore di vetro, osd.h);
 //  - le notifiche, che escono dal notch (al posto del banner di vetro, banner.h);
-//  - la musica in riproduzione (musica.h): copertina e barrette accanto all'ora; col mouse fermo sopra si apre con
-//    titolo, artista e i tasti indietro / play-pausa / avanti.
+//  - la musica in riproduzione (musica.h): il separatore tra ora e data diventa un piccolo visualizzatore; col mouse
+//    fermo sopra si apre con copertina grande, titolo, artista e i tasti indietro / play-pausa / avanti.
 // Il mouse di solito lo attraversa (sta dove si afferrano le finestre ingrandite): diventa cliccabile solo col mouse
 // fermo sopra per un attimo (senza tasti premuti) o mentre mostra una notifica. Un clic sull'ora apre le notifiche.
 // Con un'app a schermo intero (video, presentazioni, giochi) non c'e' (vedi modo()): il volume lo mostra allora
@@ -738,7 +738,7 @@ private:
             }
         };
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.5f, &fOra, false);
-        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 10.5f, &fGiorno, false);
+        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 11.5f, &fGiorno, false);
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.5f, &fTitolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 11.0f, &fPiccolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_NORMAL, 12.0f, &fTesto, true);
@@ -1147,11 +1147,11 @@ private:
         float altoOra = 0, altoGiorno = 0;
         const float bOra = lineaBase(fOra, testoOra, altoOra), bGiorno = lineaBase(fGiorno, testoGiorno, altoGiorno);
         const float yOra = std::round((h - altoOra) / 2), baseOra = yOra + bOra;
-        const float yGiorno = std::round(baseOra - bGiorno);   // baseline identica: la data non resta piu' sollevata
+        const float yGiorno = std::round(baseOra - bGiorno + 1.0f * dpi);   // piccolo compenso ottico: la data non sembra piu' sollevata
         const float xs = xt + lo + spazio;
         const float xg = xs + sep + spazio;
         scrivi(testoOra, fOra, {xt, yOra, xt + lo + 3 * dpi, yOra + altoOra}, a);
-        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.86f * a);
+        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.98f * a);
         if (visualizzatore && brano.suona) {
             barrette(xs, h / 2, sep, a);
         } else {
@@ -1523,7 +1523,7 @@ private:
             nota((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2, a);
         }
         const float tx = L + 100 * d, tr = L + w - 22 * d;
-        scrivi(brano.titolo.empty() ? std::wstring(testi::t(L"In riproduzione", L"Now playing")) : brano.titolo, fTitolo, {tx, 14 * d, tr - 22 * d, 34 * d}, a);
+        scrivi(brano.titolo.empty() ? std::wstring(testi::t(L"In riproduzione", L"Now playing")) : brano.titolo, fTitolo, {tx, 14 * d, tr, 34 * d}, a);
         scrivi(brano.artista, fPiccolo, {tx, 34 * d, tr, 50 * d}, 0.62f * a);
         for (int i = 0; i < 3; i++) {
             const D2D1_POINT_2F c = centroTasto(i);
