@@ -109,12 +109,13 @@ public:
     }
     void impostaEffetto(int effetto) {
         effetto = std::clamp(effetto, 1, 7);
-        if (effetto == materialeNotch) {
-            vetro::applicaEffetto(fin, materialeNotch);
-            return;
-        }
-        materialeNotch = effetto;
-        vetro::applicaEffetto(fin, materialeNotch);
+        if (effetto != materialeNotch) materialeNotch = effetto;
+
+        // La finestra del notch e' layered e usa una superficie con alfa per pixel.
+        // Il backdrop/Accent DWM viene disegnato sul rettangolo HWND, non sulla geometria
+        // della capsula: lascerebbe un grande rettangolo dietro al notch. Il materiale
+        // viene quindi disegnato da Direct2D, ritagliato esattamente sulla forma.
+        vetro::applicaEffetto(fin, 1);
         if (visibile) ridisegna();
     }
     void impostaDimensione(int percento) {
@@ -324,7 +325,9 @@ private:
     // il mouse sopra conta solo col notch fisso: a scomparsa musica e timer li controlla il dock, e passare sopra una
     // notifica non deve lasciare aperta la musica quando la notifica finisce
     bool sopraVale() const { return sopra && abilitato; }
-    static bool aRiposo(int s) { return s == ORA || s == MUSICA || s == TIMER; }
+    // Con "Sempre visibile" spento si nasconde solo la scena statica: la musica in
+    // riproduzione deve invece far comparire il notch.
+    static bool aRiposo(int s) { return s == ORA || s == TIMER; }
 
     std::vector<IDWriteTextFormat*> formati() const { return {fOra, fGiorno, fTitolo, fPiccolo, fTesto, fNumero, fGrande}; }
 
