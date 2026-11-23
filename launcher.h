@@ -704,8 +704,12 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
     const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
 
     if (logoStart == 2 && iconaStartPersonale) {
-        // Bitmap personale decodificata una sola volta al cambio dell'impostazione, mai durante il frame.
-        const D2D1_RECT_F icona = {r.left + d * 0.055f, r.top + d * 0.055f, r.right - d * 0.055f, r.bottom - d * 0.055f};
+        // Bitmap personale gia' decodificata e scalata al caricamento: si mantiene il rapporto d'aspetto.
+        const D2D1_SIZE_F bs = iconaStartPersonale->GetSize();
+        const float latoMax = d * 0.89f;
+        const float k = std::min(latoMax / std::max(1.0f, bs.width), latoMax / std::max(1.0f, bs.height));
+        const float w = bs.width * k, h = bs.height * k;
+        const D2D1_RECT_F icona = {cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f};
         dc->DrawBitmap(iconaStartPersonale, icona, alfa, D2D1_BITMAP_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
         return;
     }
