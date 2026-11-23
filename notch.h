@@ -30,6 +30,10 @@
 #include <functional>
 #include <algorithm>
 #include <cmath>
+#include <atomic>
+#include <thread>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
 #include "fabbriche.h"
 #include "vetro.h"
 #include "musica.h"
@@ -41,6 +45,60 @@
 #include <shobjidl.h>
 
 namespace notch {
+
+// Picco reale dell'uscita audio predefinita di Windows, letto su un thread COM dedicato.
+class MisuratoreAudio {
+public:
+    ~MisuratoreAudio() { ferma(); }
+    void avvia() {
+        if (lavoro.joinable()) return;
+        arresta = false;
+        lavoro = std::thread([this] { ciclo(); });
+    }
+    void ferma() {
+        arresta = true;
+        if (lavoro.joinable()) lavoro.join();
+        disponibile = false;
+        picco = 0.0f;
+    }
+    float livello() const { return picco.load(); }
+    bool pronto() const { return disponibile.load(); }
+
+private:
+    std::atomic<bool> arresta{true}, disponibile{false};
+    std::atomic<float> picco{0.0f};
+    std::thread lavoro;
+
+    void ciclo() {
+        const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        IMMDeviceEnumerator* enumeratore = nullptr;
+        IMMDevice* dispositivo = nullptr;
+        IAudioMeterInformation* misuratore = nullptr;
+        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                      __uuidof(IMMDeviceEnumerator), (void**)&enumeratore);
+        if (SUCCEEDED(hr) && enumeratore)
+            hr = enumeratore->GetDefaultAudioEndpoint(eRender, eMultimedia, &dispositivo);
+        if (SUCCEEDED(hr) && dispositivo)
+            hr = dispositivo->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, nullptr, (void**)&misuratore);
+        if (SUCCEEDED(hr) && misuratore) disponibile = true;
+
+        while (!arresta) {
+            float letto = 0.0f;
+            if (misuratore && SUCCEEDED(misuratore->GetPeakValue(&letto))) {
+                letto = std::clamp(letto, 0.0f, 1.0f);
+                const float vecchio = picco.load();
+                const float velocita = letto > vecchio ? 0.68f : 0.20f;
+                picco = vecchio + (letto - vecchio) * velocita;
+            }
+            Sleep(16);
+        }
+
+        if (misuratore) misuratore->Release();
+        if (dispositivo) dispositivo->Release();
+        if (enumeratore) enumeratore->Release();
+        if (SUCCEEDED(com)) CoUninitialize();
+    }
+};
 
 // schermo intero: niente, o un'app a schermo intero (video, presentazione, gioco). Prima sotto un video restava
 // visibile e sfumava solo col mouse vicino: coprendo il film dava fastidio, ora sparisce come con i giochi
