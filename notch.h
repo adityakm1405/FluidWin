@@ -32,6 +32,7 @@
 #include <cmath>
 #include <atomic>
 #include <thread>
+#include <array>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
 
@@ -77,10 +78,20 @@ public:
         picco = 0.0f;
     }
     float livello() const { return picco.load(); }
+    // Sample history lets compact visualizers use distinct envelope snapshots as pseudo-bands.
+    float banda(int indice, int count) const {
+        count = std::max(1, count); indice = std::clamp(indice, 0, count - 1);
+        const int delay = 1 + (indice * 31 / count);
+        const int slot = (ultimoSlot.load() - delay + (int)STORIA) % (int)STORIA;
+        return std::clamp(storia[slot].load() * 3.8f, 0.0f, 1.0f);
+    }
     bool pronto() const { return disponibile.load(); }
 
 private:
     std::atomic<bool> arresta{true}, disponibile{false};
+    static constexpr size_t STORIA = 64;
+    std::array<std::atomic<float>, STORIA> storia{};
+    std::atomic<int> ultimoSlot{0};
     std::atomic<float> picco{0.0f};
     std::thread lavoro;
 
@@ -105,6 +116,8 @@ private:
                 const float velocita = letto > vecchio ? 0.68f : 0.20f;
                 picco = vecchio + (letto - vecchio) * velocita;
             }
+            const int slot = (ultimoSlot.load() + 1) % (int)STORIA;
+            storia[slot] = picco.load(); ultimoSlot = slot;
             Sleep(16);
         }
 
@@ -217,6 +230,7 @@ public:
         if (visibile) ridisegna();
     }
     float livelloVisualizzatore() const { return misuratoreAudio.livello(); }
+    float bandaVisualizzatore(int indice, int count) const { return misuratoreAudio.banda(indice, count); }
     bool attivo() const { return featureEnabled; }
 
     // schermo su cui sta (in alto al centro) e scala del dock
@@ -1625,12 +1639,10 @@ private:
         const double t = adesso();
         const float forza = forzaVisualizzatore / 100.0f;
         const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
-        const float picco = audioReale ? std::clamp(misuratoreAudio.livello() * 3.2f, 0.0f, 1.0f) : 0.0f;
         auto ampiezza = [&](int i, int n) {
+            if (audioReale) return std::clamp(misuratoreAudio.banda(i, n) * forza, 0.0f, 1.0f);
             const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82);
-            const float base = audioReale ? picco : onda;
-            const float dettaglio = 0.28f + 0.72f * onda;
-            return std::clamp(base * dettaglio * forza, 0.0f, 1.0f);
+            return std::clamp(onda * forza, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int indice = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1664,17 +1676,19 @@ private:
             }
             return;
         }
-        if (stileVisualizzatore == 4) {   // Circle: otto punti che formano un anello pulsante
-            const int n = 8;
-            const float r = 4.5f * d;
+        if (stileVisualizzatore == 4) {   // Circle: punti base con barre radiali indipendenti
+            const int n = 12;
+            const float r = std::max(3.2f * d, std::min(5.0f * d, largo * 0.20f));
+            const float cx = x + largo / 2, dot = 0.8f * d;
             for (int i = 0; i < n; i++) {
                 const float amp = ampiezza(i, n);
-                const float fase = t * 2.4f + i * (float)(2.0 * M_PI / n);
-                const float rr = r + 0.35f * amp * d;
-                const float dot = (0.72f + 0.95f * amp) * d * (0.45f + 0.55f * mix);
+                const float ang = (float)(-M_PI / 2.0 + i * 2.0 * M_PI / n);
+                const float baseX = cx + std::cos(ang) * r, baseY = cy + std::sin(ang) * r;
+                const float ext = (audioReale ? (1.0f + 9.0f * amp) : (2.0f + 4.0f * amp)) * d * mix;
                 tinta(i, n);
-                rt->FillEllipse({{x + largo / 2 + std::cos(fase) * rr,
-                                  cy + std::sin(fase) * rr}, dot, dot}, pen);
+                rt->FillEllipse({{baseX, baseY}, dot, dot}, pen);
+                rt->DrawLine({baseX + std::cos(ang) * dot * 1.5f, baseY + std::sin(ang) * dot * 1.5f},
+                            {baseX + std::cos(ang) * (dot * 1.5f + ext), baseY + std::sin(ang) * (dot * 1.5f + ext)}, pen, 1.8f * d);
             }
             return;
         }
