@@ -890,17 +890,54 @@ public:
         if (aut == coloreAuto && (aut || (col.r == coloreFondo.r && col.g == coloreFondo.g && col.b == coloreFondo.b))) return;
         coloreAuto = aut; coloreFondo = col;
         fondoScuro = 0.2126f * col.r + 0.7152f * col.g + 0.0722f * col.b < 0.55f;
-        // il vetro acrilico sotto: chiaro o scuro come il colore (automatico: come il tema)
+        // Il tema DWM segue anche la tinta scelta; le superfici hanno lo stesso materiale.
         BOOL s = coloreAuto ? temaScuro() : fondoScuro;
-        for (HWND v : {vetro, vetroStato, vetroOra}) if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
-        dirty = true;
+        for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher})
+            if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+        dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaOpacita(float a) {
         a = std::clamp(a, 0.2f, 1.0f);
         if (std::fabs(a - opacita) < 0.001f) return;
         opacita = a;
+        // Il pannello usa opacita' nel velo Direct2D, non nell'alpha DComp animato.
         for (HWND v : {vetro, vetroStato, vetroOra}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
-        dirty = true;
+        dirty = pDirty = altra.pDirty = true;
+    }
+    void impostaMateriale(int tipo) {
+        // DWMSBT_NONE, MAINWINDOW (Mica), TRANSIENTWINDOW (Desktop Acrylic), TABBEDWINDOW (Mica Alt).
+        if (tipo != 1 && tipo != 2 && tipo != 3 && tipo != 4) tipo = 3;
+        if (tipo == materialeVetro) return;
+        materialeVetro = tipo;
+        // DWM compone questi materiali: l'API viene chiamata solo al cambio impostazione, non nei frame.
+        for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher})
+            if (v) DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &materialeVetro, sizeof(materialeVetro));
+        dirty = pDirty = altra.pDirty = lDirty = true;
+    }
+    void impostaColoreTesto(DWORD c) {
+        if (c == coloreTestoUI) return;
+        coloreTestoUI = c;
+        dirty = pDirty = altra.pDirty = lDirty = true;
+    }
+    void impostaLogoStart(int s) {
+        s = std::clamp(s, 0, 1);
+        if (s == logoStart) return;
+        logoStart = s; dirty = true;
+    }
+    void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
+    void impostaOraNotch12(bool si) {
+        if (si == notch12Ore) return;
+        notch12Ore = si; aggiornaStato(true);
+    }
+    void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
+    D2D1_COLOR_F inchiostroUI(bool temaScuro, float a = 0.9f) const {
+        if (coloreTestoUI & 0x01000000)
+            return D2D1::ColorF(((coloreTestoUI >> 16) & 255) / 255.0f,
+                                ((coloreTestoUI >> 8) & 255) / 255.0f,
+                                (coloreTestoUI & 255) / 255.0f, a);
+        const bool sfondoScuro = coloreAuto ? temaScuro : fondoScuro;
+        return sfondoScuro ? D2D1::ColorF(1, 1, 1, 0.92f * a)
+                           : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.9f * a);
     }
     // eseguibile di un'app che il dock conosce (per AppUserModelID o per nome): l'icona vera delle sue notifiche
     std::wstring exeDiApp(const std::wstring& aumid, const std::wstring& nome) const {
@@ -1061,6 +1098,11 @@ private:
     static constexpr float INGRANDITE = 66.0f / 42.0f;   // icone ingrandite dalla lente: proporzione fissa con quelle a riposo
     bool coloreAuto = true, fondoScuro = false;           // impostazione: colore del fondo (vedi impostaColore)
     D2D1_COLOR_F coloreFondo{};
+    DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
+    int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
+    int logoStart = 0;                // 0 Windows, 1 Apple
+    bool notch12Ore = false;
+    std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
     bool appbarOk = false;            // ... e registrato davvero presso Windows
 
@@ -1182,7 +1224,7 @@ private:
         SetLayeredWindowAttributes(v, 0, 255, LWA_ALPHA);
         MARGINS mg{-1, -1, -1, -1}; DwmExtendFrameIntoClientArea(v, &mg);
         BOOL scuro = temaScuro(); DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &scuro, sizeof(scuro));
-        int tipo = 3; DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &tipo, sizeof(tipo));
+        int tipo = materialeVetro; DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &tipo, sizeof(tipo));
         raggio::registra(v);   // angoli: quelli dell'impostazione "Angoli" (anche cambiandola dopo)
         BOOL niente = TRUE; DwmSetWindowAttribute(v, DWMWA_TRANSITIONS_FORCEDISABLED, &niente, sizeof(niente));
         return v;
@@ -2179,7 +2221,7 @@ private:
             }
             // testo disegnato a grandezza piena e rimpicciolito attorno al centro (pressione e icone piccole)
             dritto(cx, cy, s * k);
-            const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f);
+            const D2D1_COLOR_F ink = inchiostroUI(scuro, 0.92f);
             const float lt = larghezzaOra / 2 + 8 * dpi;
             pennello->SetColor(ink);
             dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {cx - lt, cy - h2 - 1 * dpi, cx + lt, cy + 1 * dpi}, pennello);
@@ -2671,7 +2713,7 @@ private:
         dc->FillRoundedRectangle({rr, 7 * dpi * raggio::fattore(), 7 * dpi * raggio::fattore()}, pennello);
         pennello->SetColor(D2D1::ColorF(0, 0, 0, 0.15f * a));
         dc->DrawRoundedRectangle({rr, 7 * dpi * raggio::fattore(), 7 * dpi * raggio::fattore()}, pennello, 1.0f);
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, a) : D2D1::ColorF(0.1f, 0.1f, 0.1f, a));
+        pennello->SetColor(inchiostroUI(scuro, a));
         lay->SetMaxWidth(lw); lay->SetMaxHeight(lh);
         dc->DrawTextLayout({rr.left, rr.top}, lay, pennello);
         piano();
@@ -2708,7 +2750,7 @@ private:
         aggiornaVetro(vetroOra, rettVetroOra, pillolaOra.left, top, pillolaOra.right, bottom);
 
         bool movimento = false;
-        const D2D1_COLOR_F inchiostro = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f);
+        const D2D1_COLOR_F inchiostro = inchiostroUI(scuro, 0.92f);
         for (int i = 0; i < N_STATO; i++) {
             const double e = verso(evidenza[i], (i == statoSopra && mouseDentro) ? 1.0 : 0.0, 0.05);
             if (e != evidenza[i]) movimento = true;
