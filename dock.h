@@ -978,7 +978,6 @@ public:
             if (decodificatore) decodificatore->Release();
             if (fabbrica) fabbrica->Release();
         }
-        logoStart = fileIconaStart.empty() ? 0 : 2;
         dirty = true;
     }
     D2D1_COLOR_F coloreMedia(DWORD scelto, D2D1_COLOR_F automatico, float a) const {
@@ -996,6 +995,8 @@ public:
                             c1.b + (c2.b - c1.b) * t, a);
     }
     void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
+    void impostaEffettoNotch(int tipo) { notch.impostaEffetto(tipo); }
+    void impostaDimensioneNotch(int percento) { notch.impostaDimensione(percento); }
     void impostaOraNotch12(bool si) {
         if (si == notch12Ore) return;
         notch12Ore = si; aggiornaStato(true);
