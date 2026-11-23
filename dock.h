@@ -2899,7 +2899,7 @@ private:
             if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM", L"dddd, MMMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
         }
         if (notch12Ore) {
-            if (!GetTimeFormatEx(loc, TIME_FORCEHOUR12, &st, L"h:mm tt", oraNotch, 96))
+            if (!GetTimeFormatEx(loc, 0, &st, L"h:mm tt", oraNotch, 96))
                 swprintf(oraNotch, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12, st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
         } else swprintf(oraNotch, 96, L"%02d:%02d", st.wHour, st.wMinute);
         if (testoOraNotch != oraNotch || testoNotch != giornoPrima) {
