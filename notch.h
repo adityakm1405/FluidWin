@@ -133,6 +133,7 @@ public:
     ~Notch() {
         if (fin) RevokeDragDrop(fin);
         svuotaScaffale();
+        misuratoreAudio.ferma();
         lettore.ferma();
         libera();
         for (IDWriteTextFormat* f : formati()) if (f) f->Release();
@@ -188,6 +189,14 @@ public:
     void impostaColoriMedia(DWORD pulsanti, DWORD vis1, DWORD vis2, bool gradiente) {
         if (colorePulsanti == pulsanti && coloreBarrette == vis1 && coloreBarretteFine == vis2 && barretteGradiente == gradiente) return;
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
+        if (visibile) ridisegna();
+    }
+    void impostaVisualizzatore(int stile, bool reattivo, int forza) {
+        stile = std::clamp(stile, 0, 3);
+        forza = std::clamp(forza, 50, 200);
+        if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo && forza == forzaVisualizzatore) return;
+        stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
+        aggiornaMisuratoreAudio();
         if (visibile) ridisegna();
     }
     bool attivo() const { return featureEnabled; }
@@ -249,7 +258,8 @@ public:
     void comandoMusica(int b) {
         if (b < 0 || b > 2) return;
         lettore.comando(b == 0 ? musica::Lettore::INDIETRO : b == 1 ? musica::Lettore::PLAY_PAUSA : musica::Lettore::AVANTI);
-        if (b == 1) brano.suona = !brano.suona;   // subito, senza aspettare la prossima lettura
+        if (b == 1) { iniziaTransizioneVisualizzatore(); brano.suona = !brano.suona; }   // subito, senza aspettare la prossima lettura
+        aggiornaMisuratoreAudio();
         // fra poco si rilegge lo stato vero anche se il lettore non ha cambiato versione: un comando rifiutato
         // lasciava il simbolo al contrario per sempre (R20261121-002056-S11)
         risincronizzaAlle = adesso() + 1.5;
@@ -320,6 +330,11 @@ private:
 
     HWND fin = nullptr;
     bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
+    MisuratoreAudio misuratoreAudio;
+    int stileVisualizzatore = 0, forzaVisualizzatore = 100;
+    bool visualizzatoreReattivo = true;
+    float visualizzatoreDa = 0.0f;
+    double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
@@ -391,6 +406,22 @@ private:
     std::vector<IDWriteTextFormat*> formati() const { return {fOra, fGiorno, fTitolo, fPiccolo, fTesto, fNumero, fGrande}; }
 
     static double adesso() { return vetro::secondi(); }
+
+    float fattoreVisualizzatore() const {
+        const float obiettivo = brano.c && brano.suona ? 1.0f : 0.0f;
+        if (tVisualizzatore < 0) return obiettivo;
+        const float p = (float)std::clamp((adesso() - tVisualizzatore) / 0.28, 0.0, 1.0);
+        const float e = p * p * (3.0f - 2.0f * p);
+        return visualizzatoreDa + (obiettivo - visualizzatoreDa) * e;
+    }
+    void iniziaTransizioneVisualizzatore() {
+        visualizzatoreDa = fattoreVisualizzatore();
+        tVisualizzatore = adesso();
+    }
+    void aggiornaMisuratoreAudio() {
+        if (visibile && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
+        else misuratoreAudio.ferma();
+    }
 
     void visibilita() {
         const bool si = acceso && featureEnabled && modoAtt != NASCOSTO && fin;   // auto-hide e spegnimento completo sono indipendenti
