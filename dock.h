@@ -1302,7 +1302,7 @@ private:
         SetLayeredWindowAttributes(v, 0, 255, LWA_ALPHA);
         MARGINS mg{-1, -1, -1, -1}; DwmExtendFrameIntoClientArea(v, &mg);
         BOOL scuro = temaScuro(); DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &scuro, sizeof(scuro));
-        int tipo = materialeVetro; DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &tipo, sizeof(tipo));
+        vetro::applicaEffetto(v, materialeVetro);
         raggio::registra(v);   // angoli: quelli dell'impostazione "Angoli" (anche cambiandola dopo)
         BOOL niente = TRUE; DwmSetWindowAttribute(v, DWMWA_TRANSITIONS_FORCEDISABLED, &niente, sizeof(niente));
         return v;
