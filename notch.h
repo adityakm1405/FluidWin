@@ -90,6 +90,8 @@ public:
     void testi(const std::wstring& ora, const std::wstring& giorno) {
         if (ora == testoOra && giorno == testoGiorno) return;
         testoOra = ora; testoGiorno = giorno;
+        // A notch disattivato resta senza rendering; le stringhe vengono memorizzate e misurate alla riattivazione.
+        if (!visibile) return;
         misuraOra(); bersagli(); ridisegna();
     }
 
@@ -307,7 +309,7 @@ private:
         if (si) {
             KillTimer(fin, 2); SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
             sincronizzaSegni();   // (cambiati mentre era nascosto: controlla non girava)
-            bersagli(true); ridisegna();
+            misuraOra(); bersagli(true); ridisegna();
             ShowWindow(fin, SW_SHOWNOACTIVATE);
             SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         } else {
