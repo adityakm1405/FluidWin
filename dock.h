@@ -1041,13 +1041,11 @@ public:
     }
     void disegnaVisualizzatoreCapsula(float x, float cy, float d, D2D1_COLOR_F ink, float alfa, bool suona, double t) {
         const float forza = forzaVisualizzatore / 100.0f;
-        const float picco = visualizzatoreReattivo && suona
-            ? std::clamp(notch.livelloVisualizzatore() * 3.2f, 0.0f, 1.0f) : 0.0f;
         auto ampiezza = [&](int i, int n) {
-            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82);
-            if (!suona) return 0.12f;
-            const float base = visualizzatoreReattivo ? picco : onda;
-            return std::clamp(base * (0.28f + 0.72f * onda) * forza, 0.0f, 1.0f);
+            if (!suona) return 0.0f;
+            if (visualizzatoreReattivo)
+                return std::clamp(notch.bandaVisualizzatore(i, n) * forza, 0.0f, 1.0f);
+            return std::clamp((0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82)) * forza, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1060,7 +1058,8 @@ public:
             for (int i = 0; i < n; i++) {
                 const float u = i / (float)(n - 1), amp = ampiezza(i, n);
                 const float xx = x + u * 14 * d;
-                const float yy = cy + (float)std::sin(t * 4.0 + i * 0.92) * (1.0f + 4.8f * amp) * d;
+                const float pattern = visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 4.0 + i * 0.92);
+                const float yy = cy + pattern * (visualizzatoreReattivo && suona ? (1.0f + 5.0f * amp) : (1.0f + 4.8f * amp)) * d;
                 tinta(i, n);
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
@@ -1070,20 +1069,22 @@ public:
             for (int i = 0; i < n; i++) {
                 const float amp = ampiezza(i, n);
                 const float r = (0.85f + 1.1f * amp) * d;
-                const float yy = cy + (float)std::sin(t * 3.4 - i * 0.9) * amp * 1.5f * d;
+                const float yy = cy + (visualizzatoreReattivo && suona ? 0.0f : (float)std::sin(t * 3.4 - i * 0.9) * amp * 1.5f * d);
                 tinta(i, n);
                 dc->FillEllipse({{x + (i + 0.5f) * (14.0f / n) * d, yy}, r, r}, pennello);
             }
-        } else if (stileVisualizzatore == 4) {   // Circle
+        } else if (stileVisualizzatore == 4) {   // Circle: ring of dots with outward bars
             const int n = 8;
-            const float r = 4.1f * d;
+            const float cx = x + 7.0f * d, r = 3.2f * d, dot = 0.75f * d;
             for (int i = 0; i < n; i++) {
                 const float amp = ampiezza(i, n);
-                const float fase = t * 2.4f + i * (float)(2.0 * M_PI / n);
-                const float rr = r + 0.3f * amp * d, dot = (0.75f + 0.9f * amp) * d;
+                const float ang = (float)(-M_PI / 2.0 + i * 2.0 * M_PI / n);
+                const float bx = cx + std::cos(ang) * r, by = cy + std::sin(ang) * r;
+                const float ext = (visualizzatoreReattivo && suona ? (1.0f + 4.5f * amp) : (1.5f + 2.5f * amp)) * d;
                 tinta(i, n);
-                dc->FillEllipse({{x + 7 * d + std::cos(fase) * rr,
-                                  cy + std::sin(fase) * rr}, dot, dot}, pennello);
+                dc->FillEllipse({{bx, by}, dot, dot}, pennello);
+                dc->DrawLine({bx + std::cos(ang) * dot * 1.5f, by + std::sin(ang) * dot * 1.5f},
+                            {bx + std::cos(ang) * (dot * 1.5f + ext), by + std::sin(ang) * (dot * 1.5f + ext)}, pennello, 1.1f * d);
             }
         } else {   // Bars / Mirror
             const int n = 4;
