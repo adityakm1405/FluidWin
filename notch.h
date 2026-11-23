@@ -1658,7 +1658,7 @@ private:
                 const float amp = ampiezza(i, n);
                 const float xx = x + u * largo;
                 const float forma = audioReale ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 4.0 + i * 0.92);
-                const float yy = cy + forma * (audioReale ? (1.0f + 5.2f * amp) : (1.0f + 5.2f * amp) * d * mix);
+                const float yy = cy + forma * (1.0f + 5.2f * amp) * d * mix;
                 tinta(i, n);
                 if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.45f * d);
                 px = xx; py = yy;
