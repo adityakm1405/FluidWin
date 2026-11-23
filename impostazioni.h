@@ -583,7 +583,7 @@ private:
         {L"Altezza separatori", L"Separator height", L"Altezza delle linee fra i gruppi di icone", L"Height of the lines between icon groups",
          L" %", &Valori::dockSeparatoreAltezza, 20, 100, 5, S_DOCK_ASPETTO},
         {L"Visibilita' separatori", L"Separator visibility", L"Opacita' delle linee fra i gruppi di icone", L"Opacity of the lines between icon groups",
-         L" %", &Valori::dockSeparatoreOpacita, 0, 100, 5, S_DOCK_ASPETTO},
+         L" %", &Valori::dockSeparatoreOpacita, 0, 100, 1, S_DOCK_ASPETTO},
         {L"Spessore separatori", L"Separator thickness", L"Spessore delle linee in pixel", L"Line thickness in pixels",
          L" px", &Valori::dockSeparatoreSpessore, 1, 4, 1, S_DOCK_ASPETTO},
         {L"Dimensione notch", L"Notch size", L"Scala indipendente dalla dimensione delle icone", L"Scale independent from dock icon size",
