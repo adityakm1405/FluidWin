@@ -212,6 +212,7 @@ public:
         acceso = si;
         if (si) lettore.avvia();
         visibilita();
+        aggiornaMisuratoreAudio();
     }
 
     // schermo intero: NORMALE, NASCOSTO (qualsiasi app a schermo intero: video, presentazioni, giochi)
@@ -432,9 +433,11 @@ private:
                 if (poll && !pollingMedia) { SetTimer(fin, 2, 500, nullptr); pollingMedia = true; }
                 else if (!poll && pollingMedia) { KillTimer(fin, 2); pollingMedia = false; }
             }
+            aggiornaMisuratoreAudio();
             return;
         }
         visibile = si;
+        aggiornaMisuratoreAudio();
         if (si) {
             KillTimer(fin, 2); pollingMedia = false;
             SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
@@ -618,13 +621,14 @@ private:
                 if (risincronizzaAlle > 0 && t >= risincronizzaAlle) {
                     risincronizzaAlle = 0;
                     const bool vero = lettore.stato().suona;
-                    if (vero != brano.suona) brano.suona = vero;
+                    if (vero != brano.suona) { iniziaTransizioneVisualizzatore(); brano.suona = vero; }
                 }
                 const UINT versione = lettore.versione();
                 if (versione != versioneBrano) {
                     versioneBrano = versione;
                     musica::Brano b = lettore.stato();
                     if (b.versione != brano.versione || b.copertina.size() != brano.copertina.size()) copertinaNuova = true;
+                    if ((b.c && b.suona) != (brano.c && brano.suona)) iniziaTransizioneVisualizzatore();
                     brano = std::move(b);
                 }
             }
@@ -637,15 +641,17 @@ private:
         if (risincronizzaAlle > 0 && t >= risincronizzaAlle) {
             risincronizzaAlle = 0;
             const bool vero = lettore.stato().suona;
-            if (vero != brano.suona) { brano.suona = vero; ridisegnare = true; }
+            if (vero != brano.suona) { iniziaTransizioneVisualizzatore(); brano.suona = vero; ridisegnare = true; }
         }
         if (v != versioneBrano) {
             versioneBrano = v;
             musica::Brano b = lettore.stato();
             if (b.versione != brano.versione || b.copertina.size() != brano.copertina.size()) copertinaNuova = true;
+            if ((b.c && b.suona) != (brano.c && brano.suona)) iniziaTransizioneVisualizzatore();
             brano = std::move(b);
             ridisegnare = true;
         }
+        aggiornaMisuratoreAudio();
         // timer: si ridisegna a ogni secondo che cambia; suona: a ogni giro (il cerchio pulsa)
         if (comodita::timerAttivo()) {
             const ULONGLONG sec = (comodita::timerResto() + 999) / 1000;
@@ -695,8 +701,8 @@ private:
         bersagli();
         if (scena != prima) ridisegnare = false;   // ci pensa l'animazione
         if (ridisegnare && !animando) ridisegna();
-        // le barrette della musica si muovono: si ridisegna solo il loro rettangolino (tutto il notch costava ~3% di CPU)
-        else if (brano.suona && scena == MUSICA && !animando && salita() < 0.5) ridisegnaBarrette();
+        // Il visualizzatore e la transizione col separatore si aggiornano nella sola zona centrale.
+        else if ((brano.suona || fattoreVisualizzatore() > 0.001f) && scena == MUSICA && !animando && salita() < 0.5) ridisegnaBarrette();
         // ogni 2 s di nuovo in cima (un'app sempre in primo piano aperta dopo poteva coprirlo)
         if (GetTickCount64() - tCima > 2000) { tCima = GetTickCount64(); SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
     }
@@ -847,7 +853,7 @@ private:
         largoOra = std::round(std::max(210 * dpi, 2 * std::max(latoOra, latoData) + 36 * dpi));
     }
     float spazioOra() const { return std::round(7 * dpi); }
-    float larghezzaSeparatoreOra() const { return std::round(15 * dpi); }
+    float larghezzaSeparatoreOra() const { return std::round(21 * dpi); }
     float larghezzaBloccoOra() const { return lo + 2 * spazioOra() + larghezzaSeparatoreOra() + lg; }
 
     static float larghezza(const std::wstring& s, IDWriteTextFormat* f) {
@@ -1098,7 +1104,7 @@ private:
             rt->DrawGeometry(g, pen, 0.8f * dpi);
         }
         rt->SetTransform(D2D1::Matrix3x2F::Identity());
-        barrette(o.x, o.y, larghezzaSeparatoreOra(), 1);
+        separatore(o.x, o.y, larghezzaSeparatoreOra(), 1, fattoreVisualizzatore());
         rt->PopAxisAlignedClip();
         g->Release();
         if (rt->EndDraw() == (HRESULT)D2DERR_RECREATE_TARGET) { libera(); return; }
@@ -1154,7 +1160,7 @@ private:
         if (s == ORA || s == MUSICA || s == TIMER) { puntiSensori(s, h, a); segni(s == ORA && !scaffale.empty(), h, a); }
         switch (s) {
             case ORA:
-                ora(L, w, h, a);
+                ora(L, w, h, a, true);
                 if (!scaffale.empty()) segnoScaffale(L + 18 * d, h / 2, a);
                 break;
             case AVVISO: {
@@ -1238,17 +1244,11 @@ private:
         float altoOra = 0, altoGiorno = 0;
         const float bOra = lineaBase(fOra, testoOra, altoOra), bGiorno = lineaBase(fGiorno, testoGiorno, altoGiorno);
         const float yOra = std::round((h - altoOra) / 2), baseOra = yOra + bOra;
-        const float yGiorno = std::round(baseOra - bGiorno + 1.0f * dpi);   // piccolo compenso ottico: la data non sembra piu' sollevata
+        const float yGiorno = std::round(baseOra - bGiorno - 1.5f * dpi);   // compenso ottico: alza la data per allinearla all'ora
         const float xg = std::round(xs + sep + spazio);
         scrivi(testoOra, fOra, {xt, yOra, xt + lo + 3 * dpi, yOra + altoOra}, a);
         scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.98f * a);
-        if (visualizzatore && brano.suona) {
-            barrette(xs, h / 2, sep, a);
-        } else {
-            const float x = xs + sep / 2;
-            colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.72f * a);
-            rt->DrawLine({x, h / 2 - 4.5f * dpi}, {x, h / 2 + 4.5f * dpi}, pen, 1.3f * dpi);
-        }
+        separatore(xs, h / 2, sep, a, visualizzatore ? fattoreVisualizzatore() : 0.0f);
     }
 
     void lunetta(float cx, float cy, float a) {
