@@ -395,13 +395,13 @@ inline auto Motore::renderPannello() -> bool {
         if (x >= 1) { tVista = -1; vistaPrima = P_NESSUNO; } else pAnimazione = true;
     }
 
-    const bool scuro = temaScuro();
-    const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.88f);
+    const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
+    const D2D1_COLOR_F ink = inchiostroUI(scuro, 0.92f);
     dc->SetTarget(bersaglioP);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
     const float hv = (float)phVis;
-    disegnaFondo({0.5f, 0.5f, PW - 0.5f, hv - 0.5f}, scuro);
+    disegnaFondo({0.5f, 0.5f, PW - 0.5f, hv - 0.5f}, scuro, opacita, coloreAuto ? nullptr : &coloreFondo);
     elementi.clear();
     dc->PushAxisAlignedClip({0, 0, PW, hv}, D2D1_ANTIALIAS_MODE_ALIASED);
     if (tVista < 0) disegnaVista(pannelloTipo, PH, scuro, ink, D2D1::Matrix3x2F::Identity());
@@ -2150,8 +2150,11 @@ inline auto Motore::luminositaDaMouse(float x) -> void {
 
 // tema cambiato (dal centro di controllo o dalle Impostazioni): i vetri seguono il chiaro/scuro
 inline auto Motore::aggiornaTemaVetri() -> void {
-    BOOL s = temaScuro(true);
-    for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+    BOOL s = coloreAuto ? temaScuro(true) : fondoScuro;
+    for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) {
+        DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+        DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &materialeVetro, sizeof(materialeVetro));
+    }
     dirty = true; pDirty = true; altra.pDirty = true; lDirty = true;
 }
 
