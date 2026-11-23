@@ -396,7 +396,7 @@ inline auto Motore::renderPannello() -> bool {
     }
 
     const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
-    const D2D1_COLOR_F ink = inchiostroUI(scuro, 0.92f);
+    const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
     dc->SetTarget(bersaglioP);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
