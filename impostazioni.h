@@ -518,7 +518,7 @@ private:
          L" px", &Valori::dockIcone, ICONE_MIN, ICONE_MAX, ICONE_PASSO, S_DOCK},
         {L"Distanza fra le icone", L"Space between icons", L"Anche i separatori seguono", L"Separators follow too",
          L" px", &Valori::dockDistanza, DISTANZA_MIN, DISTANZA_MAX, DISTANZA_PASSO, S_DOCK},
-        {L"Opacità", L"Opacity", L"Il vetro del dock; le icone restano piene", L"The dock's glass; icons stay solid",
+        {L"Opacità", L"Opacity", L"Il vetro di dock e centro di controllo; le icone restano piene", L"Dock and Control Center glass; icons stay solid",
          L"%", &Valori::dockOpacita, OPACITA_MIN, 100, OPACITA_PASSO, S_DOCK},
     };
     static constexpr int Z_CURSORE = 500;
