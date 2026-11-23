@@ -206,14 +206,17 @@ public:
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
         if (visibile) ridisegna();
     }
-    void impostaVisualizzatore(int stile, bool reattivo, int forza) {
-        stile = std::clamp(stile, 0, 3);
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, bool capsulaAttiva = false) {
+        stile = std::clamp(stile, 0, 4);
         forza = std::clamp(forza, 50, 200);
-        if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo && forza == forzaVisualizzatore) return;
+        if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo &&
+            forza == forzaVisualizzatore && capsulaAttiva == capsulaAttivaAudio) return;
         stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
+        capsulaAttivaAudio = capsulaAttiva;
         aggiornaMisuratoreAudio();
         if (visibile) ridisegna();
     }
+    float livelloVisualizzatore() const { return misuratoreAudio.livello(); }
     bool attivo() const { return featureEnabled; }
 
     // schermo su cui sta (in alto al centro) e scala del dock
@@ -348,7 +351,7 @@ private:
     bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
     MisuratoreAudio misuratoreAudio;
     int stileVisualizzatore = 0, forzaVisualizzatore = 100;
-    bool visualizzatoreReattivo = true;
+    bool visualizzatoreReattivo = true, capsulaAttivaAudio = false;
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
@@ -435,7 +438,7 @@ private:
         tVisualizzatore = adesso();
     }
     void aggiornaMisuratoreAudio() {
-        if (visibile && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
+        if ((visibile || capsulaAttivaAudio) && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
         else misuratoreAudio.ferma();
     }
 
@@ -867,8 +870,8 @@ private:
         const float latoData = lg + spazioOra() + mezzoSep;
         largoOra = std::round(std::max(210 * dpi, 2 * std::max(latoOra, latoData) + 36 * dpi));
     }
-    float spazioOra() const { return std::round(7 * dpi); }
-    float larghezzaSeparatoreOra() const { return std::round(21 * dpi); }
+    float spazioOra() const { return std::round(10 * dpi); }
+    float larghezzaSeparatoreOra() const { return std::round(25 * dpi); }
     float larghezzaBloccoOra() const { return lo + 2 * spazioOra() + larghezzaSeparatoreOra() + lg; }
 
     static float larghezza(const std::wstring& s, IDWriteTextFormat* f) {
@@ -1657,6 +1660,20 @@ private:
                 const float yy = cy + (float)std::sin(t * 3.4 - i * 0.9) * amp * 2.0f * d * mix;
                 tinta(i, n);
                 rt->FillEllipse({{x + i * passo, yy}, raggio, raggio}, pen);
+            }
+            return;
+        }
+        if (stileVisualizzatore == 4) {   // Circle: otto punti che formano un anello pulsante
+            const int n = 8;
+            const float r = 4.5f * d;
+            for (int i = 0; i < n; i++) {
+                const float amp = ampiezza(i, n);
+                const float fase = t * 2.4f + i * (float)(2.0 * M_PI / n);
+                const float rr = r + 0.35f * amp * d;
+                const float dot = (0.72f + 0.95f * amp) * d * (0.45f + 0.55f * mix);
+                tinta(i, n);
+                rt->FillEllipse({{x + largo / 2 + std::cos(fase) * rr,
+                                  cy + std::sin(fase) * rr}, dot, dot}, pen);
             }
             return;
         }
