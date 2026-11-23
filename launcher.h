@@ -703,23 +703,40 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
     const float d = r.right - r.left;
     const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
 
-    if (logoStart == 1) {
-        // Apple monocromatico, disegnato con primitive Direct2D sullo stesso target del dock.
-        // Nessuna bitmap o risorsa persistente per singolo fotogramma.
-        pennello->SetColor(inchiostroUI(scuro, alfa));
-        dc->FillEllipse({{cx - d * 0.11f, cy + d * 0.07f}, d * 0.19f, d * 0.24f}, pennello);
-        dc->FillEllipse({{cx + d * 0.11f, cy + d * 0.07f}, d * 0.19f, d * 0.24f}, pennello);
-        dc->FillEllipse({{cx, cy + d * 0.17f}, d * 0.27f, d * 0.19f}, pennello);
-        D2D1_MATRIX_3X2_F precedente{};
-        dc->GetTransform(&precedente);
-        dc->SetTransform(D2D1::Matrix3x2F::Rotation(-38.0f, {cx + d * 0.10f, cy - d * 0.18f}) * precedente);
-        dc->FillEllipse({{cx + d * 0.10f, cy - d * 0.18f}, d * 0.075f, d * 0.13f}, pennello);
-        dc->SetTransform(precedente);
+    if (logoStart == 2 && iconaStartPersonale) {
+        // Bitmap personale decodificata una sola volta al cambio dell'impostazione, mai durante il frame.
+        const D2D1_RECT_F icona = {r.left + d * 0.055f, r.top + d * 0.055f, r.right - d * 0.055f, r.bottom - d * 0.055f};
+        dc->DrawBitmap(iconaStartPersonale, icona, alfa, D2D1_BITMAP_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
         return;
     }
 
-    // Simbolo Windows 11 disegnato direttamente, come sulla taskbar: nessuna piastrella di fondo.
-    const float lato = d * 0.56f, fessura = d * 0.035f, q = (lato - fessura) * 0.5f;
+    if (logoStart == 1) {
+        // Icona macOS Dock: base lucida con app affiancate e cestino, non il logo Apple.
+        const D2D1_RECT_F base = {cx - d * 0.44f, cy - d * 0.31f, cx + d * 0.44f, cy + d * 0.31f};
+        pennello->SetColor(D2D1::ColorF(0.42f, 0.48f, 0.58f, 0.66f * alfa));
+        dc->FillRoundedRectangle({base, d * 0.15f, d * 0.15f}, pennello);
+        pennello->SetColor(D2D1::ColorF(1, 1, 1, 0.55f * alfa));
+        dc->DrawRoundedRectangle({{base.left + 0.5f, base.top + 0.5f, base.right - 0.5f, base.bottom - 0.5f}, d * 0.15f, d * 0.15f}, pennello, 1.0f);
+        const D2D1_COLOR_F colori[4] = {
+            D2D1::ColorF(0.23f, 0.64f, 0.98f, alfa), D2D1::ColorF(0.95f, 0.42f, 0.34f, alfa),
+            D2D1::ColorF(0.29f, 0.78f, 0.50f, alfa), D2D1::ColorF(0.72f, 0.49f, 0.94f, alfa)
+        };
+        const float latoApp = d * 0.23f, passo = d * 0.25f;
+        for (int i = 0; i < 4; i++) {
+            const float x = cx - d * 0.34f + i * passo;
+            const D2D1_RECT_F app = {x, cy - latoApp * 0.45f, x + latoApp, cy + latoApp * 0.45f};
+            pennello->SetColor(colori[i]);
+            dc->FillRoundedRectangle({app, d * 0.035f, d * 0.035f}, pennello);
+        }
+        // separatore e cestino in miniatura, come la coda del Dock macOS
+        pennello->SetColor(D2D1::ColorF(1, 1, 1, 0.42f * alfa));
+        dc->DrawLine({cx + d * 0.24f, cy - d * 0.20f}, {cx + d * 0.24f, cy + d * 0.20f}, pennello, 0.8f * d);
+        dc->DrawRoundedRectangle({{cx + d * 0.29f, cy - d * 0.10f, cx + d * 0.39f, cy + d * 0.17f}, d * 0.025f, d * 0.025f}, pennello, 1.0f * d);
+        return;
+    }
+
+    // Simbolo Windows 11 alla stessa scala visiva delle icone applicazione, senza piastrella.
+    const float lato = d * 0.86f, fessura = d * 0.045f, q = (lato - fessura) * 0.5f;
     const float x0 = cx - lato * 0.5f, y0 = cy - lato * 0.5f;
     const D2D1_GRADIENT_STOP fermate[2] = {
         {0, D2D1::ColorF(0.33f, 0.80f, 1.00f, alfa)},
