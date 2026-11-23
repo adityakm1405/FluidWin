@@ -985,6 +985,69 @@ private:
             v.testo(testo, fSotto, {r.left + 16 * d, r.top + 28 * d, r.right - 16 * d - spazio, r.top + 48 * d}, tenueS);
             y += 60 * d;
         };
+        auto palette = [&](const std::wstring& titolo, const std::wstring& dettaglio, DWORD scelto, int base) {
+            const D2D1_RECT_F r = {L, y, R, y + 54 * d};
+            riquadro(r, false);
+            const float rc = 8 * d, passo = 24 * d, cy = (r.top + r.bottom) * 0.5f;
+            const float xInizio = r.right - 16 * d - rc - passo * (N_COLORI + 1);
+            v.testo(titolo, fVoce, {r.left + 16 * d, r.top + 7 * d, xInizio - 10 * d, r.top + 29 * d}, inkS);
+            v.testo(dettaglio, fSotto, {r.left + 16 * d, r.top + 28 * d, xInizio - 10 * d, r.top + 48 * d}, tenueS);
+            bool colorePronto = false;
+            for (int k = 0; k < N_COLORI; k++) if (scelto == (COLORE_SCELTO | COLORI[k])) colorePronto = true;
+            for (int k = 0; k <= N_COLORI + 1; k++) {
+                const int id = base + k;
+                const float cx = xInizio + passo * k;
+                const D2D1_ELLIPSE el = {{cx, cy}, rc, rc};
+                zone.push_back({{cx - passo * 0.5f, r.top, cx + passo * 0.5f, r.bottom}, id});
+                const bool attivo = k == 0 ? !(scelto & COLORE_SCELTO)
+                    : k <= N_COLORI ? scelto == (COLORE_SCELTO | COLORI[k - 1])
+                                    : ((scelto & COLORE_SCELTO) && !colorePronto);
+                if (k == 0) {
+                    v.pen->SetColor(D2D1::ColorF(0.96f, 0.96f, 0.97f, (float)e)); v.rt->FillEllipse(el, v.pen);
+                    v.pen->SetColor(D2D1::ColorF(0.17f, 0.17f, 0.18f, (float)e));
+                    v.rt->PushAxisAlignedClip({cx, cy - rc, cx + rc, cy + rc}, D2D1_ANTIALIAS_MODE_ALIASED);
+                    v.rt->FillEllipse(el, v.pen); v.rt->PopAxisAlignedClip();
+                } else if (k <= N_COLORI) {
+                    v.pen->SetColor(colore(COLORI[k - 1], (float)e)); v.rt->FillEllipse(el, v.pen);
+                } else if (attivo) {
+                    v.pen->SetColor(colore(scelto, (float)e)); v.rt->FillEllipse(el, v.pen);
+                } else {
+                    v.pen->SetColor(tenueS); v.rt->DrawEllipse(el, v.pen, 1.4f * d);
+                    v.rt->DrawLine({cx - 4.5f * d, cy}, {cx + 4.5f * d, cy}, v.pen, 1.6f * d);
+                    v.rt->DrawLine({cx, cy - 4.5f * d}, {cx, cy + 4.5f * d}, v.pen, 1.6f * d);
+                }
+                v.pen->SetColor(D2D1::ColorF(0, 0, 0, 0.15f * (float)e)); v.rt->DrawEllipse(el, v.pen, 1.0f);
+                if (attivo || sopra == id) {
+                    v.pen->SetColor(attivo ? D2D1::ColorF(blu.r, blu.g, blu.b, (float)e) : tenueS);
+                    v.rt->DrawEllipse({{cx, cy}, rc + 3.0f * d, rc + 3.0f * d}, v.pen, 1.8f * d);
+                }
+            }
+            y += 60 * d;
+        };
+        auto selettore = [&](const std::wstring& titolo, const std::wstring& dettaglio, const wchar_t* const* nomi,
+                             int quanti, int scelto, int base) {
+            const D2D1_RECT_F ra = {L, y, R, y + 64 * d};
+            riquadro(ra, false);
+            v.testo(titolo, fVoce, {ra.left + 16 * d, ra.top + 5 * d, ra.left + 176 * d, ra.top + 29 * d}, inkS);
+            v.testo(dettaglio, fSotto, {ra.left + 16 * d, ra.top + 29 * d, ra.left + 176 * d, ra.bottom - 5 * d}, tenueS);
+            const float x0 = ra.left + 184 * d, larg = ra.right - 16 * d - x0, h = 34 * d, yl = ra.top + 15 * d;
+            v.pen->SetColor(v.scuro ? D2D1::ColorF(1, 1, 1, 0.08f * (float)e) : D2D1::ColorF(0, 0, 0, 0.06f * (float)e));
+            v.rt->FillRoundedRectangle({{x0, yl, x0 + larg, yl + h}, h / 2, h / 2}, v.pen);
+            for (int i = 0; i < quanti; i++) {
+                const D2D1_RECT_F r = {x0 + larg * i / quanti + 3 * d, yl + 3 * d,
+                                       x0 + larg * (i + 1) / quanti - 3 * d, yl + h - 3 * d};
+                zone.push_back({r, base + i});
+                if (scelto == i) {
+                    v.pen->SetColor(v.scuro ? D2D1::ColorF(1, 1, 1, 0.22f * (float)e) : D2D1::ColorF(1, 1, 1, 0.95f * (float)e));
+                    v.rt->FillRoundedRectangle({r, (h - 6 * d) / 2, (h - 6 * d) / 2}, v.pen);
+                } else if (sopra == base + i) {
+                    v.pen->SetColor(v.scuro ? D2D1::ColorF(1, 1, 1, 0.06f) : D2D1::ColorF(0, 0, 0, 0.04f));
+                    v.rt->FillRoundedRectangle({r, (h - 6 * d) / 2, (h - 6 * d) / 2}, v.pen);
+                }
+                v.testo(nomi[i], fCentro, r, inkS);
+            }
+            y += 70 * d;
+        };
         for (size_t i = 0; i < voci.size(); i++) {
             if (voci[i].sezione != sezione) continue;
             const D2D1_RECT_F r = {L, y, R, y + 54 * d};
@@ -1205,47 +1268,19 @@ private:
                 }
                 y += 70 * d;
             }
-            // colore del dock: automatico (meta' chiaro e meta' scuro), i colori pronti, e "+" per sceglierne uno
-            const D2D1_RECT_F r = {L, y, R, y + 54 * d};
-            riquadro(r, false);
-            const float rc = 10 * d, passo = 28 * d, cy = (r.top + r.bottom) / 2;
-            const float xFine = r.right - 16 * d - rc, xInizio = xFine - passo * (N_COLORI + 1);
-            v.testo(testi::t(L"Colore", L"Color"), fVoce, {r.left + 16 * d, r.top + 7 * d, xInizio - 16 * d, r.top + 29 * d}, inkS);
-            v.testo(testi::t(L"Del vetro del dock", L"Of the dock's glass"), fSotto, {r.left + 16 * d, r.top + 28 * d, xInizio - 16 * d, r.top + 48 * d}, tenueS);
-            const DWORD scelto = valori().dockColore;
-            bool pronto = false;
-            for (int k = 0; k < N_COLORI; k++) if (scelto == (COLORE_SCELTO | COLORI[k])) pronto = true;
-            for (int k = 0; k <= N_COLORI + 1; k++) {
-                const int id = Z_COLORE + k;
-                const float cx = xInizio + passo * k;
-                const D2D1_ELLIPSE el = {{cx, cy}, rc, rc};
-                aggiungiZona({cx - passo / 2, r.top, cx + passo / 2, r.bottom}, id);
-                const bool attivo = k == 0 ? !(scelto & COLORE_SCELTO)
-                                  : k <= N_COLORI ? scelto == (COLORE_SCELTO | COLORI[k - 1])
-                                                  : ((scelto & COLORE_SCELTO) && !pronto);
-                if (k == 0) {   // automatico: meta' chiaro e meta' scuro
-                    v.pen->SetColor(D2D1::ColorF(0.96f, 0.96f, 0.97f, (float)e)); v.rt->FillEllipse(el, v.pen);
-                    v.pen->SetColor(D2D1::ColorF(0.17f, 0.17f, 0.18f, (float)e));
-                    v.rt->PushAxisAlignedClip({cx, cy - rc, cx + rc, cy + rc}, D2D1_ANTIALIAS_MODE_ALIASED);
-                    v.rt->FillEllipse(el, v.pen); v.rt->PopAxisAlignedClip();
-                } else if (k <= N_COLORI) {
-                    v.pen->SetColor(colore(COLORI[k - 1], (float)e)); v.rt->FillEllipse(el, v.pen);
-                } else {        // il proprio: il colore scelto, oppure un "+"
-                    if (attivo) { v.pen->SetColor(colore(scelto, (float)e)); v.rt->FillEllipse(el, v.pen); }
-                    else {
-                        v.pen->SetColor(tenueS); v.rt->DrawEllipse(el, v.pen, 1.4f * d);
-                        v.rt->DrawLine({cx - 4.5f * d, cy}, {cx + 4.5f * d, cy}, v.pen, 1.6f * d);
-                        v.rt->DrawLine({cx, cy - 4.5f * d}, {cx, cy + 4.5f * d}, v.pen, 1.6f * d);
-                    }
-                }
-                // bordo sottile (i colori chiari si vedono anche sul riquadro chiaro), anello blu su quello scelto
-                v.pen->SetColor(D2D1::ColorF(0, 0, 0, 0.15f * (float)e)); v.rt->DrawEllipse(el, v.pen, 1.0f);
-                if (attivo || sopra == id) {
-                    v.pen->SetColor(attivo ? D2D1::ColorF(blu.r, blu.g, blu.b, (float)e) : tenueS);
-                    v.rt->DrawEllipse({{cx, cy}, rc + 3.5f * d, rc + 3.5f * d}, v.pen, 2.0f * d);
-                }
-            }
-            y += 60 * d;
+            palette(testi::t(L"Colore del vetro", L"Glass color"),
+                    testi::t(L"Dock e centro di controllo", L"Dock and Control Center"), valori().dockColore, Z_COLORE);
+            palette(testi::t(L"Colore del testo", L"Text color"),
+                    testi::t(L"Dock e centro di controllo", L"Dock and Control Center text"), valori().dockTestoColore, Z_TESTO_DOCK);
+            const wchar_t* materiali[] = {L"Acrylic", L"Mica", L"Mica Alt", L"None"};
+            const int materialeScelto = valori().dockMateriale == 3 ? 0 : valori().dockMateriale == 2 ? 1 : valori().dockMateriale == 4 ? 2 : 3;
+            selettore(testi::t(L"Materiale", L"Backdrop material"),
+                      testi::t(L"Composto da Windows, senza blur software", L"Composed by Windows; no software blur"),
+                      materiali, 4, materialeScelto, Z_MATERIALE);
+            const wchar_t* loghi[] = {L"Windows", L"Apple"};
+            selettore(testi::t(L"Icona Start", L"Start icon"),
+                      testi::t(L"Logo senza riquadro bianco", L"Logo without the white tile"),
+                      loghi, 2, valori().dockLogoStart, Z_LOGO_START);
             if (nascDock.empty()) {
                 riga(testi::t(L"App nascoste dal dock", L"Hidden dock apps"),
                      testi::t(L"Nessuna. Clic destro su un'app aperta nel dock per nasconderla", L"None. Right-click an open app in the dock to hide it"));
@@ -1286,9 +1321,14 @@ private:
                 }
             }
         }
-        if (sezione == S_NOTCH)
+        if (sezione == S_NOTCH) {
+            palette(testi::t(L"Colore dello sfondo", L"Background color"),
+                    testi::t(L"Colore della capsula del notch", L"Notch capsule color"), valori().notchSfondo, Z_NOTCH_SFONDO);
+            palette(testi::t(L"Colore del testo", L"Text color"),
+                    testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
             riga(testi::t(L"Nel notch, sempre", L"Always in the notch"),
                  testi::t(L"Musica, timer, scaffale dei file, microfono e webcam, batteria e cuffie", L"Music, timer, file shelf, microphone and camera, battery and headphones"));
+        }
         if (sezione == S_TASTIERA) {
             riga(testi::t(L"Ctrl+Win+T", L"Ctrl+Win+T"), testi::t(L"Tiene la finestra attiva sempre in primo piano (di nuovo per toglierlo)", L"Keeps the active window always on top (again to undo)"));
             riga(testi::t(L"Maiusc+clic destro", L"Shift+right-click"), testi::t(L"Il menu di Windows, anche con il menu di FluidWin acceso", L"The Windows menu, even with the FluidWin menu on"));
