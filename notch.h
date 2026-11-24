@@ -1228,6 +1228,7 @@ private:
         if (scena != MUSICA && scena != TIMER) return false;
         float w, h, R; misura(scena, w, h, R);
         const float margine = puntiW() + segniW();
+        const float d = dpi;
         float L = sinistra(scena) + margine;
         w -= 2 * margine;
         if (scena == TIMER) {
