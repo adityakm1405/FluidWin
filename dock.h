@@ -2163,26 +2163,31 @@ private:
         misuratoOra = testoOra; misuratoOraOre = testoOraOre;
         misuratoOraMinuti = testoOraMinuti; misuratoOraMeridiem = testoOraMeridiem;
         if (verticale()) {
-            larghezzaOra = std::max({larghezzaTesto(testoOraOre, fmtOra),
-                                     larghezzaTesto(testoOraMinuti, fmtOra),
-                                     larghezzaTesto(testoOraMeridiem, fmtOra)});
+            // The vertical tile uses the large type only for the hour and minute.
+            // AM/PM is rendered separately with the small caption format.
+            larghezzaOra = std::max(larghezzaTesto(testoOraOre, fmtOra),
+                                     larghezzaTesto(testoOraMinuti, fmtOra));
         } else {
             larghezzaOra = larghezzaTesto(testoOra, fmtOra);
         }
     }
+    // Screen-aligned dimensions of the vertical clock tile (the dock canvas is rotated at the sides).
+    float larghezzaOrologioVerticale() const { return 68.0f * dpi; }
+    float altezzaOrologioVerticale() const { return (oraDodici ? 132.0f : 102.0f) * dpi; }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
-        const int righe = oraDodici ? 3 : 2;
-        const float estensione = verticale() ? (righe * 30.0f + 4.0f) * dpi * kOra()
+        const float estensione = verticale() ? altezzaOrologioVerticale() * kOra()
                                              : (larghezzaOra + 12.0f * dpi) * kOra();
         return GAP * 2 + 1 + estensione;
     }
     float scalaOra() const {
-        // Keep the clock text close to the resting icon size in both orientations.
+        // Clock size follows the dock icon size, while the tile keeps the reference proportions.
         return std::clamp(S / 42.0f, 0.75f, 1.55f);
     }
     float kOra() const {
-        return verticale() ? std::min(scalaOra(), (S - 4.0f * dpi) / std::max(1.0f, larghezzaOra))
+        return verticale() ? std::min(scalaOra(),
+                                      (larghezzaOrologioVerticale() - 10.0f * dpi) /
+                                      std::max(1.0f, larghezzaOra))
                            : scalaOra();
     }
 
@@ -2391,26 +2396,52 @@ private:
             pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f));
             dc->DrawLine({x0 + GAP + 0.5f, yb - S * 0.85f}, {x0 + GAP + 0.5f, yb - S * 0.15f}, pennello, 1.0f);
             const D2D1_RECT_F r = {x0 + GAP * 2 + 1, yb - S, x0 + coda, yb};
-            isola = {r.left, fondoT, r.right + PAD, fondoB};
-            rettStato[ORA] = r; rettStato[CONTROLLO] = {};
             const float press = statoPremuto == ORA ? 0.92f : 1.0f;
             const float k = kOra();
             const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+            const float metaLarghezza = verticale() ? larghezzaOrologioVerticale() / 2.0f : 0.0f;
+            isola = {r.left,
+                     verticale() ? std::min(fondoT, cy - metaLarghezza) : fondoT,
+                     r.right + PAD,
+                     verticale() ? std::max(fondoB, cy + metaLarghezza) : fondoB};
+            rettStato[ORA] = r; rettStato[CONTROLLO] = {};
             dritto(cx, cy, press * k);
             const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
-            pennello->SetColor(ink);
             if (verticale()) {
-                const int righe = oraDodici ? 3 : 2;
-                const float passo = 30.0f * dpi;
-                const float primoY = cy - (righe - 1) * passo / 2.0f;
-                const std::wstring* testiRighe[3] = {&testoOraOre, &testoOraMinuti, &testoOraMeridiem};
-                for (int j = 0; j < righe; ++j) {
-                    const float yy = primoY + j * passo;
-                    dc->DrawText(testiRighe[j]->c_str(), (UINT32)testiRighe[j]->size(), fmtOra,
-                                 {cx - larghezzaOra / 2 - 3 * dpi, yy - 16 * dpi,
-                                  cx + larghezzaOra / 2 + 3 * dpi, yy + 16 * dpi}, pennello);
+                // Match the reference tile: large hour, fine divider, large minute, compact mint AM/PM.
+                const float tileW = larghezzaOrologioVerticale();
+                const float tileH = altezzaOrologioVerticale();
+                const D2D1_RECT_F tile = {cx - tileW / 2.0f, cy - tileH / 2.0f,
+                                          cx + tileW / 2.0f, cy + tileH / 2.0f};
+                disegnaFondo(tile, scuro, 1.0f, coloreAuto ? nullptr : &coloreFondo);
+
+                const float inset = 5.0f * dpi;
+                const float yDivider = tile.top + (oraDodici ? 57.0f : 48.0f) * dpi;
+                pennello->SetColor(ink);
+                const D2D1_RECT_F areaOra = {tile.left + inset, tile.top + 5.0f * dpi,
+                                             tile.right - inset, yDivider - 4.0f * dpi};
+                dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
+
+                pennello->SetColor(scuro ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f)
+                                         : D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.20f));
+                dc->DrawLine({cx - 19.0f * dpi, yDivider}, {cx + 19.0f * dpi, yDivider}, pennello, 1.0f * dpi);
+
+                pennello->SetColor(ink);
+                const D2D1_RECT_F areaMinuti = {tile.left + inset,
+                                                yDivider + 5.0f * dpi,
+                                                tile.right - inset,
+                                                oraDodici ? tile.top + 106.0f * dpi : tile.bottom - 5.0f * dpi};
+                dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
+
+                if (oraDodici && !testoOraMeridiem.empty()) {
+                    pennello->SetColor(D2D1::ColorF(0.43f, 0.82f, 0.72f, 0.98f));
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 105.0f * dpi,
+                                                      tile.right - inset, tile.bottom - 3.0f * dpi};
+                    dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
+                                 fmtNome, areaMeridiem, pennello);
                 }
             } else {
+                pennello->SetColor(ink);
                 const float lt = larghezzaOra / 2 + 6 * dpi;
                 dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra,
                              {cx - lt, cy - 18 * dpi, cx + lt, cy + 18 * dpi}, pennello);
