@@ -64,7 +64,7 @@ struct Valori {
     int dockMateriale = 3;        // DWM: 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int dockLogoStart = 0;        // 0 Windows, 1 Apple
     int dockDownloadIconStyle = 0; // 0 Default, 1 Custom
-    int dockTrashIconStyle = 1;    // 0 Windows 10, 1 Windows 11, 2 macOS, 3 Custom
+    int dockTrashIconStyle = 0;    // 0 Windows 10 (default), 1 Windows 11, 2 macOS, 3 Custom
     bool dockSpazio = false;      // le finestre ingrandite si fermano sopra il dock (spazio riservato, come la barra di Windows)
     bool dockSchermi = true;      // il dock segue il mouse sul bordo in basso degli altri schermi (spento: resta sul principale)
     bool dockAnteprime = true;    // anteprime delle finestre col mouse fermo su un'icona del dock (issue #24)
@@ -194,8 +194,16 @@ inline void carica() {
     v.dockTrashIconPath = leggiTesto(L"DockTrashIconPath");
     { const DWORD stile = leggiDword(L"DockDownloadIconStyle", v.dockDownloadIconPath.empty() ? 0 : 1);
       v.dockDownloadIconStyle = stile <= 1 ? (int)stile : (v.dockDownloadIconPath.empty() ? 0 : 1); }
-    { const DWORD stile = leggiDword(L"DockTrashIconStyle", v.dockTrashIconPath.empty() ? 1 : 3);
-      v.dockTrashIconStyle = stile <= 3 ? (int)stile : (v.dockTrashIconPath.empty() ? 1 : 3); }
+    { const DWORD stile = leggiDword(L"DockTrashIconStyle", v.dockTrashIconPath.empty() ? 0 : 3);
+      v.dockTrashIconStyle = stile <= 3 ? (int)stile : (v.dockTrashIconPath.empty() ? 0 : 3); }
+    // One-time migration: the previous release defaulted to Windows 11. Move that old default to Windows 10.
+    if (leggiDword(L"DockTrashIconDefaultV2", 0) == 0) {
+        if (v.dockTrashIconPath.empty() && v.dockTrashIconStyle == 1) {
+            v.dockTrashIconStyle = 0;
+            scriviDword(L"DockTrashIconStyle", 0);
+        }
+        scriviDword(L"DockTrashIconDefaultV2", 1);
+    }
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     { const DWORD m = leggiDword(L"DockMateriale", 3); v.dockMateriale = (m >= 1 && m <= 7) ? (int)m : 3; }
@@ -950,7 +958,7 @@ private:
                 valori().dockDownloadIconStyle = 0;
             } else {
                 valori().dockTrashIconPath.clear();
-                valori().dockTrashIconStyle = 1;
+                valori().dockTrashIconStyle = 0;
             }
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
@@ -1526,27 +1534,23 @@ private:
             selettore(testi::t(L"Icona Download", L"Downloads icon"),
                       testi::t(L"Icona predefinita o immagine personale", L"Built-in icon or your own image"),
                       stiliDownload, 2, valori().dockDownloadIconStyle, Z_DOWNLOAD_ICON_STYLE);
-            if (valori().dockDownloadIconStyle == 1) {
-                const std::wstring downloadIconName = valori().dockDownloadIconPath.empty()
-                    ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
-                    : nomeFileIcona(valori().dockDownloadIconPath);
-                rigaClic(testi::t(L"Scegli icona Download", L"Choose Downloads icon"), downloadIconName, Z_DOWNLOAD_ICON_FILE);
-                rigaClic(testi::t(L"Ripristina icona Download", L"Reset Downloads icon"),
-                         testi::t(L"Usa l'icona predefinita", L"Use the default icon"), Z_DOWNLOAD_ICON_RESET);
-            }
+            const std::wstring downloadIconName = valori().dockDownloadIconPath.empty()
+                ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
+                : nomeFileIcona(valori().dockDownloadIconPath);
+            rigaClic(testi::t(L"Scegli icona Download", L"Choose Downloads icon"), downloadIconName, Z_DOWNLOAD_ICON_FILE);
+            rigaClic(testi::t(L"Ripristina icona Download", L"Reset Downloads icon"),
+                     testi::t(L"Usa l'icona predefinita", L"Use the default icon"), Z_DOWNLOAD_ICON_RESET);
 
             const wchar_t* stiliCestino[] = {L"Windows 10", L"Windows 11", L"macOS", L"Custom"};
             selettore(testi::t(L"Icona Cestino", L"Trash icon"),
                       testi::t(L"Scegli lo stile del cestino", L"Choose the Trash icon style"),
                       stiliCestino, 4, valori().dockTrashIconStyle, Z_TRASH_ICON_STYLE);
-            if (valori().dockTrashIconStyle == 3) {
-                const std::wstring trashIconName = valori().dockTrashIconPath.empty()
-                    ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
-                    : nomeFileIcona(valori().dockTrashIconPath);
-                rigaClic(testi::t(L"Scegli icona Cestino", L"Choose Trash icon"), trashIconName, Z_TRASH_ICON_FILE);
-                rigaClic(testi::t(L"Ripristina icona Cestino", L"Reset Trash icon"),
-                         testi::t(L"Usa Windows 11", L"Use Windows 11"), Z_TRASH_ICON_RESET);
-            }
+            const std::wstring trashIconName = valori().dockTrashIconPath.empty()
+                ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
+                : nomeFileIcona(valori().dockTrashIconPath);
+            rigaClic(testi::t(L"Scegli icona Cestino", L"Choose Trash icon"), trashIconName, Z_TRASH_ICON_FILE);
+            rigaClic(testi::t(L"Ripristina icona Cestino", L"Reset Trash icon"),
+                     testi::t(L"Usa Windows 10", L"Use Windows 10"), Z_TRASH_ICON_RESET);
 
         }
         if (sezione == S_DOCK) {

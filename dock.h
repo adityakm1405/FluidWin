@@ -1087,7 +1087,6 @@ public:
         const std::wstring defaultTrashWin10Svg = dir + L"assets\\icons8-bin-windows-240.svg";
         const std::wstring defaultTrashWin11Svg = dir + L"assets\\trash-windows11.svg";
         const std::wstring defaultTrashMacSvg = dir + L"assets\\trash-macos.svg";
-        const std::wstring defaultDownloadPng = dir + L"assets\\downloads-fluent.png";
         const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
 
         // Finder start image is embedded so replacing just FluidWin.exe is enough.
@@ -1099,7 +1098,6 @@ public:
             iconaDownload = caricaIconaFile(fileIconaDownload, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvgRisorsa(RISORSA_DOWNLOAD_PREDEFINITO, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
-        if (!iconaDownload) iconaDownload = caricaIcona(defaultDownloadPng, 256);
 
         // Trash style is explicit: Windows 10, Windows 11, macOS, or a user-selected file.
         if (stileIconaCestino == 3 && !fileIconaCestino.empty())

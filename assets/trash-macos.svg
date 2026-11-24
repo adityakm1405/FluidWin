@@ -8,15 +8,17 @@
       <stop offset="1" stop-color="#78838e"/>
     </linearGradient>
     <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0" stop-color="#fff"/>
       <stop offset="1" stop-color="#9ba5af"/>
     </linearGradient>
   </defs>
-  <path d="M9 12.5h30l-2 3.2H11l-2-3.2Z" fill="url(#top)" stroke="#e2e7ec" stroke-width=".8"/>
-  <path d="M16.5 9.5h15" stroke="#d9dfe5" stroke-width="2.1" stroke-linecap="round"/>
-  <path d="M13 16.2h22l-2 27H15l-2-27Z" fill="url(#metal)" stroke="#dce2e8" stroke-width="1.1"/>
-  <path d="M17 19v21M21 18.5v22M25 18.5v22M29 18.5v22M33 19v21" stroke="#65717d" stroke-opacity=".58" stroke-width=".8"/>
-  <path d="M14.5 23h19M14.8 28h18.4M15 33h18M15.3 38h17.4" stroke="#f8fafc" stroke-opacity=".7" stroke-width=".7"/>
-  <path d="M14 16.5h20" stroke="#fff" stroke-opacity=".8" stroke-width="1"/>
-  <path d="M17 43.2h14" stroke="#65717d" stroke-opacity=".4" stroke-width=".8"/>
+  <g transform="translate(-6 -6) scale(1.25)">
+    <path d="M9 12.5h30l-2 3.2H11l-2-3.2Z" fill="url(#top)" stroke="#e2e7ec" stroke-width=".8"/>
+    <path d="M16.5 9.5h15" stroke="#d9dfe5" stroke-width="2.1" stroke-linecap="round"/>
+    <path d="M13 16.2h22l-2 27H15l-2-27Z" fill="url(#metal)" stroke="#dce2e8" stroke-width="1.1"/>
+    <path d="M17 19v21M21 18.5v22M25 18.5v22M29 18.5v22M33 19v21" stroke="#65717d" stroke-opacity=".58" stroke-width=".8"/>
+    <path d="M14.5 23h19M14.8 28h18.4M15 33h18M15.3 38h17.4" stroke="#f8fafc" stroke-opacity=".7" stroke-width=".7"/>
+    <path d="M14 16.5h20" stroke="#fff" stroke-opacity=".8" stroke-width="1"/>
+    <path d="M17 43.2h14" stroke="#65717d" stroke-opacity=".4" stroke-width=".8"/>
+  </g>
 </svg>
