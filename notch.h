@@ -333,9 +333,10 @@ public:
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
         if (visibile) ridisegna();
     }
-    void impostaColoriTimer(DWORD conto, DWORD fine) {
-        if (coloreTimerConto == conto && coloreTimerFine == fine) return;
+    void impostaColoriTimer(DWORD conto, DWORD anello, DWORD fine) {
+        if (coloreTimerConto == conto && coloreTimerAnello == anello && coloreTimerFine == fine) return;
         coloreTimerConto = conto;
+        coloreTimerAnello = anello;
         coloreTimerFine = fine;
         if (visibile) ridisegna();
     }
@@ -496,7 +497,7 @@ private:
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
-    DWORD coloreTimerConto = 0, coloreTimerFine = 0;
+    DWORD coloreTimerConto = 0, coloreTimerAnello = 0, coloreTimerFine = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
     DWORD colorePulsanti = 0, coloreBarrette = 0, coloreBarretteFine = 0;
@@ -1404,7 +1405,7 @@ private:
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 if (e > 0.01f)
                     anello(L + layout.centroAnello, h / 2, 6.5f * d * e,
-                           (float)comodita::timerAvanzamento(), a * e);
+                           (float)comodita::timerAvanzamento(), a * e, coloreTimer(coloreTimerAnello, a * e));
 
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
@@ -1451,7 +1452,8 @@ private:
                 const float e = ka * ka * (3 - 2 * ka);
                 const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerConto, a);
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
-                anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a);
+                anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a,
+                       coloreTimer(coloreTimerAnello, a));
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
                 rt->DrawText(r.c_str(), (UINT32)r.size(), fGrande, {L + 60 * d + (1 - e) * 10 * d, 0, L + w - 126 * d, h}, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
@@ -1475,7 +1477,7 @@ private:
                 colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a * (0.25f + 0.25f * k));
                 rt->FillEllipse({{cx, cy}, (11 + 3 * k) * d, (11 + 3 * k) * d}, pen);
                 colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a);
-                anello(cx, cy, 7.5f * d, 1, a);
+                anello(cx, cy, 7.5f * d, 1, a, tintaFine);
                 scrivi(testi::t(L"Timer finito", L"Timer done"), fTitolo, {L + 50 * d, 0, L + w - 110 * d, h}, a);
                 scrivi(testi::t(L"Clic per fermare", L"Click to stop"), fPiccolo, {L + w - 112 * d, 0, L + w - 16 * d, h}, 0.6f * a);
                 break;
@@ -1792,12 +1794,12 @@ private:
         }
     }
 
-    // anello del timer: grigio pieno, arancio la parte gia' passata (da mezzogiorno in senso orario)
-    void anello(float cx, float cy, float r, float k, float a) {
+    // anello del timer: traccia grigia e arco di avanzamento nel colore scelto dall'utente
+    void anello(float cx, float cy, float r, float k, float a, D2D1_COLOR_F tinta) {
         colore(1, 1, 1, 0.22f * a);
         rt->DrawEllipse({{cx, cy}, r, r}, pen, 2.2f * dpi);
         k = std::clamp(k, 0.0f, 1.0f);
-        colore(1.0f, 0.62f, 0.04f, a);
+        colore(tinta.r, tinta.g, tinta.b, tinta.a);
         if (k >= 0.999f) { rt->DrawEllipse({{cx, cy}, r, r}, pen, 2.2f * dpi); return; }
         if (k <= 0.001f) return;
         ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
