@@ -848,7 +848,7 @@ private:
         OPENFILENAMEW of{};
         of.lStructSize = sizeof(of); of.hwndOwner = v.fin;
         of.lpstrFile = percorso; of.nMaxFile = MAX_PATH;
-        of.lpstrFilter = L"Immagini (*.png;*.jpg;*.jpeg;*.bmp;*.ico)\0*.png;*.jpg;*.jpeg;*.bmp;*.ico\0Tutti i file (*.*)\0*.*\0\0";
+        of.lpstrFilter = L"SVG e immagini (*.svg;*.png;*.jpg;*.jpeg;*.bmp;*.ico)\0*.svg;*.png;*.jpg;*.jpeg;*.bmp;*.ico\0Tutti i file (*.*)\0*.*\0\0";
         of.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
         const bool scelto = GetOpenFileNameW(&of) != FALSE;
         aperta = false;

@@ -41,6 +41,7 @@
 #include <dxgi1_3.h>
 #include <dcomp.h>
 #include <d2d1_1.h>
+#include <d2d1_3.h>   // Direct2D SVG support for bundled and custom dock icons
 #include <dwrite.h>
 #include <string>
 #include <vector>
@@ -1014,12 +1015,16 @@ public:
         std::wstring dir = exe;
         const size_t slash = dir.find_last_of(L"\\/");
         if (slash != std::wstring::npos) dir.resize(slash + 1);
-        const std::wstring defaultDownload = dir + L"assets\\downloads-fluent.png";
-        const std::wstring defaultTrash = dir + L"assets\\recycle-bin-fluent-empty.png";
-        if (!fileIconaDownload.empty()) iconaDownload = caricaIcona(fileIconaDownload, 256);
-        if (!iconaDownload) iconaDownload = caricaIcona(defaultDownload, 256);
-        if (!fileIconaCestino.empty()) iconaCestino = caricaIcona(fileIconaCestino, 256);
-        if (!iconaCestino) iconaCestino = caricaIcona(defaultTrash, 256);
+        const std::wstring defaultDownloadSvg = dir + L"assets\\downloads-fluent.svg";
+        const std::wstring defaultTrashSvg = dir + L"assets\\recycle-bin-fluent-empty.svg";
+        const std::wstring defaultDownloadPng = dir + L"assets\\downloads-fluent.png";
+        const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
+        if (!fileIconaDownload.empty()) iconaDownload = caricaIconaFile(fileIconaDownload, 256);
+        if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
+        if (!iconaDownload) iconaDownload = caricaIcona(defaultDownloadPng, 256);
+        if (!fileIconaCestino.empty()) iconaCestino = caricaIconaFile(fileIconaCestino, 256);
+        if (!iconaCestino) iconaCestino = caricaIconaSvg(defaultTrashSvg, 256);
+        if (!iconaCestino) iconaCestino = caricaIcona(defaultTrashPng, 256);
         dirty = true;
     }
 
@@ -1300,7 +1305,7 @@ private:
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     IDXGISwapChain1* sc = nullptr; IDCompositionDevice* dcomp = nullptr; IDCompositionTarget* target = nullptr; IDCompositionVisual* visual = nullptr;
     ID2D1Factory1* f2d = nullptr; ID2D1Device* d2dev = nullptr; ID2D1DeviceContext* dc = nullptr; ID2D1Bitmap1* bersaglio = nullptr;
-    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr, *fmtOraVertical = nullptr;
+    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr;
     ID2D1SolidColorBrush* pennello = nullptr;
     ID2D1StrokeStyle* tratto = nullptr;   // estremi arrotondati, per i simboli
 
@@ -1391,8 +1396,6 @@ private:
         }
         formato(fTesto, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.0f, &testo);
         formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 28.0f, &fmtOra);
-        // Vertical docks use compact rows like the reference screenshot; the horizontal clock stays larger.
-        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 15.0f, &fmtOraVertical);
         // testi dei pannelli: allineati a sinistra, con "..." se non entrano
         auto sinistra = [&](const wchar_t* font, DWRITE_FONT_WEIGHT peso, float px, IDWriteTextFormat** out) {
             formato(font, peso, px, out); testi::allinea(*out, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -1457,6 +1460,83 @@ private:
                                                              D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
         dc->CreateBitmap(D2D1::SizeU(w, h), px.data(), w * 4, &bp, &out);
         return out;
+    }
+
+    // Render SVG files directly through Direct2D so bundled and custom dock icons remain crisp.
+    ID2D1Bitmap1* caricaIconaSvg(const std::wstring& percorso, int lato = 256) {
+        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
+
+        ID2D1DeviceContext5* dc5 = nullptr;
+        if (FAILED(dc->QueryInterface(IID_PPV_ARGS(&dc5))) || !dc5) return nullptr;
+
+        HANDLE file = CreateFileW(percorso.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) { dc5->Release(); return nullptr; }
+
+        LARGE_INTEGER dimensione{};
+        if (!GetFileSizeEx(file, &dimensione) || dimensione.QuadPart <= 0 || dimensione.QuadPart > 2 * 1024 * 1024) {
+            CloseHandle(file); dc5->Release(); return nullptr;
+        }
+        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)dimensione.QuadPart);
+        if (!memoria) { CloseHandle(file); dc5->Release(); return nullptr; }
+        void* dati = GlobalLock(memoria);
+        DWORD letti = 0;
+        const DWORD richiesti = (DWORD)dimensione.QuadPart;
+        const bool letto = dati && ReadFile(file, dati, richiesti, &letti, nullptr) && letti == richiesti;
+        if (dati) GlobalUnlock(memoria);
+        CloseHandle(file);
+        if (!letto) { GlobalFree(memoria); dc5->Release(); return nullptr; }
+
+        IStream* flusso = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
+            GlobalFree(memoria); dc5->Release(); return nullptr;
+        }
+        ID2D1SvgDocument* svg = nullptr;
+        const HRESULT creatoSvg = dc5->CreateSvgDocument(flusso, D2D1::SizeF((float)lato, (float)lato), &svg);
+        flusso->Release();
+        if (FAILED(creatoSvg) || !svg) { dc5->Release(); return nullptr; }
+
+        const D2D1_BITMAP_PROPERTIES1 proprieta = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            96.0f, 96.0f);
+        ID2D1Bitmap1* bitmap = nullptr;
+        const HRESULT creatoBitmap = dc->CreateBitmap(D2D1::SizeU((UINT32)lato, (UINT32)lato),
+                                                       nullptr, 0, &proprieta, &bitmap);
+        if (FAILED(creatoBitmap) || !bitmap) {
+            svg->Release(); dc5->Release(); return nullptr;
+        }
+
+        dc->Flush();
+        ID2D1Image* bersaglioPrecedente = nullptr;
+        dc->GetTarget(&bersaglioPrecedente);
+        D2D1_MATRIX_3X2_F trasformazionePrecedente{};
+        dc->GetTransform(&trasformazionePrecedente);
+        dc->SetTarget(bitmap);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        dc->BeginDraw();
+        dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+        dc5->DrawSvgDocument(svg);
+        const HRESULT disegnato = dc->EndDraw();
+        dc->SetTarget(bersaglioPrecedente);
+        dc->SetTransform(trasformazionePrecedente);
+        if (bersaglioPrecedente) bersaglioPrecedente->Release();
+        svg->Release();
+        dc5->Release();
+
+        if (FAILED(disegnato)) { bitmap->Release(); return nullptr; }
+        return bitmap;
+    }
+
+    ID2D1Bitmap1* caricaIconaFile(const std::wstring& percorso, int lato = 256) {
+        if (percorso.empty()) return nullptr;
+        const size_t punto = percorso.find_last_of(L'.');
+        if (punto != std::wstring::npos) {
+            std::wstring estensione = percorso.substr(punto);
+            for (wchar_t& c : estensione) c = (wchar_t)towlower(c);
+            if (estensione == L".svg") return caricaIconaSvg(percorso, lato);
+        }
+        return caricaIcona(percorso, lato);
     }
 
     Voce* voceDi(HWND h) {
@@ -2083,9 +2163,9 @@ private:
         misuratoOra = testoOra; misuratoOraOre = testoOraOre;
         misuratoOraMinuti = testoOraMinuti; misuratoOraMeridiem = testoOraMeridiem;
         if (verticale()) {
-            larghezzaOra = std::max({larghezzaTesto(testoOraOre, fmtOraVertical),
-                                     larghezzaTesto(testoOraMinuti, fmtOraVertical),
-                                     larghezzaTesto(testoOraMeridiem, fmtOraVertical)});
+            larghezzaOra = std::max({larghezzaTesto(testoOraOre, fmtOra),
+                                     larghezzaTesto(testoOraMinuti, fmtOra),
+                                     larghezzaTesto(testoOraMeridiem, fmtOra)});
         } else {
             larghezzaOra = larghezzaTesto(testoOra, fmtOra);
         }
@@ -2093,7 +2173,7 @@ private:
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
         const int righe = oraDodici ? 3 : 2;
-        const float estensione = verticale() ? (righe * 18.0f + 2.0f) * dpi * kOra()
+        const float estensione = verticale() ? (righe * 30.0f + 4.0f) * dpi * kOra()
                                              : (larghezzaOra + 12.0f * dpi) * kOra();
         return GAP * 2 + 1 + estensione;
     }
@@ -2321,14 +2401,14 @@ private:
             pennello->SetColor(ink);
             if (verticale()) {
                 const int righe = oraDodici ? 3 : 2;
-                const float passo = 18.0f * dpi;
+                const float passo = 30.0f * dpi;
                 const float primoY = cy - (righe - 1) * passo / 2.0f;
                 const std::wstring* testiRighe[3] = {&testoOraOre, &testoOraMinuti, &testoOraMeridiem};
                 for (int j = 0; j < righe; ++j) {
                     const float yy = primoY + j * passo;
-                    dc->DrawText(testiRighe[j]->c_str(), (UINT32)testiRighe[j]->size(), fmtOraVertical,
-                                 {cx - larghezzaOra / 2 - 3 * dpi, yy - 9 * dpi,
-                                  cx + larghezzaOra / 2 + 3 * dpi, yy + 9 * dpi}, pennello);
+                    dc->DrawText(testiRighe[j]->c_str(), (UINT32)testiRighe[j]->size(), fmtOra,
+                                 {cx - larghezzaOra / 2 - 3 * dpi, yy - 16 * dpi,
+                                  cx + larghezzaOra / 2 + 3 * dpi, yy + 16 * dpi}, pennello);
                 }
             } else {
                 const float lt = larghezzaOra / 2 + 6 * dpi;
