@@ -4092,7 +4092,8 @@ static void applicaImpostazioni() {
         gDock.impostaCapsulaSempreVisibile(v.dockCapsulaSempre);
         gDock.impostaColoriMedia(v.colorePulsantiMedia, v.coloreVisualizzatore,
                                  v.coloreVisualizzatoreFine, v.visualizzatoreGradiente);
-        gDock.impostaVisualizzatore(v.visualizzatoreStile, v.visualizzatoreReattivo, v.visualizzatoreForza);
+        gDock.impostaVisualizzatore(v.visualizzatoreStile, v.visualizzatoreReattivo, v.visualizzatoreForza,
+                                    v.visualizzatorePesoInizio, v.visualizzatorePesoCentro, v.visualizzatorePesoFine);
     }
     // Arabo acceso o spento: i formati di testo prendono la direzione (da destra a sinistra) quando nascono, e molti
     // vivono quanto FluidWin. Riavviare e' il modo sicuro di rifarli tutti
