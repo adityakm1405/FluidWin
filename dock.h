@@ -2816,7 +2816,7 @@ private:
                                  {infoX, cy - 14 * d, infoX + infoW, cy + 1 * d}, pennello);
                     pennello->SetColor({ink.r, ink.g, ink.b, ink.a * 0.68f * km});
                     dc->DrawText(artista.c_str(), (UINT32)artista.size(), fmtSotto,
-                                 {infoX, cy + 1 * d, infoX + infoW, cy + 15 * d}, pennello);
+                                 {infoX, cy + 1 * d, infoX + infoW - 22 * d, cy + 15 * d}, pennello);
                     piano();
                     dc->PopAxisAlignedClip();
                     disegnaVisualizzatoreCapsula(infoX + infoW - 18 * d, cy + 10 * d, 0.52f * d,
