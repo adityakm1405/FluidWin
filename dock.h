@@ -2393,8 +2393,8 @@ private:
         // Time-only, text-only clock at the end of the dock.
         if (const float coda = larghezzaCoda(); coda > 0) {
             const float x0 = sinistra + tot - coda;
-            pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f));
-            dc->DrawLine({x0 + GAP + 0.5f, yb - S * 0.85f}, {x0 + GAP + 0.5f, yb - S * 0.15f}, pennello, 1.0f);
+            // Use the same configurable group separator as the lines between dock icons.
+            disegnaLineaSeparatore(x0 + GAP + 0.5f, yb, 1.0f, 1.0f, scuro);
             const D2D1_RECT_F r = {x0 + GAP * 2 + 1, yb - S, x0 + coda, yb};
             const float press = statoPremuto == ORA ? 0.92f : 1.0f;
             const float k = kOra();
@@ -2417,17 +2417,14 @@ private:
                 const float inset = 5.0f * dpi;
                 const float yDivider = tile.top + (oraDodici ? 57.0f : 48.0f) * dpi;
                 pennello->SetColor(ink);
+                const float fineAreaOra = yDivider - 4.0f * dpi;
                 const D2D1_RECT_F areaOra = {tile.left + inset, tile.top + 5.0f * dpi,
-                                             tile.right - inset, yDivider - 4.0f * dpi};
+                                             tile.right - inset, fineAreaOra};
                 dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
-
-                pennello->SetColor(scuro ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f)
-                                         : D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.20f));
-                dc->DrawLine({cx - 19.0f * dpi, yDivider}, {cx + 19.0f * dpi, yDivider}, pennello, 1.0f * dpi);
 
                 pennello->SetColor(ink);
                 const D2D1_RECT_F areaMinuti = {tile.left + inset,
-                                                yDivider + 5.0f * dpi,
+                                                fineAreaOra + 9.0f * dpi,
                                                 tile.right - inset,
                                                 oraDodici ? tile.top + 106.0f * dpi : tile.bottom - 5.0f * dpi};
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
