@@ -333,11 +333,10 @@ public:
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
         if (visibile) ridisegna();
     }
-    void impostaColoriTimer(DWORD conto, DWORD anello, DWORD fine) {
-        if (coloreTimerConto == conto && coloreTimerAnello == anello && coloreTimerFine == fine) return;
-        coloreTimerConto = conto;
-        coloreTimerAnello = anello;
-        coloreTimerFine = fine;
+    void impostaColoriTimer(DWORD colore, DWORD pulsante) {
+        if (coloreTimerPrincipale == colore && coloreTimerFine == pulsante) return;
+        coloreTimerPrincipale = colore;
+        coloreTimerFine = pulsante;
         if (visibile) ridisegna();
     }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine, bool capsulaAttiva = false) {
@@ -497,7 +496,7 @@ private:
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
-    DWORD coloreTimerConto = 0, coloreTimerAnello = 0, coloreTimerFine = 0;
+    DWORD coloreTimerPrincipale = 0, coloreTimerFine = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
     DWORD colorePulsanti = 0, coloreBarrette = 0, coloreBarretteFine = 0;
@@ -1401,11 +1400,11 @@ private:
                 // the clock's first time character and last date character respectively.
                 const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0);
                 const float e = ka * ka * (3.0f - 2.0f * ka);
-                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerConto, a * e);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerPrincipale, a * e);
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 if (e > 0.01f)
                     anello(L + layout.centroAnello, h / 2, 6.5f * d * e,
-                           (float)comodita::timerAvanzamento(), a * e, coloreTimer(coloreTimerAnello, a * e));
+                           (float)comodita::timerAvanzamento(), a * e, coloreTimer(coloreTimerPrincipale, a * e));
 
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
@@ -1450,10 +1449,10 @@ private:
             case TIMER_APERTO: {   // timer grande: anello, tempo che resta, +1 min, stop
                 const float cy = h / 2, ka = (float)std::clamp((adesso() - tScena - 0.06) / 0.3, 0.0, 1.0);
                 const float e = ka * ka * (3 - 2 * ka);
-                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerConto, a);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerPrincipale, a);
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a,
-                       coloreTimer(coloreTimerAnello, a));
+                       coloreTimer(coloreTimerPrincipale, a));
                 colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
                 rt->DrawText(r.c_str(), (UINT32)r.size(), fGrande, {L + 60 * d + (1 - e) * 10 * d, 0, L + w - 126 * d, h}, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
