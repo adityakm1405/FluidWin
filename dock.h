@@ -2174,7 +2174,7 @@ private:
     }
     // Screen-aligned dimensions of the vertical clock tile (the dock canvas is rotated at the sides).
     float larghezzaOrologioVerticale() const { return 68.0f * dpi; }
-    float altezzaOrologioVerticale() const { return (oraDodici ? 132.0f : 102.0f) * dpi; }
+    float altezzaOrologioVerticale() const { return (oraDodici ? 136.0f : 102.0f) * dpi; }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
         const float estensione = verticale() ? altezzaOrologioVerticale() * kOra()
@@ -2398,7 +2398,8 @@ private:
             const float x0 = sinistra + tot - coda;
             // Use the same configurable group separator as the lines between dock icons.
             const float spazioSeparatore = GAP * 2.0f + 1.0f;
-            disegnaLineaSeparatore(x0 + GAP + spazioSeparatore / 2.0f, yb, 1.0f, 1.0f, scuro);
+            // Center the separator in the complete GAP + separator zone, just like icon-group separators.
+            disegnaLineaSeparatore(x0 + (GAP + spazioSeparatore) / 2.0f, yb, 1.0f, 1.0f, scuro);
             const D2D1_RECT_F r = {x0 + GAP + spazioSeparatore, yb - S, x0 + coda, yb};
             const float press = statoPremuto == ORA ? 0.92f : 1.0f;
             const float k = kOra();
@@ -2419,23 +2420,27 @@ private:
                                           cx + tileW / 2.0f, cy + tileH / 2.0f};
 
                 const float inset = 5.0f * dpi;
-                const float yDivider = tile.top + (oraDodici ? 57.0f : 48.0f) * dpi;
-                pennello->SetColor(ink);
-                const float fineAreaOra = yDivider - 4.0f * dpi;
-                const D2D1_RECT_F areaOra = {tile.left + inset, tile.top + 5.0f * dpi,
-                                             tile.right - inset, fineAreaOra};
-                dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
+                const float yOraInizio = tile.top + (oraDodici ? 2.0f : 1.0f) * dpi;
+                const float yOraFine = tile.top + (oraDodici ? 38.0f : 36.0f) * dpi;
+                const float yDuePuntiFine = tile.top + (oraDodici ? 62.0f : 58.0f) * dpi;
+                const float yMinutiFine = oraDodici ? tile.top + 100.0f * dpi : tile.bottom - 1.0f * dpi;
 
                 pennello->SetColor(ink);
-                const D2D1_RECT_F areaMinuti = {tile.left + inset,
-                                                fineAreaOra + 2.0f * dpi,
-                                                tile.right - inset,
-                                                oraDodici ? tile.top + 99.0f * dpi : tile.bottom - 5.0f * dpi};
+                const D2D1_RECT_F areaOra = {tile.left + inset, yOraInizio,
+                                             tile.right - inset, yOraFine};
+                dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
+
+                const wchar_t duePunti[] = L":";
+                const D2D1_RECT_F areaDuePunti = {tile.left + inset, yOraFine,
+                                                  tile.right - inset, yDuePuntiFine};
+                dc->DrawText(duePunti, 1, fmtOraMeridiem, areaDuePunti, pennello);
+
+                const D2D1_RECT_F areaMinuti = {tile.left + inset, yDuePuntiFine,
+                                                tile.right - inset, yMinutiFine};
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
 
                 if (oraDodici && !testoOraMeridiem.empty()) {
-                    pennello->SetColor(ink);
-                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 101.0f * dpi,
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 103.0f * dpi,
                                                       tile.right - inset, tile.bottom - 1.0f * dpi};
                     dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
                                  fmtOraMeridiem, areaMeridiem, pennello);
@@ -2665,9 +2670,10 @@ private:
         const wchar_t* loc = testi::locale();
         const bool formato12 = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, formatoLocale, 96) > 0 &&
                                wcschr(formatoLocale, L'h') != nullptr && wcschr(formatoLocale, L'H') == nullptr;
-        const wchar_t* formatoOra = formato12 ? L"h:mm tt" : L"HH:mm";
+        const wchar_t* formatoOra = formato12 ? L"hh:mm tt" : L"HH:mm";
         if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formatoOra, b, 96)) {
-            if (formato12) swprintf(b, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12,
+            if (formato12) swprintf(b, 96, L"%02d:%02d %s",
+                                    (st.wHour % 12) ? (st.wHour % 12) : 12,
                                     st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
             else swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
         }
@@ -2697,8 +2703,10 @@ private:
         if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty())
             testoDataLunga = cm.dataLunga;
         if (notch12Ore) {
-            if (!GetTimeFormatEx(loc, 0, &st, L"h:mm tt", oraNotch, 96))
-                swprintf(oraNotch, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12, st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
+            if (!GetTimeFormatEx(loc, 0, &st, L"hh:mm tt", oraNotch, 96))
+                swprintf(oraNotch, 96, L"%02d:%02d %s",
+                         (st.wHour % 12) ? (st.wHour % 12) : 12,
+                         st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
         } else swprintf(oraNotch, 96, L"%02d:%02d", st.wHour, st.wMinute);
         if (testoOraNotch != oraNotch || testoNotch != giornoPrima) {
             testoOraNotch = oraNotch;
