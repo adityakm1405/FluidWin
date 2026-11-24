@@ -121,7 +121,7 @@ inline auto Motore::raccogliIcone() -> bool {
 inline auto Motore::launcherDaDisegnare() const -> bool { return lAperto && (lDirty || lAnim); }
 
 inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
-    LW = std::ceil(760 * dpi); LH = LHMAX = std::ceil(580 * dpi); LEXTRA = std::ceil(160 * dpi);
+    LW = std::ceil(560 * dpi); LH = LHMAX = std::ceil(780 * dpi); LEXTRA = std::ceil(160 * dpi);
     WNDCLASSW wl{}; wl.lpfnWndProc = procLauncher; wl.hInstance = inst; wl.lpszClassName = L"FluidWin.Launcher";
     wl.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClassW(&wl);
@@ -183,6 +183,7 @@ inline auto Motore::applicaTutteApp(std::vector<AppL> nuove) -> void {
     for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) { a.icona = v.icona; a.provata = v.provata; v.icona = nullptr; break; }
     for (auto& v : tutteApp) if (v.icona) v.icona->Release();
     tutteApp = std::move(nuove);
+    aggiornaPinned();
     // launcher aperto (l'elenco nuovo arriva mentre si guarda): la scelta e lo scorrimento restano dove sono
     const int sel = lSel; const double scr = lScrollObj;
     filtra();
@@ -253,6 +254,30 @@ inline auto Motore::filtra() -> void {
     lSelFile = -1; lSopraFile = -1;
     if (query.empty()) { lFile.clear(); lFileTesto.clear(); lFileGen++; if (launcher) KillTimer(launcher, TIMER_FILE_L); }
     else if (query != lFileTesto && launcher) SetTimer(launcher, TIMER_FILE_L, 200, nullptr);
+}
+
+// Preferiti nella parte superiore: ogni voce viene risolta tra le app installate reali.
+inline auto Motore::aggiornaPinned() -> void {
+    lPinned.clear();
+    const int gruppi = 8;
+    for (int slot = 0; slot < gruppi; ++slot) {
+        for (int i = 0; i < (int)tutteApp.size(); ++i) {
+            if (std::find(lPinned.begin(), lPinned.end(), i) != lPinned.end()) continue;
+            const std::wstring& n = tutteApp[i].minuscolo;
+            bool match = false;
+            switch (slot) {
+                case 0: match = n.find(L"visual studio code") != std::wstring::npos || n == L"vs code"; break;
+                case 1: match = n.find(L"unity hub") != std::wstring::npos; break;
+                case 2: match = n.find(L"blender") != std::wstring::npos; break;
+                case 3: match = n.find(L"inno") != std::wstring::npos; break;
+                case 4: match = n == L"word" || n.find(L"microsoft word") != std::wstring::npos; break;
+                case 5: match = n == L"excel" || n.find(L"microsoft excel") != std::wstring::npos; break;
+                case 6: match = n.find(L"powerpoint") != std::wstring::npos; break;
+                case 7: match = n.find(L"onenote") != std::wstring::npos; break;
+            }
+            if (match) { lPinned.push_back(i); break; }
+        }
+    }
 }
 
 // ---- file e cartelle sotto la griglia (issue #14) ----
@@ -407,15 +432,58 @@ inline auto Motore::disegnaFileLauncher(bool scuro, D2D1_COLOR_F ink) -> bool {
     return muove;
 }
 
-// misure della griglia (coordinate del launcher)
-inline auto Motore::lColonne() const -> float { return 6; }
+// Misure e coordinate del launcher: elenco alfabetico come default, quattro colonne nella vista Griglia.
+inline auto Motore::lColonne() const -> float { return lVistaLista ? 1.0f : 4.0f; }
+inline auto Motore::lCellaW() const -> float { return lVistaLista ? LW - 32 * dpi : (LW - 48 * dpi) / lColonne(); }
+inline auto Motore::lCellaH() const -> float { return lVistaLista ? 44 * dpi : 104 * dpi; }
 
-inline auto Motore::lCellaW() const -> float { return (LW - 48 * dpi) / lColonne(); }
+inline auto Motore::lAllTop() const -> float {
+    if (!query.empty() || lPinned.empty()) return 68 * dpi;
+    const int righe = std::min(2, ((int)lPinned.size() + 3) / 4);
+    return (104 + righe * 92 + 10) * dpi;
+}
 
-inline auto Motore::lCellaH() const -> float { return 104 * dpi; }
+inline auto Motore::lListaY(int i) const -> float {
+    float y = 0;
+    wchar_t precedente = 0;
+    for (int k = 0; k <= i && k < (int)filtrate.size(); ++k) {
+        const std::wstring& nome = tutteApp[filtrate[k]].nome;
+        const wchar_t lettera = nome.empty() ? L'#' : (wchar_t)towupper(nome[0]);
+        if (k == 0 || lettera != precedente) { y += 27 * dpi; precedente = lettera; }
+        if (k == i) return y;
+        y += lCellaH();
+    }
+    return y;
+}
 
-// zona della barra di scorrimento che si puo' prendere col mouse (larga 16 punti: la barra disegnata e' sottile) e
-// il suo cursore adesso
+inline auto Motore::lListaAlto() const -> float {
+    float y = 0;
+    wchar_t precedente = 0;
+    for (int k = 0; k < (int)filtrate.size(); ++k) {
+        const std::wstring& nome = tutteApp[filtrate[k]].nome;
+        const wchar_t lettera = nome.empty() ? L'#' : (wchar_t)towupper(nome[0]);
+        if (k == 0 || lettera != precedente) { y += 27 * dpi; precedente = lettera; }
+        y += lCellaH();
+    }
+    return y;
+}
+
+inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
+    const float w = (LW - 32 * dpi) / 4.0f;
+    const float x = 16 * dpi + (i % 4) * w;
+    const float y = 104 * dpi + (i / 4) * 92 * dpi;
+    return {x, y, x + w, y + 88 * dpi};
+}
+
+inline auto Motore::lPinnedIn(float x, float y) const -> int {
+    if (!query.empty()) return -1;
+    for (int i = 0; i < (int)lPinned.size(); ++i) {
+        const D2D1_RECT_F r = lPinnedCella(i);
+        if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
+    }
+    return -1;
+}
+
 inline auto Motore::lRettBarra() const -> D2D1_RECT_F { return {LW - 18 * dpi, lGrigliaTop(), LW, lGrigliaBottom()}; }
 
 inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
@@ -425,18 +493,23 @@ inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
     return {LW - 18 * dpi, y, LW, y + h};
 }
 
-inline auto Motore::lGrigliaTop() const -> float { return 84 * dpi; }
-
-// (la sezione dei file, quando c'e', sta sotto e la griglia si accorcia della sua altezza animata)
+inline auto Motore::lGrigliaTop() const -> float { return lAllTop() + 42 * dpi; }
 inline auto Motore::lGrigliaBottom() const -> float { return LH - 14 * dpi - (float)lFileH; }
 
 inline auto Motore::lScrollMax() const -> double {
-    const int righe = ((int)filtrate.size() + 5) / 6;
-    return std::max(0.0, (double)(righe * lCellaH() - (lGrigliaBottom() - lGrigliaTop())));
+    const double contenuto = lVistaLista
+        ? (double)lListaAlto()
+        : (double)(((int)filtrate.size() + 3) / 4 * lCellaH());
+    return std::max(0.0, contenuto - (lGrigliaBottom() - lGrigliaTop()));
 }
 
 inline auto Motore::lCella(int i) const -> D2D1_RECT_F {
-    const float x = 24 * dpi + (i % 6) * lCellaW(), y = lGrigliaTop() + (i / 6) * lCellaH() - (float)lScroll;
+    if (lVistaLista) {
+        const float y = lGrigliaTop() + lListaY(i) - (float)lScroll;
+        return {16 * dpi, y, LW - 16 * dpi, y + lCellaH()};
+    }
+    const float x = 24 * dpi + (i % 4) * lCellaW();
+    const float y = lGrigliaTop() + (i / 4) * lCellaH() - (float)lScroll;
     return {x, y, x + lCellaW(), y + lCellaH()};
 }
 
@@ -481,7 +554,8 @@ inline auto Motore::apriLauncher() -> void {
     // centro di controllo aperto: prima si chiude lui, poi (TIMER_DOPO) si apre il launcher; mai uno sopra l'altro
     if (!nessunaScheda()) { if (dopo != 1) { chiudiTutte(); apriDopo(1, 0); } return; }
     primaDelLauncher = GetForegroundWindow();
-    query.clear(); filtra(); lSopra = -1; lScroll = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
+    query.clear(); filtra(); lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
+    lScroll = lScrollObj = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
     lAperto = true; lChiusura = false; lScala = 0.12; lVel = 0; lAlfa = 0; lT0 = adesso(); lRegione = false; lRipreso = false;
     // sopra il dock, al centro; la finestra scende fino all'icona "App". Col dock in alto: sotto, al centro; ai lati:
     // accanto al dock, a meta' altezza. Li' la finestra non arriva all'icona: cresce dal suo bordo piu' vicino all'icona
@@ -492,13 +566,15 @@ inline auto Motore::apriLauncher() -> void {
     const POINT o = origine();
     const D2D1_POINT_2F bi = fis(0, yBaseRiposo() - S - PAD);   // bordo interno del dock (nella finestra del dock)
     const int stacco = (int)std::round(18 * dpi);
-    int x0 = schermo.left + (int)std::round((schermo.right - schermo.left - LW) / 2), y0 = 0;
+    int x0 = (int)schermo.left + (int)std::round(14 * dpi), y0 = 0;
     if (lato == 0) {
+        x0 = std::clamp(x0, (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         const int y1 = o.y + (int)std::round(bi.y) - stacco;
         // schermi bassi (1366x768 al 125%: ~520 punti sopra il dock): il launcher si accorcia invece di uscire in alto
         LH = std::clamp((float)(y1 - schermo.top) - 12 * dpi, 300 * dpi, LHMAX);
         y0 = y1 - (int)LH;
     } else if (lato == 1) {
+        x0 = std::clamp((int)schermo.left + (int)std::round(14 * dpi), (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         y0 = o.y + (int)std::round(bi.y) + stacco;
         LH = std::clamp((float)(schermo.bottom - y0) - 12 * dpi, 300 * dpi, LHMAX);
     } else {
@@ -567,7 +643,16 @@ inline auto Motore::avviaApp(int i) -> void {
     ShellExecuteW(nullptr, L"open", a.avvio.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW - 64 * dpi, 22 * dpi, LW - 24 * dpi, 62 * dpi}; }
+inline auto Motore::avviaAppDiretto(int indiceApp) -> void {
+    if (indiceApp < 0 || indiceApp >= (int)tutteApp.size()) return;
+    const std::wstring avvio = tutteApp[indiceApp].avvio;
+    primaDelLauncher = nullptr;
+    chiudiLauncher();
+    ShellExecuteW(nullptr, L"open", avvio.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+inline auto Motore::rettProfilo() const -> D2D1_RECT_F { return {LW - 102 * dpi, 14 * dpi, LW - 62 * dpi, 54 * dpi}; }
+inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW - 54 * dpi, 14 * dpi, LW - 14 * dpi, 54 * dpi}; }
 
 // Menu di Windows per l'app (lo stesso dello Start), con in cima "Aggiungi al dock"
 inline auto Motore::menuApp(int i, POINT pt) -> void {
@@ -780,8 +865,6 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
 
 // restituisce false se il launcher si e' appena chiuso
 inline auto Motore::renderLauncher() -> bool {
-    // scala con una molla: apre con un piccolo rimbalzo (gelatina), rientra nell'icona rapida e senza
-    // in chiusura lo stesso movimento all'indietro: rientra nell'icona con la molla e sfuma solo nell'ultimo tratto
     bool anim = molla(lScala, lVel, lChiusura ? 0.0 : 1.0, 240, lChiusura ? 0.8 : 0.55, 0.0005);
     if (lChiusura) {
         lAlfa = std::clamp((lScala - 0.10) / 0.30, 0.0, 1.0);
@@ -792,90 +875,177 @@ inline auto Motore::renderLauncher() -> bool {
     }
     posizionaLauncher();
     if (!lChiusura && !anim && !lRegione) {
-        // aperto: fuori dal launcher (sopra il dock) i clic devono passare
         SetWindowRgn(launcher, CreateRectRgn(0, 0, (int)LW, (int)LH), FALSE); lRegione = true;
     }
-    // sezione dei file: l'altezza insegue quella giusta (compare e sparisce scorrendo, la griglia si accorcia con lei)
     {
         const double fh = verso(lFileH, lFileAlto(), 0.07);
         if (fh != lFileH) {
             lFileH = fh; anim = true;
-            // La griglia si accorcia: l'app scelta con le frecce resta in vista (R20261119-195000-S4; prima solo il
-            // limite dello scorrimento, e poteva finire sotto la sezione). Posizione assoluta, calcolata sull'obiettivo
-            // dello scorrimento e non sulla posizione animata: chiamata a ogni fotogramma, selezionaVisibile sommava
-            // ogni volta il ritardo dell'animazione, e lo scorrimento andava oltre e rimbalzava (R20261119-195720-S2).
-            // Solo per una scelta fatta con la tastiera: rotella e barra hanno la precedenza (R20261119-195720-S1)
-            if (lSelTastiera && !query.empty() && lSelFile < 0 && lSel >= 0 && lSel < (int)filtrate.size()) {
-                const int numeroRiga = lSel / 6;   // (divisione intera voluta: la riga della griglia, 6 app per riga)
-                const double alto = lGrigliaBottom() - lGrigliaTop(), riga = numeroRiga * (double)lCellaH();
-                lScrollObj = std::max(riga + lCellaH() - alto, std::min(lScrollObj, riga));   // (non clamp: con una griglia piu' bassa di una riga il minimo supererebbe il massimo)
-            }
+            if (lSelTastiera && !query.empty() && lSelFile < 0 && lSel >= 0 && lSel < (int)filtrate.size())
+                selezionaVisibile();
             lScrollObj = std::clamp(lScrollObj, 0.0, lScrollMax());
         }
     }
     const double sc = verso(lScroll, lScrollObj, 0.06);
     if (sc != lScroll) { lScroll = sc; anim = true; }
-    raccogliIcone();   // (quelle che arrivano dal thread rimettono lDirty)
+    raccogliIcone();
 
     const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
     const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
+    const D2D1_COLOR_F tenue = {ink.r, ink.g, ink.b, ink.a * 0.62f};
+    const D2D1_COLOR_F blu = scuro ? D2D1::ColorF(0.32f, 0.64f, 1.0f, 1.0f) : D2D1::ColorF(0.0f, 0.40f, 0.92f, 1.0f);
     dc->SetTarget(bersaglioL);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
     disegnaFondo({0.5f, 0.5f, LW - 0.5f, LH - 0.5f}, scuro, opacita, coloreAuto ? nullptr : &coloreFondo);
 
-    // pulsante di accensione (sospendi, riavvia, arresta, blocca, disconnetti) a destra della ricerca
+    // Ricerca, profilo e alimentazione in un'unica testata.
     {
-        const D2D1_RECT_F re = rettEnergia();
+        const D2D1_RECT_F rp = rettProfilo(), re = rettEnergia();
+        const D2D1_RECT_F rc = {16 * dpi, 14 * dpi, rp.left - 8 * dpi, 54 * dpi};
+        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(1, 1, 1, 0.70f));
+        dc->FillRoundedRectangle({rc, 11 * dpi, 11 * dpi}, pennello);
+        pennello->SetColor(tenue);
+        const float lx = rc.left + 19 * dpi, ly = (rc.top + rc.bottom) / 2;
+        dc->DrawEllipse({{lx, ly}, 6 * dpi, 6 * dpi}, pennello, 1.8f * dpi);
+        linea(2.5f, 2.5f, 7, 7, lx, ly);
+        const D2D1_RECT_F rt = {lx + 18 * dpi, rc.top, rc.right - 12 * dpi, rc.bottom};
+        if (query.empty()) scrivi(testi::t(L"Cerca un'app", L"Search for an app"), fmtTitolo, rt);
+        else {
+            pennello->SetColor(ink);
+            scrivi(query, fmtTitolo, rt);
+            const float lt = larghezzaTesto(query, fmtTitolo);
+            pennello->SetColor(blu);
+            dc->DrawLine({rt.left + lt + 2 * dpi, ly - 9 * dpi}, {rt.left + lt + 2 * dpi, ly + 9 * dpi}, pennello, 1.6f * dpi);
+        }
+
+        const float pcx = (rp.left + rp.right) / 2, pcy = (rp.top + rp.bottom) / 2;
+        pennello->SetColor(lSopraProfilo ? (scuro ? D2D1::ColorF(1,1,1,0.18f) : D2D1::ColorF(0,0,0,0.07f))
+                                        : (scuro ? D2D1::ColorF(1,1,1,0.09f) : D2D1::ColorF(1,1,1,0.66f)));
+        dc->FillEllipse({{pcx,pcy}, 19*dpi, 19*dpi}, pennello);
+        wchar_t utente[128] = L"";
+        DWORD nUtente = 128;
+        std::wstring iniziale = L"U";
+        if (GetUserNameW(utente, &nUtente) && utente[0]) iniziale.assign(1, (wchar_t)towupper(utente[0]));
+        pennello->SetColor(ink);
+        scrivi(iniziale, fmtNome, {rp.left, rp.top, rp.right, rp.bottom});
+
         const float cx = (re.left + re.right) / 2, cy = (re.top + re.bottom) / 2, rr = (re.bottom - re.top) / 2;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, lSopraEnergia ? 0.18f : 0.10f) : D2D1::ColorF(1, 1, 1, lSopraEnergia ? 0.85f : 0.6f));
+        pennello->SetColor(lSopraEnergia ? (scuro ? D2D1::ColorF(1,1,1,0.18f) : D2D1::ColorF(0,0,0,0.07f))
+                                        : (scuro ? D2D1::ColorF(1,1,1,0.09f) : D2D1::ColorF(1,1,1,0.66f)));
         dc->FillEllipse({{cx, cy}, rr, rr}, pennello);
         pennello->SetColor(ink);
         simboloEnergia(cx, cy);
     }
-    // campo di ricerca
-    const D2D1_RECT_F rc = {24 * dpi, 22 * dpi, rettEnergia().left - 10 * dpi, 62 * dpi};
-    pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(1, 1, 1, 0.6f));
-    dc->FillRoundedRectangle({rc, 10 * dpi, 10 * dpi}, pennello);
-    pennello->SetColor({ink.r, ink.g, ink.b, 0.55f});
-    const float lx = rc.left + 22 * dpi, ly = (rc.top + rc.bottom) / 2;
-    dc->DrawEllipse({{lx - 2 * dpi, ly - 2 * dpi}, 6 * dpi, 6 * dpi}, pennello, 1.8f * dpi);
-    linea(2.5f, 2.5f, 7, 7, lx, ly);
-    const D2D1_RECT_F rt = {lx + 18 * dpi, rc.top, rc.right - 14 * dpi, rc.bottom};
-    if (query.empty()) scrivi(testi::t(L"Cerca un'app", L"Search for an app"), fmtTitolo, rt);
-    else {
+
+    // Preferiti: griglia compatta a quattro colonne, icone grandi e label al centro.
+    if (query.empty() && !lPinned.empty()) {
         pennello->SetColor(ink);
-        scrivi(query, fmtTitolo, rt);
-        // cursore dopo il testo
-        const float lt = larghezzaTesto(query, fmtTitolo);
-        pennello->SetColor(D2D1::ColorF(0.2f, 0.5f, 1.0f, 0.9f));
-        dc->DrawLine({rt.left + lt + 2 * dpi, ly - 9 * dpi}, {rt.left + lt + 2 * dpi, ly + 9 * dpi}, pennello, 1.6f * dpi);
+        scrivi(testi::t(L"Fissate", L"Pinned"), fmtTitolo, {16*dpi, 68*dpi, LW-16*dpi, 98*dpi});
+        for (int i = 0; i < (int)lPinned.size(); ++i) {
+            const D2D1_RECT_F r = lPinnedCella(i);
+            if (r.bottom < 98*dpi || r.top > lAllTop()) continue;
+            const bool sopra = i == lSopraPinned;
+            if (sopra) {
+                pennello->SetColor(scuro ? D2D1::ColorF(1,1,1,0.12f) : D2D1::ColorF(1,1,1,0.72f));
+                dc->FillRoundedRectangle({{r.left+3*dpi,r.top+1*dpi,r.right-3*dpi,r.bottom-1*dpi},10*dpi,10*dpi},pennello);
+            }
+            AppL& a = tutteApp[lPinned[i]];
+            const float cx = (r.left+r.right)/2, iconY = r.top+5*dpi;
+            const D2D1_RECT_F ri={cx-24*dpi,iconY,cx+24*dpi,iconY+48*dpi};
+            if(a.icona) dc->DrawBitmap(a.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else {
+                pennello->SetColor(scuro ? D2D1::ColorF(1,1,1,0.10f) : D2D1::ColorF(0,0,0,0.05f));
+                dc->FillRoundedRectangle({ri,10*dpi,10*dpi},pennello);
+            }
+            pennello->SetColor(ink);
+            scrivi(a.nome,fmtNome,{r.left+2*dpi,ri.bottom+4*dpi,r.right-2*dpi,r.bottom-3*dpi});
+        }
     }
 
-    // griglia delle app
-    dc->PushAxisAlignedClip({0, lGrigliaTop() - 4 * dpi, LW, lGrigliaBottom()}, D2D1_ANTIALIAS_MODE_ALIASED);
-    const float lato = 56 * dpi;
-    for (int i = 0; i < (int)filtrate.size(); i++) {
-        const auto r = lCella(i);
-        if (r.bottom < lGrigliaTop() - lCellaH() || r.top > lGrigliaBottom() + lCellaH()) continue;
-        AppL& a = tutteApp[filtrate[i]];
-        const bool sopra = i == lSopra, scelta = i == lSel && !query.empty() && lSelFile < 0;   // (con una riga dei file scelta, solo quella)
-        if (sopra || scelta) {
-            pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, sopra ? 0.12f : 0.08f) : D2D1::ColorF(1, 1, 1, sopra ? 0.55f : 0.4f));
-            const D2D1_RECT_F h = {r.left + 4 * dpi, r.top + 2 * dpi, r.right - 4 * dpi, r.bottom - 2 * dpi};
-            dc->FillRoundedRectangle({h, 8 * dpi, 8 * dpi}, pennello);
-            if (scelta) { pennello->SetColor(D2D1::ColorF(0.2f, 0.5f, 1.0f, 0.7f)); dc->DrawRoundedRectangle({h, 8 * dpi, 8 * dpi}, pennello, 1.5f * dpi); }
-        }
-        const float cx = (r.left + r.right) / 2;
-        const D2D1_RECT_F ri = {cx - lato / 2, r.top + 12 * dpi, cx + lato / 2, r.top + 12 * dpi + lato};
-        if (a.icona) dc->DrawBitmap(a.icona, ri, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-        else { pennello->SetColor(D2D1::ColorF(0.5f, 0.5f, 0.55f, 0.5f)); dc->FillRoundedRectangle({ri, lato * 0.22f, lato * 0.22f}, pennello); }
+    // All Apps / Results e switch List / Grid.
+    {
+        const float ay = lAllTop();
+        const D2D1_RECT_F rb={LW-154*dpi,ay+3*dpi,LW-16*dpi,ay+32*dpi};
         pennello->SetColor(ink);
-        scrivi(a.nome, fmtNome, {r.left + 6 * dpi, ri.bottom + 6 * dpi, r.right - 6 * dpi, ri.bottom + 24 * dpi});
+        scrivi(query.empty()?testi::t(L"Tutte",L"All"):testi::t(L"Risultati",L"Search results"),
+               fmtTitolo,{16*dpi,ay,LW-162*dpi,ay+34*dpi});
+        const D2D1_COLOR_F sfondoVista = lSopraVista
+            ? (scuro ? D2D1::ColorF(1,1,1,0.14f) : D2D1::ColorF(0,0,0,0.06f))
+            : (scuro ? D2D1::ColorF(1,1,1,0.08f) : D2D1::ColorF(1,1,1,0.62f));
+        pennello->SetColor(sfondoVista);
+        dc->FillRoundedRectangle({rb,8*dpi,8*dpi},pennello);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"Vista:",L"View:"),fmtNome,{rb.left+8*dpi,rb.top,rb.left+46*dpi,rb.bottom});
+        pennello->SetColor(ink);
+        scrivi(lVistaLista?testi::t(L"Elenco",L"List"):testi::t(L"Griglia",L"Grid"),
+               fmtNome,{rb.left+48*dpi,rb.top,rb.right-22*dpi,rb.bottom});
+        const float vx=rb.right-12*dpi, vy=(rb.top+rb.bottom)/2;
+        linea(-3,-1,0,2,vx-2*dpi,vy-1*dpi,1.35f);
+        linea(0,2,3,-1,vx+1*dpi,vy-1*dpi,1.35f);
     }
-    if (filtrate.empty()) { pennello->SetColor({ink.r, ink.g, ink.b, 0.5f}); scrivi(testi::t(L"Nessuna app trovata", L"No apps found"), fmtNome, {0, lGrigliaTop() + 40 * dpi, LW, lGrigliaTop() + 70 * dpi}); }
+
+    dc->PushAxisAlignedClip({0,lGrigliaTop()-3*dpi,LW,lGrigliaBottom()},D2D1_ANTIALIAS_MODE_ALIASED);
+    if (lVistaLista) {
+        wchar_t precedente=0;
+        for(int i=0;i<(int)filtrate.size();++i) {
+            const auto r=lCella(i);
+            if(r.bottom<lGrigliaTop()-60*dpi || r.top>lGrigliaBottom()+48*dpi) continue;
+            const AppL& a=tutteApp[filtrate[i]];
+            const wchar_t lettera=a.nome.empty()?L'#':(wchar_t)towupper(a.nome[0]);
+            if(i==0 || lettera!=precedente) {
+                const float hy=r.top-26*dpi;
+                if(hy+24*dpi>=lGrigliaTop()-3*dpi && hy<lGrigliaBottom()) {
+                    pennello->SetColor(tenue);
+                    scrivi(std::wstring(1,lettera),fmtNome,{22*dpi,hy,LW-24*dpi,hy+20*dpi});
+                    pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.055f));
+                    dc->DrawLine({42*dpi,hy+12*dpi},{LW-20*dpi,hy+12*dpi},pennello,1.0f*dpi);
+                }
+                precedente=lettera;
+            }
+            const bool sopra=i==lSopra, scelta=i==lSel && (!query.empty() || lSelTastiera) && lSelFile<0;
+            if(sopra || scelta) {
+                const D2D1_RECT_F h={r.left+2*dpi,r.top+1*dpi,r.right-2*dpi,r.bottom-1*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.12f:0.08f):D2D1::ColorF(1,1,1,sopra?0.72f:0.52f));
+                dc->FillRoundedRectangle({h,8*dpi,8*dpi},pennello);
+                if(scelta) { pennello->SetColor({blu.r,blu.g,blu.b,0.55f}); dc->DrawRoundedRectangle({h,8*dpi,8*dpi},pennello,1.2f*dpi); }
+            }
+            const D2D1_RECT_F ri={r.left+8*dpi,r.top+7*dpi,r.left+38*dpi,r.top+37*dpi};
+            if(a.icona) dc->DrawBitmap(a.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.055f));
+                dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello);
+            }
+            pennello->SetColor(ink);
+            scrivi(a.nome,fmtNome,{r.left+50*dpi,r.top+3*dpi,r.right-12*dpi,r.bottom-3*dpi});
+        }
+    } else {
+        const float lato = 50*dpi;
+        for(int i=0;i<(int)filtrate.size();++i) {
+            const auto r=lCella(i);
+            if(r.bottom<lGrigliaTop()-lCellaH() || r.top>lGrigliaBottom()+lCellaH()) continue;
+            AppL& a=tutteApp[filtrate[i]];
+            const bool sopra=i==lSopra, scelta=i==lSel && (!query.empty() || lSelTastiera) && lSelFile<0;
+            if(sopra || scelta) {
+                const D2D1_RECT_F h={r.left+3*dpi,r.top+2*dpi,r.right-3*dpi,r.bottom-2*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.12f:0.08f):D2D1::ColorF(1,1,1,sopra?0.72f:0.52f));
+                dc->FillRoundedRectangle({h,8*dpi,8*dpi},pennello);
+            }
+            const float cx=(r.left+r.right)/2;
+            const D2D1_RECT_F ri={cx-lato/2,r.top+8*dpi,cx+lato/2,r.top+8*dpi+lato};
+            if(a.icona) dc->DrawBitmap(a.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,10*dpi,10*dpi},pennello); }
+            pennello->SetColor(ink);
+            scrivi(a.nome,fmtNome,{r.left+5*dpi,ri.bottom+4*dpi,r.right-5*dpi,ri.bottom+26*dpi});
+        }
+    }
+    if(filtrate.empty()) {
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"Nessuna app trovata",L"No apps found"),fmtNome,
+               {16*dpi,lGrigliaTop()+28*dpi,LW-16*dpi,lGrigliaTop()+60*dpi});
+    }
     dc->PopAxisAlignedClip();
-    if (disegnaFileLauncher(scuro, ink)) anim = true;
+    if(disegnaFileLauncher(scuro,ink)) anim=true;
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
     if (lScrollMax() > 0) {
         const D2D1_RECT_F b = lCursoreBarra();
@@ -927,7 +1097,14 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 if (sb != d->lSopraBarra) { d->lSopraBarra = sb; d->lDirty = true; }
             }
             const int s = d->lCellaIn(x, y);
-            if (s != d->lSopra) { d->lSopra = s; d->lDirty = true; }
+            const int pin = d->lPinnedIn(x, y);
+            const bool vista = x >= d->LW - 154*d->dpi && x < d->LW - 16*d->dpi &&
+                               y >= d->lAllTop() + 3*d->dpi && y < d->lAllTop() + 32*d->dpi;
+            const D2D1_RECT_F rp = d->rettProfilo();
+            const bool profilo = x >= rp.left && x < rp.right && y >= rp.top && y < rp.bottom;
+            if (s != d->lSopra || pin != d->lSopraPinned || vista != d->lSopraVista || profilo != d->lSopraProfilo) {
+                d->lSopra = s; d->lSopraPinned = pin; d->lSopraVista = vista; d->lSopraProfilo = profilo; d->lDirty = true;
+            }
             const int sf = d->lFileIn(x, y);
             if (sf != d->lSopraFile) { d->lSopraFile = sf; d->lDirty = true; }
             const D2D1_RECT_F re = d->rettEnergia();
@@ -935,7 +1112,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             if (e != d->lSopraEnergia) { d->lSopraEnergia = e; d->lDirty = true; }
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro = false; d->lSopra = -1; d->lSopraFile = -1; d->lSopraEnergia = false; d->lSopraBarra = false; d->lDirty = true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro = false; d->lSopra = -1; d->lSopraPinned = -1; d->lSopraVista = d->lSopraProfilo = false; d->lSopraFile = -1; d->lSopraEnergia = false; d->lSopraBarra = false; d->lDirty = true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             break;
@@ -944,14 +1121,32 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             { const D2D1_RECT_F b = d->lRettBarra(); if (d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) return 0; }
             if (y > d->LH) { d->chiudiLauncher(); return 0; }   // clic sotto (durante l'animazione): chiude
             if (d->lSopraEnergia) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuEnergia(p); return 0; }
+            if (d->lSopraProfilo) {
+                d->primaDelLauncher = nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr, L"open", L"ms-settings:yourinfo", nullptr, nullptr, SW_SHOWNORMAL);
+                return 0;
+            }
+            if (d->lSopraVista) {
+                d->lVistaLista = !d->lVistaLista; d->lScroll = d->lScrollObj = 0;
+                d->lSel = 0; d->lSopra = -1; d->lSelTastiera = false; d->lDirty = true;
+                return 0;
+            }
+            const int pin = d->lPinnedIn(x, y);
+            if (pin >= 0 && pin < (int)d->lPinned.size()) { d->avviaAppDiretto(d->lPinned[pin]); return 0; }
             const int i = d->lCellaIn(x, y);
             if (i >= 0) d->avviaApp(i);
             else { const int k = d->lFileIn(x, y); if (k >= 0) d->apriFile(k); }
             return 0;
         }
-        case WM_RBUTTONUP: {   // il menu di Windows dell'app (amministratore, percorso, disinstalla...)
-            const int i = d->lCellaIn(x, y);
-            if (i >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuApp(i, p); }
+        case WM_RBUTTONUP: {
+            int indice = d->lCellaIn(x, y);
+            const int pin = d->lPinnedIn(x, y);
+            if (pin >= 0 && pin < (int)d->lPinned.size()) {
+                const int indiceApp = d->lPinned[pin];
+                auto it = std::find(d->filtrate.begin(), d->filtrate.end(), indiceApp);
+                if (it != d->filtrate.end()) indice = (int)std::distance(d->filtrate.begin(), it);
+            }
+            if (indice >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuApp(indice, p); }
             else { const int k = d->lFileIn(x, y); if (k >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuFile(k, p); } }
             return 0;
         }
@@ -1013,7 +1208,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                         d->lDirty = true;
                         return 0;
                     }
-                    if (w == VK_DOWN && (d->filtrate.empty() || d->lSel + 6 >= (int)d->filtrate.size())) { d->lSelFile = validi ? 0 : r; d->lDirty = true; return 0; }
+                    if (w == VK_DOWN && (d->filtrate.empty() || d->lSel + (int)d->lColonne() >= (int)d->filtrate.size())) { d->lSelFile = validi ? 0 : r; d->lDirty = true; return 0; }
                 }
                 if (d->lSelFile >= 0 && (w == VK_LEFT || w == VK_RIGHT || w == VK_PRIOR || w == VK_NEXT || w == VK_HOME || w == VK_END)) {
                     d->lSelFile = -1;
@@ -1023,8 +1218,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             int s = d->lSel;
             // pagine: tante righe quante se ne vedono
             const int righePagina = std::max(1, (int)((d->lGrigliaBottom() - d->lGrigliaTop()) / d->lCellaH()));
-            if (w == VK_LEFT) s--; else if (w == VK_RIGHT) s++; else if (w == VK_UP) s -= 6; else if (w == VK_DOWN) s += 6;
-            else if (w == VK_PRIOR) s -= 6 * righePagina; else if (w == VK_NEXT) s += 6 * righePagina;
+            const int colonne = (int)d->lColonne();
+            if (w == VK_LEFT) s -= d->lVistaLista ? 0 : 1;
+            else if (w == VK_RIGHT) s += d->lVistaLista ? 0 : 1;
+            else if (w == VK_UP) s -= colonne; else if (w == VK_DOWN) s += colonne;
+            else if (w == VK_PRIOR) s -= colonne * righePagina; else if (w == VK_NEXT) s += colonne * righePagina;
             else if (w == VK_HOME) s = 0; else if (w == VK_END) s = (int)d->filtrate.size() - 1;
             else break;
             // senza ricerca la prima freccia mostra solo la scelta attuale; la scelta si vede come il passaggio del mouse

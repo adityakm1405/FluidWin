@@ -294,20 +294,20 @@ inline auto Motore::controlloCompatto() const -> bool {
 #ifdef PROVA_COMPATTO
     return true;
 #endif
-    return std::round((518 + 52 * righeControllo()) * dpi) > altezzaMassimaP(); }
+    return std::round((550 + 52 * righeControllo()) * dpi) > altezzaMassimaP(); }
 // luminosita' e batteria: una riga in piu' solo se il monitor si regola e se c'e' una batteria. Le conta anche
 // controlloCompatto. Su uno schermo cosi' basso che nemmeno la versione compatta ci sta con tutte e due (720p al
 // 125%) la luminosita' lascia il posto alla batteria: sul portatile la si regola anche coi tasti
 inline auto Motore::rigaBatteria() const -> bool { return sensori::Sensori::io().batteria >= 0; }
 inline auto Motore::rigaLuminosita() const -> bool {
     if (sis.luminosita < 0) return false;
-    return !rigaBatteria() || std::round((430 + 48 * 2) * dpi) <= altezzaMassimaP();
+    return !rigaBatteria() || std::round((460 + 48 * 2) * dpi) <= altezzaMassimaP();
 }
 inline auto Motore::righeControllo() const -> int { return (rigaLuminosita() ? 1 : 0) + (rigaBatteria() ? 1 : 0); }
 inline auto Motore::altezzaControllo() const -> float {
     const int righe = righeControllo();
-    if (!controlloCompatto()) return std::round((518 + 52 * righe) * dpi);
-    return std::round((430 + 48 * righe) * dpi);
+    if (!controlloCompatto()) return std::round((550 + 52 * righe) * dpi);
+    return std::round((460 + 48 * righe) * dpi);
 }
 
 inline auto Motore::nascondiPannello() -> void {
@@ -1202,7 +1202,12 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     const bool cp = controlloCompatto();
     const float th = (cp ? 52 : 64) * dpi, tg = (cp ? 8 : 10) * dpi, sh = (cp ? 40 : 44) * dpi;
     const float m = (cp ? 12 : 16) * dpi, larg = PW - 2 * (16 * dpi), mezzo = (larg - 10 * dpi) / 2;
-    float y = m;
+    const D2D1_COLOR_F tenue = {ink.r, ink.g, ink.b, ink.a * 0.58f};
+    pennello->SetColor(ink);
+    scrivi(testi::t(L"Impostazioni rapide", L"Quick settings"), fmtTitolo, {16*dpi, 5*dpi, PW-16*dpi, 29*dpi});
+    pennello->SetColor(tenue);
+    scrivi(testoDataLunga, fmtSotto, {17*dpi, 28*dpi, PW-16*dpi, 46*dpi});
+    float y = (cp ? 50.0f : 54.0f) * dpi;
     // Wi-Fi: interruttore vero se c'e' la scheda; senza (PC col cavo) lo stato della rete, e il clic apre le impostazioni
     const int wf = sis.wifi, bt = sis.bluetooth;
     if (wf >= 0) piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_RETE, wf == 1, L"Wi-Fi",
@@ -1253,18 +1258,18 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
     dc->FillRoundedRectangle({rv, rr, rr}, pennello);
     dc->PushAxisAlignedClip({rv.left, rv.top, rv.left + larg * v, rv.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    pennello->SetColor(D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f));
+    pennello->SetColor(D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f));
     dc->FillRoundedRectangle({rv, rr, rr}, pennello);
     dc->PopAxisAlignedClip();
     const D2D1_RECT_F rm = {rv.left, rv.top, rv.left + 48 * dpi, rv.bottom};
     const int em = aggiungi(rm, A_MUTO, 0);
     const float sm = (em == pPremuto) ? 0.88f : 1.0f;
     dc->SetTransform(D2D1::Matrix3x2F::Scale(sm, sm, {rv.left + 26 * dpi, (rv.top + rv.bottom) / 2}) * baseVista);
-    pennello->SetColor(scuro && v < 0.12f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f));
+    pennello->SetColor(v > 0.12f ? D2D1::ColorF(1,1,1,0.98f) : ink);
     simboloVolume(rv.left + 26 * dpi, (rv.top + rv.bottom) / 2);
     dc->SetTransform(baseVista);
     wchar_t pc[16]; swprintf(pc, 16, muto ? testi::t(L"muto", L"muted") : L"%d%%", (int)std::lround(volume * 100));
-    pennello->SetColor(scuro && v < 0.9f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.7f));
+    pennello->SetColor(ink);
     scrivi(pc, fmtNome, {rv.right - 56 * dpi, rv.top, rv.right - 8 * dpi, rv.bottom});
 
     // luminosita' del monitor (solo se si puo' regolare via DDC/CI)
@@ -1277,13 +1282,13 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
         pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
         dc->FillRoundedRectangle({rl, rr, rr}, pennello);
         dc->PushAxisAlignedClip({rl.left, rl.top, rl.left + larg * vl, rl.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pennello->SetColor(D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f));
+        pennello->SetColor(D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f));
         dc->FillRoundedRectangle({rl, rr, rr}, pennello);
         dc->PopAxisAlignedClip();
-        pennello->SetColor(scuro && vl < 0.12f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f));
+        pennello->SetColor(vl > 0.12f ? D2D1::ColorF(1,1,1,0.98f) : ink);
         simboloSole(rl.left + 26 * dpi, (rl.top + rl.bottom) / 2);
         wchar_t pl[16]; swprintf(pl, 16, L"%d%%", lum);
-        pennello->SetColor(scuro && vl < 0.9f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.7f));
+        pennello->SetColor(ink);
         scrivi(pl, fmtNome, {rl.right - 56 * dpi, rl.top, rl.right - 8 * dpi, rl.bottom});
     }
 
@@ -1298,8 +1303,8 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
         dc->FillRoundedRectangle({rb, rr, rr}, pennello);
         const bool verde = se.inCarica, rosso = !se.inCarica && se.batteria <= 20;
         const D2D1_COLOR_F pieno = verde ? D2D1::ColorF(0.20f, 0.78f, 0.35f, 1) : rosso ? D2D1::ColorF(1.0f, 0.27f, 0.23f, 1)
-                                         : D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f);
-        const D2D1_COLOR_F suPieno = (verde || rosso) ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f);
+                                         : D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f);
+        const D2D1_COLOR_F suPieno = D2D1::ColorF(1, 1, 1, 0.96f);
         dc->PushAxisAlignedClip({rb.left, rb.top, rb.left + riempito, rb.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         pennello->SetColor(pieno);
         dc->FillRoundedRectangle({rb, rr, rr}, pennello);

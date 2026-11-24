@@ -3273,8 +3273,10 @@ private:
                     bool scuro, D2D1_COLOR_F ink, float margine = 8) {
         const int e = aggiungi(r, a, 0);
         const float rp = std::max(6.0f, raggio::vetro() - 10.0f) * dpi;   // concentrica con l'angolo del pannello
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.05f));
+        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.085f) : D2D1::ColorF(1, 1, 1, 0.72f));
         dc->FillRoundedRectangle({r, rp, rp}, pennello);
+        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.08f) : D2D1::ColorF(0.08f, 0.12f, 0.18f, 0.045f));
+        dc->DrawRoundedRectangle({r, rp, rp}, pennello, 1.0f * dpi);
         evidenzia(e, r, scuro, rp);
         const float cx = r.left + 32 * dpi, cy = (r.top + r.bottom) / 2;
         pennello->SetColor(acceso ? D2D1::ColorF(0.0f, 0.478f, 1.0f, 1.0f) : (scuro ? D2D1::ColorF(1, 1, 1, 0.18f) : D2D1::ColorF(0, 0, 0, 0.10f)));
@@ -3541,15 +3543,17 @@ private:
     POINT ancora{};                        // icona "App": da qui cresce e qui rientra (coordinate della finestra)
     std::vector<AppL> tutteApp;
     std::vector<int> filtrate;
+    std::vector<int> lPinned;             // preferiti effettivamente installati
     std::wstring query;
+    bool lVistaLista = true;              // elenco alfabetico come vista predefinita
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
     double lScroll = 0, lScrollObj = 0;
     // barra di scorrimento: si trascina (la si prende dove si vuole), un clic sul binario salta di una pagina
     bool lTrascinoBarra = false, lSopraBarra = false;
     float lPresaY = 0; double lPresaScroll = 0;
-    int lSel = 0, lSopra = -1;
-    bool lSopraEnergia = false;
+    int lSel = 0, lSopra = -1, lSopraPinned = -1;
+    bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
     // l'ultimo tasto, un thread chiede all'indice di Windows; sotto la griglia compare la sezione con i risultati del
     // testo lFileTesto e, in fondo, "Cerca in Esplora file". lFileGen scarta i risultati di un testo vecchio; lFileH e'
@@ -3625,10 +3629,16 @@ private:
     static bool iniziali(const std::wstring& nome, const std::wstring& q);
     static bool sottosequenza(const std::wstring& nome, const std::wstring& q);
     void filtra();
+    void aggiornaPinned();
 
     float lColonne() const;
     float lCellaW() const;
     float lCellaH() const;
+    float lAllTop() const;
+    float lListaAlto() const;
+    float lListaY(int i) const;
+    D2D1_RECT_F lPinnedCella(int i) const;
+    int lPinnedIn(float x, float y) const;
     D2D1_RECT_F lRettBarra() const;
     D2D1_RECT_F lCursoreBarra() const;
     float lGrigliaTop() const;
@@ -3685,6 +3695,8 @@ private:
     void avviaApp(int i);
 
     D2D1_RECT_F rettEnergia() const;
+    D2D1_RECT_F rettProfilo() const;
+    void avviaAppDiretto(int indiceApp);
 
     void menuApp(int i, POINT pt);
 
