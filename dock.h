@@ -1049,9 +1049,12 @@ public:
                 raw = std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + bandIndex * 0.72))) * forza, 0.0f, 1.0f);
             }
             const float pos = visualCount > 1 ? std::fabs(2.0f * visualIndex / (visualCount - 1) - 1.0f) : 0.0f;
-            const float centre = std::cos(pos * (float)(M_PI * 0.5));
-            const float focus = 0.38f + 0.62f * std::pow(std::max(0.0f, centre), 1.35f);
-            return raw * focus;
+            const float centre = std::max(0.0f, std::cos(pos * (float)(M_PI * 0.5)));
+            // Much stronger centre focus: full response in the middle, only 10% at the outer edges.
+            const float focus = 0.10f + 0.90f * centre * centre;
+            // Lift quieter FFT bands so normal-volume music still produces visible movement.
+            const float response = raw > 0.0f ? std::pow(raw, 0.72f) : 0.0f;
+            return std::clamp(response * focus, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
