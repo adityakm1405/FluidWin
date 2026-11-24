@@ -35,6 +35,7 @@
 #include <array>
 #include <cstring>
 #include <audioclient.h>
+#include <ksmedia.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
 
