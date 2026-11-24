@@ -306,7 +306,7 @@ public:
         if (visibile) ridisegna();
     }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, bool capsulaAttiva = false) {
-        stile = std::clamp(stile, 0, 4);
+        stile = std::clamp(stile, 0, 3);
         forza = std::clamp(forza, 50, 200);
         if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo &&
             forza == forzaVisualizzatore && capsulaAttiva == capsulaAttivaAudio) return;
@@ -1720,6 +1720,8 @@ private:
 
     // Quattro stili compatti. Quando la reattivita' e' attiva, l'ampiezza segue il picco reale
     // dell'uscita audio predefinita di Windows; altrimenti resta un'animazione ambientale delicata.
+    // Four spectrum styles. Reactive mode uses the WASAPI FFT bands directly; non-reactive mode
+    // deliberately uses separate gentle animations rather than synthetic music response.
     void barrette(float x, float cy, float largo, float a, float mix) {
         const float d = dpi;
         const double t = adesso();
@@ -1727,8 +1729,8 @@ private:
         const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
         auto ampiezza = [&](int i, int n) {
             if (audioReale) return std::clamp(misuratoreAudio.banda(i, n) * forza, 0.0f, 1.0f);
-            const float onda = 0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82);
-            return std::clamp(onda * forza, 0.0f, 1.0f);
+            const float idle = 0.22f + 0.78f * (0.5f + 0.5f * (float)std::sin(t * 2.1 + i * 0.65));
+            return std::clamp(idle * forza, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int indice = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1736,59 +1738,48 @@ private:
             colore(col.r, col.g, col.b, col.a);
         };
 
-        if (stileVisualizzatore == 1) {   // Wave: linea sottile e continua
-            const int n = 7;
+        if (stileVisualizzatore == 1) { // Spectral wave: FFT bins shape the wave, no preset wave overlay.
+            const int n = 13;
             float px = x, py = cy;
             for (int i = 0; i < n; i++) {
-                const float u = i / (float)(n - 1);
-                const float amp = ampiezza(i, n);
+                const float u = i / (float)(n - 1), amp = ampiezza(i, n);
                 const float xx = x + u * largo;
-                const float forma = audioReale ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 4.0 + i * 0.92);
-                const float yy = cy + forma * (1.0f + 5.2f * amp) * d * mix;
+                const float polarity = (i % 2 == 0) ? 1.0f : -1.0f;
+                const float idleShape = (float)std::sin(t * 2.6 + i * 0.78);
+                const float yy = cy + (audioReale ? polarity * amp : idleShape * amp) * 8.0f * d * mix;
                 tinta(i, n);
-                if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.45f * d);
+                if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.6f * d);
                 px = xx; py = yy;
             }
             return;
         }
-        if (stileVisualizzatore == 2) {   // Dots: punti che respirano
-            const int n = 5;
-            const float passo = largo / (n - 1);
-            for (int i = 0; i < n; i++) {
-                const float amp = ampiezza(i, n);
-                const float raggio = (0.85f + 1.25f * amp) * d * (0.35f + 0.65f * mix);
-                const float yy = cy + (audioReale ? 0.0f : (float)std::sin(t * 3.4 - i * 0.9) * amp * 2.0f * d * mix);
-                tinta(i, n);
-                rt->FillEllipse({{x + i * passo, yy}, raggio, raggio}, pen);
+        if (stileVisualizzatore == 2) { // Dots: stacked pixel spectrum columns
+            const int cols = 7, rows = 5;
+            const float stepX = largo / cols, dot = 1.45f * d, stepY = 2.65f * d;
+            for (int i = 0; i < cols; i++) {
+                const float amp = ampiezza(i, cols);
+                const int lit = audioReale ? (int)std::round(amp * rows) : 1 + (int)std::round((0.5f + 0.5f * std::sin(t * 2.3 + i)) * 3.0f);
+                tinta(i, cols);
+                for (int j = 0; j < rows; j++) {
+                    const float fade = 0.28f + 0.72f * (j + 1) / (float)rows;
+                    if (j < lit) {
+                        colore(pen->GetColor().r, pen->GetColor().g, pen->GetColor().b, 0.92f * a * mix * fade);
+                        rt->FillEllipse({{x + (i + 0.5f) * stepX, cy + (rows - 1) * stepY / 2 - j * stepY}, dot, dot}, pen);
+                    }
+                }
             }
             return;
         }
-        if (stileVisualizzatore == 4) {   // Circle: punti base con barre radiali indipendenti
-            const int n = 12;
-            const float r = std::max(3.2f * d, std::min(5.0f * d, largo * 0.20f));
-            const float cx = x + largo / 2, dot = 0.8f * d;
-            for (int i = 0; i < n; i++) {
-                const float amp = ampiezza(i, n);
-                const float ang = (float)(-M_PI / 2.0 + i * 2.0 * M_PI / n);
-                const float baseX = cx + std::cos(ang) * r, baseY = cy + std::sin(ang) * r;
-                const float ext = (audioReale ? (1.0f + 9.0f * amp) : (2.0f + 4.0f * amp)) * d * mix;
-                tinta(i, n);
-                rt->FillEllipse({{baseX, baseY}, dot, dot}, pen);
-                rt->DrawLine({baseX + std::cos(ang) * dot * 1.5f, baseY + std::sin(ang) * dot * 1.5f},
-                            {baseX + std::cos(ang) * (dot * 1.5f + ext), baseY + std::sin(ang) * (dot * 1.5f + ext)}, pen, 1.8f * d);
-            }
-            return;
-        }
-        const int n = 5;
-        const float lb = (stileVisualizzatore == 3 ? 2.3f : 2.0f) * d;
-        const float passo = largo / n;
+        const int n = 9;
+        const float lb = 2.0f * d, passo = largo / n;
         for (int i = 0; i < n; i++) {
             const int indiceAmp = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
-            const float amp = ampiezza(indiceAmp, n);
-            const float hb = (2.0f + 8.0f * amp) * d * mix;
+            const float amp = ampiezza(indiceAmp, stileVisualizzatore == 3 ? (n + 1) / 2 : n);
+            const float idle = 0.22f + 0.78f * (0.5f + 0.5f * (float)std::sin(t * 2.4 + i * 0.75));
+            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 10.0f * amp) : (1.5f + 8.0f * idle * forza)) * d * mix);
             const float bx = x + (i + 0.5f) * passo - lb / 2;
             tinta(i, n);
-            rt->FillRoundedRectangle({{bx, cy - hb / 2, bx + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
+            rt->FillRoundedRectangle({{bx, cy - h / 2, bx + lb, cy + h / 2}, lb / 2, lb / 2}, pen);
         }
     }
 
