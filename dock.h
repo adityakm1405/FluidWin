@@ -1305,7 +1305,7 @@ private:
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     IDXGISwapChain1* sc = nullptr; IDCompositionDevice* dcomp = nullptr; IDCompositionTarget* target = nullptr; IDCompositionVisual* visual = nullptr;
     ID2D1Factory1* f2d = nullptr; ID2D1Device* d2dev = nullptr; ID2D1DeviceContext* dc = nullptr; ID2D1Bitmap1* bersaglio = nullptr;
-    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr;
+    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr, *fmtOraMeridiem = nullptr;
     ID2D1SolidColorBrush* pennello = nullptr;
     ID2D1StrokeStyle* tratto = nullptr;   // estremi arrotondati, per i simboli
 
@@ -1396,6 +1396,7 @@ private:
         }
         formato(fTesto, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.0f, &testo);
         formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 28.0f, &fmtOra);
+        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 19.0f, &fmtOraMeridiem);
         // testi dei pannelli: allineati a sinistra, con "..." se non entrano
         auto sinistra = [&](const wchar_t* font, DWRITE_FONT_WEIGHT peso, float px, IDWriteTextFormat** out) {
             formato(font, peso, px, out); testi::allinea(*out, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -2178,7 +2179,9 @@ private:
         if (!oraNelDock || larghezzaOra <= 0) return 0;
         const float estensione = verticale() ? altezzaOrologioVerticale() * kOra()
                                              : (larghezzaOra + 12.0f * dpi) * kOra();
-        return GAP * 2 + 1 + estensione;
+        // Match icon-group separators: one ordinary GAP plus a centered separator zone (2 * GAP + 1).
+        const float spazioSeparatore = GAP * 2.0f + 1.0f;
+        return GAP + spazioSeparatore + estensione;
     }
     float scalaOra() const {
         // Clock size follows the dock icon size, while the tile keeps the reference proportions.
@@ -2394,8 +2397,9 @@ private:
         if (const float coda = larghezzaCoda(); coda > 0) {
             const float x0 = sinistra + tot - coda;
             // Use the same configurable group separator as the lines between dock icons.
-            disegnaLineaSeparatore(x0 + GAP + 0.5f, yb, 1.0f, 1.0f, scuro);
-            const D2D1_RECT_F r = {x0 + GAP * 2 + 1, yb - S, x0 + coda, yb};
+            const float spazioSeparatore = GAP * 2.0f + 1.0f;
+            disegnaLineaSeparatore(x0 + GAP + spazioSeparatore / 2.0f, yb, 1.0f, 1.0f, scuro);
+            const D2D1_RECT_F r = {x0 + GAP + spazioSeparatore, yb - S, x0 + coda, yb};
             const float press = statoPremuto == ORA ? 0.92f : 1.0f;
             const float k = kOra();
             const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
@@ -2424,17 +2428,17 @@ private:
 
                 pennello->SetColor(ink);
                 const D2D1_RECT_F areaMinuti = {tile.left + inset,
-                                                fineAreaOra + 9.0f * dpi,
+                                                fineAreaOra + 2.0f * dpi,
                                                 tile.right - inset,
-                                                oraDodici ? tile.top + 106.0f * dpi : tile.bottom - 5.0f * dpi};
+                                                oraDodici ? tile.top + 99.0f * dpi : tile.bottom - 5.0f * dpi};
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
 
                 if (oraDodici && !testoOraMeridiem.empty()) {
                     pennello->SetColor(ink);
-                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 105.0f * dpi,
-                                                      tile.right - inset, tile.bottom - 3.0f * dpi};
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 101.0f * dpi,
+                                                      tile.right - inset, tile.bottom - 1.0f * dpi};
                     dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
-                                 fmtNome, areaMeridiem, pennello);
+                                 fmtOraMeridiem, areaMeridiem, pennello);
                 }
             } else {
                 pennello->SetColor(ink);
