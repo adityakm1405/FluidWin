@@ -2174,7 +2174,7 @@ private:
     }
     // Screen-aligned dimensions of the vertical clock tile (the dock canvas is rotated at the sides).
     float larghezzaOrologioVerticale() const { return 68.0f * dpi; }
-    float altezzaOrologioVerticale() const { return (oraDodici ? 136.0f : 102.0f) * dpi; }
+    float altezzaOrologioVerticale() const { return (oraDodici ? 128.0f : 82.0f) * dpi; }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
         const float estensione = verticale() ? altezzaOrologioVerticale() * kOra()
@@ -2420,27 +2420,30 @@ private:
                                           cx + tileW / 2.0f, cy + tileH / 2.0f};
 
                 const float inset = 5.0f * dpi;
-                const float yOraInizio = tile.top + (oraDodici ? 2.0f : 1.0f) * dpi;
-                const float yOraFine = tile.top + (oraDodici ? 38.0f : 36.0f) * dpi;
-                const float yDuePuntiFine = tile.top + (oraDodici ? 62.0f : 58.0f) * dpi;
-                const float yMinutiFine = oraDodici ? tile.top + 100.0f * dpi : tile.bottom - 1.0f * dpi;
+                // Keep the two large rows close, with a compact sideways colon between them.
+                const float yOraInizio = tile.top + 1.0f * dpi;
+                const float yOraFine = tile.top + 35.0f * dpi;
+                const float yMinutiInizio = tile.top + 37.0f * dpi;
+                const float yMinutiFine = tile.top + (oraDodici ? 72.0f : 81.0f) * dpi;
 
                 pennello->SetColor(ink);
                 const D2D1_RECT_F areaOra = {tile.left + inset, yOraInizio,
                                              tile.right - inset, yOraFine};
                 dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
 
-                const wchar_t duePunti[] = L":";
-                const D2D1_RECT_F areaDuePunti = {tile.left + inset, yOraFine,
-                                                  tile.right - inset, yDuePuntiFine};
-                dc->DrawText(duePunti, 1, fmtOraMeridiem, areaDuePunti, pennello);
+                // A vertical clock stacks the two colon dots horizontally (rotated 90 degrees).
+                const float yDuePunti = (yOraFine + yMinutiInizio) / 2.0f;
+                const float raggioPunto = 1.45f * dpi;
+                const float distanzaPunti = 3.6f * dpi;
+                dc->FillEllipse(D2D1::Ellipse({cx - distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
+                dc->FillEllipse(D2D1::Ellipse({cx + distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
 
-                const D2D1_RECT_F areaMinuti = {tile.left + inset, yDuePuntiFine,
+                const D2D1_RECT_F areaMinuti = {tile.left + inset, yMinutiInizio,
                                                 tile.right - inset, yMinutiFine};
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
 
                 if (oraDodici && !testoOraMeridiem.empty()) {
-                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 103.0f * dpi,
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 76.0f * dpi,
                                                       tile.right - inset, tile.bottom - 1.0f * dpi};
                     dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
                                  fmtOraMeridiem, areaMeridiem, pennello);
