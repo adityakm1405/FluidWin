@@ -1096,7 +1096,7 @@ public:
         notch12Ore = si; aggiornaStato(true);
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
-    void impostaColoriTimerNotch(DWORD conto, DWORD anello, DWORD fine) { notch.impostaColoriTimer(conto, anello, fine); }
+    void impostaColoriTimerNotch(DWORD colore, DWORD pulsante) { notch.impostaColoriTimer(colore, pulsante); }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
         stile = std::clamp(stile, 0, 2);
         forza = std::clamp(forza, 50, 200);
