@@ -1024,7 +1024,7 @@ public:
         if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                        IID_PPV_ARGS(&fabbrica))) &&
             SUCCEEDED(fabbrica->CreateStream(&flusso)) &&
-            SUCCEEDED(flusso->InitializeFromMemory((WICBYTE*)dati, dimensione)) &&
+            SUCCEEDED(flusso->InitializeFromMemory((BYTE*)dati, dimensione)) &&
             SUCCEEDED(fabbrica->CreateDecoderFromStream(flusso, nullptr, WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
             SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
             SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
