@@ -965,60 +965,69 @@ public:
         if (s == logoStart) return;
         logoStart = s; dirty = true;
     }
+    // Load a PNG through WIC (instead of the shell's generic file icon) so transparent icon artwork is preserved.
+    ID2D1Bitmap1* caricaIconaWic(const std::wstring& percorso, int lato = 256) {
+        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapScaler* ridimensionatore = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromFilename(percorso.c_str(), nullptr, GENERIC_READ,
+                                                           WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
+            const double scala = std::min({1.0, (double)lato / sorgenteW, (double)lato / sorgenteH});
+            const UINT destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
+            const UINT destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
+            if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
+                SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                if (FAILED(dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &risultato))) risultato = nullptr;
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ridimensionatore) ridimensionatore->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
     void impostaFileIconaStart(const std::wstring& percorso) {
         // Se lo stesso percorso e' gia' caricato non si fa lavoro; se il target D2D e' stato ricreato,
         // il puntatore nullo permette invece di ricaricare l'immagine.
         if (percorso == fileIconaStart && (percorso.empty() || iconaStartPersonale)) return;
         fileIconaStart = percorso;
         if (iconaStartPersonale) { iconaStartPersonale->Release(); iconaStartPersonale = nullptr; }
-        if (dc && !fileIconaStart.empty()) {
-            IWICImagingFactory* fabbrica = nullptr;
-            IWICBitmapDecoder* decodificatore = nullptr;
-            IWICBitmapFrameDecode* fotogramma = nullptr;
-            IWICBitmapScaler* ridimensionatore = nullptr;
-            IWICFormatConverter* convertitore = nullptr;
-            UINT sorgenteW = 0, sorgenteH = 0;
-            UINT destinazioneW = 0, destinazioneH = 0;
-            if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                           IID_PPV_ARGS(&fabbrica))) &&
-                SUCCEEDED(fabbrica->CreateDecoderFromFilename(fileIconaStart.c_str(), nullptr, GENERIC_READ,
-                                                               WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
-                SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
-                SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
-                const double scala = std::min({1.0, 256.0 / sorgenteW, 256.0 / sorgenteH});
-                destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
-                destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
-                if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
-                    SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
-                    SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
-                    SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
-                        WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
-                    dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &iconaStartPersonale);
-                }
-            }
-            if (convertitore) convertitore->Release();
-            if (ridimensionatore) ridimensionatore->Release();
-            if (fotogramma) fotogramma->Release();
-            if (decodificatore) decodificatore->Release();
-            if (fabbrica) fabbrica->Release();
-        }
+        if (!fileIconaStart.empty()) iconaStartPersonale = caricaIconaWic(fileIconaStart, 256);
         dirty = true;
     }
     void impostaIconeDownloadCestino(const std::wstring& download, const std::wstring& cestino) {
-        if (download == fileIconaDownload && cestino == fileIconaCestino && iconaDownload && iconaCestino) return;
+        if (download == fileIconaDownload && cestino == fileIconaCestino &&
+            iconaDownload && iconaCestino && iconaStartMacOS) return;
         fileIconaDownload = download; fileIconaCestino = cestino;
         if (iconaDownload) { iconaDownload->Release(); iconaDownload = nullptr; }
         if (iconaCestino) { iconaCestino->Release(); iconaCestino = nullptr; }
+        if (iconaStartMacOS) { iconaStartMacOS->Release(); iconaStartMacOS = nullptr; }
         if (!dc) return;
         wchar_t exe[MAX_PATH] = L"";
         GetModuleFileNameW(nullptr, exe, MAX_PATH);
         std::wstring dir = exe;
         const size_t slash = dir.find_last_of(L"\\/");
         if (slash != std::wstring::npos) dir.resize(slash + 1);
+        const std::wstring defaultMacPng = dir + L"assets\\icons8-mac-logo-480.png";
         const std::wstring defaultDownloadSvg = dir + L"assets\\downloads-fluent.svg";
-        const std::wstring defaultTrashSvg = dir + L"assets\\recycle-bin-fluent-empty.svg";
+        const std::wstring defaultTrashSvg = dir + L"assets\\icons8-bin-windows-240.svg";
         const std::wstring defaultDownloadPng = dir + L"assets\\downloads-fluent.png";
         const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
+        iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
         if (!fileIconaDownload.empty()) iconaDownload = caricaIconaFile(fileIconaDownload, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
         if (!iconaDownload) iconaDownload = caricaIcona(defaultDownloadPng, 256);
@@ -1201,7 +1210,7 @@ private:
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
     std::wstring fileIconaStart, fileIconaDownload, fileIconaCestino;
-    ID2D1Bitmap1* iconaStartPersonale = nullptr;
+    ID2D1Bitmap1* iconaStartPersonale = nullptr, *iconaStartMacOS = nullptr;
     ID2D1Bitmap1* iconaDownload = nullptr, *iconaCestino = nullptr;
     bool notch12Ore = false;
     std::wstring testoOraNotch;

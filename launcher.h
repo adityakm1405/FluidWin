@@ -714,8 +714,24 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
         return;
     }
 
+    if (logoStart == 1 && iconaStartMacOS) {
+        // The Finder PNG has transparent margins; crop those before sizing so its visible artwork
+        // reaches approximately the same visual bounds as the other dock application icons.
+        const D2D1_SIZE_F bs = iconaStartMacOS->GetSize();
+        const D2D1_RECT_F sorgente = {bs.width * 0.085f, bs.height * 0.105f,
+                                      bs.width * 0.915f, bs.height * 0.895f};
+        const float sw = sorgente.right - sorgente.left, sh = sorgente.bottom - sorgente.top;
+        const float scala = std::min(d * 0.92f / std::max(1.0f, sw), d * 0.92f / std::max(1.0f, sh));
+        const float w = sw * scala, h = sh * scala;
+        const D2D1_RECT_F destinazione = {cx - w * 0.5f, cy - h * 0.5f,
+                                          cx + w * 0.5f, cy + h * 0.5f};
+        dc->DrawBitmap(iconaStartMacOS, destinazione, alfa,
+                       D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, &sorgente);
+        return;
+    }
+
     if (logoStart == 1) {
-        // Icona macOS Dock: base lucida con app affiancate e cestino, non il logo Apple.
+        // Fallback if the bundled Finder image is unavailable: previous built-in macOS dock mark.
         const D2D1_RECT_F base = {cx - d * 0.44f, cy - d * 0.31f, cx + d * 0.44f, cy + d * 0.31f};
         pennello->SetColor(D2D1::ColorF(0.42f, 0.48f, 0.58f, 0.66f * alfa));
         dc->FillRoundedRectangle({base, d * 0.15f, d * 0.15f}, pennello);
