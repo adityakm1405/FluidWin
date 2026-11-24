@@ -2670,8 +2670,8 @@ private:
                                     st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
             else swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
         }
-        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formato12 ? L"h" : L"HH", ore, 32))
-            swprintf(ore, 32, formato12 ? L"%d" : L"%02d",
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formato12 ? L"hh" : L"HH", ore, 32))
+            swprintf(ore, 32, L"%02d",
                      formato12 ? ((st.wHour % 12) ? (st.wHour % 12) : 12) : st.wHour);
         if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, L"mm", minuti, 32))
             swprintf(minuti, 32, L"%02d", st.wMinute);
