@@ -82,6 +82,7 @@ static constexpr WORD RISORSA_CESTINO_WINDOWS10 = 205;
 static constexpr WORD RISORSA_CESTINO_WINDOWS11 = 206;
 static constexpr WORD RISORSA_CESTINO_MACOS = 207;
 static constexpr WORD RISORSA_DOWNLOAD_PREDEFINITO = 208;
+static constexpr WORD RISORSA_DOWNLOAD_ORIGINALE = 209;
 static const UINT WM_APPBAR = WM_APP + 20;
 
 // Spazio riservato al dock (impostazione): il dock si registra come "appbar", come la barra di Windows, e le finestre
@@ -1051,6 +1052,128 @@ public:
         return risultato;
     }
 
+    // Extract the original Downloads tile from the reference image in pics/.
+    // Only the dock background connected to the crop edges is made transparent;
+    // the green tile and its white arrow are kept from the reference pixels.
+    ID2D1Bitmap1* caricaIconaDownloadOriginale() {
+        if (!dc) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(RISORSA_DOWNLOAD_ORIGINALE), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione) return nullptr;
+
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICStream* flusso = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapClipper* ritaglio = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateStream(&flusso)) &&
+            SUCCEEDED(flusso->InitializeFromMemory((BYTE*)dati, dimensione)) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromStream(flusso, nullptr, WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) &&
+            sorgenteW >= 60 && sorgenteH >= 60 &&
+            SUCCEEDED(fabbrica->CreateBitmapClipper(&ritaglio))) {
+
+            // The reference PNG is 103 x 204. This crop encloses the green Downloads tile
+            // with a thin rim, but excludes the neighboring Recycle Bin and dock controls.
+            WICRect area{25, 33, 35, 28};
+            if (area.X + area.Width > (INT)sorgenteW) area.Width = (INT)sorgenteW - area.X;
+            if (area.Y + area.Height > (INT)sorgenteH) area.Height = (INT)sorgenteH - area.Y;
+
+            if (area.Width > 0 && area.Height > 0 &&
+                SUCCEEDED(ritaglio->Initialize(fotogramma, &area)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ritaglio, GUID_WICPixelFormat32bppBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+
+                UINT w = 0, h = 0;
+                if (SUCCEEDED(convertitore->GetSize(&w, &h)) && w && h) {
+                    std::vector<BYTE> pixel((size_t)w * h * 4);
+                    if (SUCCEEDED(convertitore->CopyPixels(nullptr, w * 4,
+                        (UINT)pixel.size(), pixel.data()))) {
+
+                        const size_t n = (size_t)w * h;
+                        std::vector<BYTE> visit(n, 0);
+                        std::deque<size_t> coda;
+                        auto fondo = [&](size_t k) {
+                            const int bb = pixel[k * 4 + 0];
+                            const int gg = pixel[k * 4 + 1];
+                            const int rr = pixel[k * 4 + 2];
+                            const int massimo = std::max({rr, gg, bb});
+                            const int minimo = std::min({rr, gg, bb});
+                            const int luminosita = (rr + gg + bb) / 3;
+                            // The dock panel is neutral gray. The enclosed white arrow is
+                            // not reached by this edge-connected flood fill.
+                            return massimo - minimo <= 100 && luminosita >= 25 && luminosita < 220;
+                        };
+                        auto aggiungi = [&](size_t k) {
+                            if (!visit[k] && fondo(k)) { visit[k] = 1; coda.push_back(k); }
+                        };
+                        for (UINT x = 0; x < w; ++x) {
+                            aggiungi(x);
+                            aggiungi((size_t)(h - 1) * w + x);
+                        }
+                        for (UINT y = 0; y < h; ++y) {
+                            aggiungi((size_t)y * w);
+                            aggiungi((size_t)y * w + (w - 1));
+                        }
+                        while (!coda.empty()) {
+                            const size_t k = coda.front(); coda.pop_front();
+                            pixel[k * 4 + 0] = 0;
+                            pixel[k * 4 + 1] = 0;
+                            pixel[k * 4 + 2] = 0;
+                            pixel[k * 4 + 3] = 0;
+                            const UINT x = (UINT)(k % w), y = (UINT)(k / w);
+                            if (x) aggiungi(k - 1);
+                            if (x + 1 < w) aggiungi(k + 1);
+                            if (y) aggiungi(k - w);
+                            if (y + 1 < h) aggiungi(k + w);
+                        }
+
+                        UINT minX = w, minY = h, maxX = 0, maxY = 0;
+                        bool trovato = false;
+                        for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) {
+                            if (pixel[((size_t)y * w + x) * 4 + 3] == 0) continue;
+                            trovato = true;
+                            minX = std::min(minX, x); minY = std::min(minY, y);
+                            maxX = std::max(maxX, x); maxY = std::max(maxY, y);
+                        }
+                        if (trovato) {
+                            const UINT outW = maxX - minX + 1, outH = maxY - minY + 1;
+                            std::vector<BYTE> ritagliato((size_t)outW * outH * 4);
+                            for (UINT y = 0; y < outH; ++y) {
+                                const BYTE* src = pixel.data() + ((size_t)(minY + y) * w + minX) * 4;
+                                BYTE* dst = ritagliato.data() + (size_t)y * outW * 4;
+                                memcpy(dst, src, (size_t)outW * 4);
+                            }
+                            const D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                                D2D1_BITMAP_OPTIONS_NONE,
+                                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+                            dc->CreateBitmap(D2D1::SizeU(outW, outH), ritagliato.data(),
+                                             outW * 4, &bp, &risultato);
+                        }
+                    }
+                }
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ritaglio) ritaglio->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (flusso) flusso->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
     void impostaFileIconaStart(const std::wstring& percorso) {
         // Se lo stesso percorso e' gia' caricato non si fa lavoro; se il target D2D e' stato ricreato,
         // il puntatore nullo permette invece di ricaricare l'immagine.
@@ -1073,6 +1196,7 @@ public:
         stileIconaDownload = stileDownload;
         stileIconaCestino = stileCestino;
         if (iconaDownload) { iconaDownload->Release(); iconaDownload = nullptr; }
+        iconaDownloadOriginale = false;
         if (iconaCestino) { iconaCestino->Release(); iconaCestino = nullptr; }
         if (iconaStartMacOS) { iconaStartMacOS->Release(); iconaStartMacOS = nullptr; }
         if (!dc) return;
@@ -1093,9 +1217,14 @@ public:
         iconaStartMacOS = caricaIconaWicRisorsa(RISORSA_ICONA_MACOS, 256);
         if (!iconaStartMacOS) iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
 
-        // Downloads: Default always uses the bundled Fluent icon; Custom uses the selected file.
+        // Downloads Default uses the exact green tile extracted from the reference image in pics/.
+        // Custom icons keep the normal square draw behavior.
         if (stileIconaDownload == 1 && !fileIconaDownload.empty())
             iconaDownload = caricaIconaFile(fileIconaDownload, 256);
+        if (!iconaDownload && stileIconaDownload == 0) {
+            iconaDownload = caricaIconaDownloadOriginale();
+            iconaDownloadOriginale = (iconaDownload != nullptr);
+        }
         if (!iconaDownload) iconaDownload = caricaIconaSvgRisorsa(RISORSA_DOWNLOAD_PREDEFINITO, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
 
@@ -1303,6 +1432,7 @@ private:
     std::wstring fileIconaStart, fileIconaDownload, fileIconaCestino;
     ID2D1Bitmap1* iconaStartPersonale = nullptr, *iconaStartMacOS = nullptr;
     ID2D1Bitmap1* iconaDownload = nullptr, *iconaCestino = nullptr;
+    bool iconaDownloadOriginale = false;
     bool notch12Ore = false;
     std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
@@ -2479,7 +2609,24 @@ private:
             if (d < 0.5f) continue;
             const float alfa = (premuto < 1 ? 0.8f : 1.0f) * std::min(1.0f, sc * 1.5f);
             dritto((r.left + r.right) / 2, (r.top + r.bottom) / 2);   // (icona e numero dritti anche ai lati e in alto)
-            if (v.avvio == AVVIO_PILA && iconaDownload) dc->DrawBitmap(iconaDownload, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            if (v.avvio == AVVIO_PILA && iconaDownload) {
+                D2D1_RECT_F downloadRect = r;
+                if (iconaDownloadOriginale) {
+                    const D2D1_SIZE_U px = iconaDownload->GetPixelSize();
+                    const float rapporto = px.width && px.height ? (float)px.height / (float)px.width : 0.8f;
+                    float larghezza = dd;
+                    float altezza = larghezza * rapporto;
+                    if (altezza > dd * 0.82f) {
+                        altezza = dd * 0.82f;
+                        larghezza = rapporto > 0 ? altezza / rapporto : dd;
+                    }
+                    const float cx = (r.left + r.right) * 0.5f;
+                    const float cy = (r.top + r.bottom) * 0.5f;
+                    downloadRect = {cx - larghezza * 0.5f, cy - altezza * 0.5f,
+                                    cx + larghezza * 0.5f, cy + altezza * 0.5f};
+                }
+                dc->DrawBitmap(iconaDownload, downloadRect, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            }
             else if (v.avvio == AVVIO_CESTINO && iconaCestino) dc->DrawBitmap(iconaCestino, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             else if (v.icona) dc->DrawBitmap(v.icona, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             else if (v.avvio == AVVIO_LAUNCHER) disegnaIconaApp(r, alfa, scuro);
