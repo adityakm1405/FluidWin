@@ -76,9 +76,12 @@
 
 namespace dock {
 
-// Embedded resources keep the Finder and Trash replacements available even when only FluidWin.exe is copied.
+// Embedded resources keep all built-in dock icons available when only FluidWin.exe is copied.
 static constexpr WORD RISORSA_ICONA_MACOS = 204;
-static constexpr WORD RISORSA_ICONA_CESTINO = 205;
+static constexpr WORD RISORSA_CESTINO_WINDOWS10 = 205;
+static constexpr WORD RISORSA_CESTINO_WINDOWS11 = 206;
+static constexpr WORD RISORSA_CESTINO_MACOS = 207;
+static constexpr WORD RISORSA_DOWNLOAD_PREDEFINITO = 208;
 static const UINT WM_APPBAR = WM_APP + 20;
 
 // Spazio riservato al dock (impostazione): il dock si registra come "appbar", come la barra di Windows, e le finestre
@@ -1057,14 +1060,23 @@ public:
         if (!fileIconaStart.empty()) iconaStartPersonale = caricaIconaWic(fileIconaStart, 256);
         dirty = true;
     }
-    void impostaIconeDownloadCestino(const std::wstring& download, const std::wstring& cestino) {
+    void impostaIconeDownloadCestino(const std::wstring& download, const std::wstring& cestino,
+                                    int stileDownload, int stileCestino) {
+        stileDownload = std::clamp(stileDownload, 0, 1);
+        stileCestino = std::clamp(stileCestino, 0, 3);
         if (download == fileIconaDownload && cestino == fileIconaCestino &&
+            stileDownload == stileIconaDownload && stileCestino == stileIconaCestino &&
             iconaDownload && iconaCestino && iconaStartMacOS) return;
-        fileIconaDownload = download; fileIconaCestino = cestino;
+
+        fileIconaDownload = download;
+        fileIconaCestino = cestino;
+        stileIconaDownload = stileDownload;
+        stileIconaCestino = stileCestino;
         if (iconaDownload) { iconaDownload->Release(); iconaDownload = nullptr; }
         if (iconaCestino) { iconaCestino->Release(); iconaCestino = nullptr; }
         if (iconaStartMacOS) { iconaStartMacOS->Release(); iconaStartMacOS = nullptr; }
         if (!dc) return;
+
         wchar_t exe[MAX_PATH] = L"";
         GetModuleFileNameW(nullptr, exe, MAX_PATH);
         std::wstring dir = exe;
@@ -1072,28 +1084,46 @@ public:
         if (slash != std::wstring::npos) dir.resize(slash + 1);
         const std::wstring defaultMacPng = dir + L"assets\\icons8-mac-logo-480.png";
         const std::wstring defaultDownloadSvg = dir + L"assets\\downloads-fluent.svg";
-        const std::wstring defaultTrashSvg = dir + L"assets\\icons8-bin-windows-240.svg";
+        const std::wstring defaultTrashWin10Svg = dir + L"assets\\icons8-bin-windows-240.svg";
+        const std::wstring defaultTrashWin11Svg = dir + L"assets\\trash-windows11.svg";
+        const std::wstring defaultTrashMacSvg = dir + L"assets\\trash-macos.svg";
         const std::wstring defaultDownloadPng = dir + L"assets\\downloads-fluent.png";
         const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
 
-        // Prefer executable-embedded resources: users can update FluidWin.exe without separately copying assets/.
+        // Finder start image is embedded so replacing just FluidWin.exe is enough.
         iconaStartMacOS = caricaIconaWicRisorsa(RISORSA_ICONA_MACOS, 256);
         if (!iconaStartMacOS) iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
 
-        if (!fileIconaDownload.empty()) iconaDownload = caricaIconaFile(fileIconaDownload, 256);
+        // Downloads: Default always uses the bundled Fluent icon; Custom uses the selected file.
+        if (stileIconaDownload == 1 && !fileIconaDownload.empty())
+            iconaDownload = caricaIconaFile(fileIconaDownload, 256);
+        if (!iconaDownload) iconaDownload = caricaIconaSvgRisorsa(RISORSA_DOWNLOAD_PREDEFINITO, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
         if (!iconaDownload) iconaDownload = caricaIcona(defaultDownloadPng, 256);
 
-        if (!fileIconaCestino.empty()) iconaCestino = caricaIconaFile(fileIconaCestino, 256);
-        if (!iconaCestino) iconaCestino = caricaIconaSvgRisorsa(RISORSA_ICONA_CESTINO, 256);
-        if (!iconaCestino) iconaCestino = caricaIconaSvg(defaultTrashSvg, 256);
+        // Trash style is explicit: Windows 10, Windows 11, macOS, or a user-selected file.
+        if (stileIconaCestino == 3 && !fileIconaCestino.empty())
+            iconaCestino = caricaIconaFile(fileIconaCestino, 256);
+        if (!iconaCestino) {
+            const WORD risorsa = stileIconaCestino == 0 ? RISORSA_CESTINO_WINDOWS10
+                : stileIconaCestino == 2 ? RISORSA_CESTINO_MACOS : RISORSA_CESTINO_WINDOWS11;
+            iconaCestino = caricaIconaSvgRisorsa(risorsa, 256);
+        }
+        if (!iconaCestino) {
+            const std::wstring& fallback = stileIconaCestino == 0 ? defaultTrashWin10Svg
+                : stileIconaCestino == 2 ? defaultTrashMacSvg : defaultTrashWin11Svg;
+            iconaCestino = caricaIconaSvg(fallback, 256);
+        }
+        if (!iconaCestino) iconaCestino = caricaIconaSvgRisorsa(RISORSA_CESTINO_WINDOWS11, 256);
         if (!iconaCestino) iconaCestino = caricaIcona(defaultTrashPng, 256);
 
         if (registro) {
-            char b[160];
-            snprintf(b, sizeof(b), "dock icons: Finder PNG %s, Windows Trash SVG %s",
-                     iconaStartMacOS ? "loaded" : "FAILED",
-                     iconaCestino ? "loaded" : "FAILED");
+            static const char* const downloadNomi[] = {"Default", "Custom"};
+            static const char* const trashNomi[] = {"Windows 10", "Windows 11", "macOS", "Custom"};
+            char b[192];
+            snprintf(b, sizeof(b), "dock icons: Downloads %s, Trash %s%s",
+                     downloadNomi[stileIconaDownload], trashNomi[stileIconaCestino],
+                     iconaDownload && iconaCestino ? " (loaded)" : " (fallback)");
             scrivi(b);
         }
         dirty = true;
@@ -1271,6 +1301,7 @@ private:
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
+    int stileIconaDownload = 0, stileIconaCestino = 1;
     std::wstring fileIconaStart, fileIconaDownload, fileIconaCestino;
     ID2D1Bitmap1* iconaStartPersonale = nullptr, *iconaStartMacOS = nullptr;
     ID2D1Bitmap1* iconaDownload = nullptr, *iconaCestino = nullptr;
