@@ -69,19 +69,26 @@ namespace notch {
 // The transition into and out of that plateau uses smoothstep to avoid visible weighting boundaries.
 inline float pesoVisivoInPosizione(float posizione, float pesoInizio, float pesoCentro, float pesoFine) {
     posizione = std::clamp(posizione, 0.0f, 1.0f);
-    constexpr float CENTRO_INIZIO = 0.32f;
-    constexpr float CENTRO_FINE = 0.68f;
-    if (posizione < CENTRO_INIZIO) {
-        float t = posizione / CENTRO_INIZIO;
-        t = t * t * (3.0f - 2.0f * t);
-        return pesoInizio + (pesoCentro - pesoInizio) * t;
+    // Three clearly separated zones: outer thirds use their edge weights, the middle third
+    // uses the centre weight. Short smooth transitions prevent hard visual steps at the borders.
+    constexpr float PRIMO_CONFINE = 1.0f / 3.0f;
+    constexpr float SECONDO_CONFINE = 2.0f / 3.0f;
+    constexpr float SEMITRANSIZIONE = 0.055f;
+    auto smooth = [](float t) {
+        t = std::clamp(t, 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    };
+    if (posizione < PRIMO_CONFINE - SEMITRANSIZIONE) return pesoInizio;
+    if (posizione < PRIMO_CONFINE + SEMITRANSIZIONE) {
+        const float t = (posizione - (PRIMO_CONFINE - SEMITRANSIZIONE)) / (2.0f * SEMITRANSIZIONE);
+        return pesoInizio + (pesoCentro - pesoInizio) * smooth(t);
     }
-    if (posizione > CENTRO_FINE) {
-        float t = (posizione - CENTRO_FINE) / (1.0f - CENTRO_FINE);
-        t = t * t * (3.0f - 2.0f * t);
-        return pesoCentro + (pesoFine - pesoCentro) * t;
+    if (posizione <= SECONDO_CONFINE - SEMITRANSIZIONE) return pesoCentro;
+    if (posizione < SECONDO_CONFINE + SEMITRANSIZIONE) {
+        const float t = (posizione - (SECONDO_CONFINE - SEMITRANSIZIONE)) / (2.0f * SEMITRANSIZIONE);
+        return pesoCentro + (pesoFine - pesoCentro) * smooth(t);
     }
-    return pesoCentro;
+    return pesoFine;
 }
 
 // Analizzatore audio loopback WASAPI con FFT: bands are frequency bins, not delayed peak samples.
@@ -327,7 +334,7 @@ public:
         if (visibile) ridisegna();
     }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine, bool capsulaAttiva = false) {
-        stile = std::clamp(stile, 0, 3);
+        stile = std::clamp(stile, 0, 2);
         forza = std::clamp(forza, 50, 200);
         pesoInizio = std::clamp(pesoInizio, 0, 200);
         pesoCentro = std::clamp(pesoCentro, 0, 200);
@@ -1767,7 +1774,9 @@ private:
             }
             const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
             const float weight = pesoVisivoInPosizione(pos, pesoInizio, pesoCentro, pesoFine);
-            return std::clamp(raw * weight, 0.0f, 1.0f);
+            // Gentle perceptual compression lifts quieter frequency bins so weighting remains visible.
+            const float perceptual = std::pow(std::clamp(raw, 0.0f, 1.0f), 0.72f);
+            return std::clamp(perceptual * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int indice = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1791,36 +1800,11 @@ private:
             }
             return;
         }
-        if (stileVisualizzatore == 2) { // Segmented Pill: vertical stacks of softly lit rounded segments.
-            const int cols = 7, rows = 6;
-            const float stepX = largo / cols;
-            const float segmentW = 1.55f * d, segmentH = 1.25f * d, gapY = 0.55f * d;
-            const float pitchY = segmentH + gapY;
-            const float totalH = rows * segmentH + (rows - 1) * gapY;
-            for (int i = 0; i < cols; i++) {
-                const float amp = std::clamp(ampiezza(i, cols, i, cols), 0.0f, 1.0f);
-                const float activeSegments = amp * rows;
-                const int fullSegments = (int)std::floor(activeSegments);
-                const float partialSegment = activeSegments - fullSegments;
-                tinta(i, cols);
-                const D2D1_COLOR_F baseColor = pen->GetColor();
-                for (int j = 0; j < rows; j++) {
-                    const float level = j < fullSegments ? 1.0f : (j == fullSegments ? partialSegment : 0.0f);
-                    if (level <= 0.025f) continue;
-                    const float glow = 0.42f + 0.58f * (j + 1) / (float)rows;
-                    colore(baseColor.r, baseColor.g, baseColor.b, baseColor.a * level * glow);
-                    const float sx = x + (i + 0.5f) * stepX - segmentW / 2;
-                    const float sy = cy + totalH / 2 - segmentH - j * pitchY;
-                    rt->FillRoundedRectangle({{sx, sy, sx + segmentW, sy + segmentH}, segmentW / 2, segmentH / 2}, pen);
-                }
-            }
-            return;
-        }
         const int n = 9;
         const float lb = 2.0f * d, passo = largo / n;
         for (int i = 0; i < n; i++) {
-            const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
-            const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+            const int bandCount = stileVisualizzatore == 2 ? (n + 1) / 2 : n;
+            const int bandIndex = stileVisualizzatore == 2 ? std::min(i, n - 1 - i) : i;
             const float amp = ampiezza(bandIndex, bandCount, i, n);
             const float h = std::max(2.0f * d, (audioReale ? (1.5f + 14.0f * amp) : (1.5f + 10.0f * amp)) * d * mix);
             const float bx = x + (i + 0.5f) * passo - lb / 2;

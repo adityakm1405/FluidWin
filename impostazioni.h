@@ -52,7 +52,7 @@ struct Valori {
     bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
-    int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Segmented Pill, 3 Mirror
+    int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Mirror
     bool visualizzatoreReattivo = true; // reagisce al livello reale dell'uscita audio di Windows
     int visualizzatoreForza = 100;      // ampiezza delle barre, percento
     int visualizzatorePesoInizio = 40;  // intensita' al bordo sinistro del visualizzatore, percento
@@ -174,7 +174,10 @@ inline void carica() {
     v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatoreFine = leggiDword(L"ColoreVisualizzatoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.visualizzatoreGradiente = leggiDword(L"VisualizzatoreGradiente", 0) != 0;
-    { const DWORD s = leggiDword(L"VisualizzatoreStile", 0); v.visualizzatoreStile = s <= 4 ? (int)s : 0; }
+    // Compatibility: old style 3 was Mirror; it is now index 2. Old style 2 (Segmented Pill)
+    // is retired and falls back to Bars. Unknown/legacy values also fall back to Bars.
+    { const DWORD s = leggiDword(L"VisualizzatoreStile", 0);
+      v.visualizzatoreStile = s == 3 ? 2 : s == 1 ? 1 : 0; }
     v.visualizzatoreReattivo = leggiDword(L"VisualizzatoreReattivo", 1) != 0;
     v.visualizzatoreForza = std::clamp((int)leggiDword(L"VisualizzatoreForza", 100), 50, 200);
     v.visualizzatorePesoInizio = std::clamp((int)leggiDword(L"VisualizzatorePesoInizio", 40), 0, 200);
@@ -880,7 +883,7 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
-        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 4) {
+        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 3) {
             valori().visualizzatoreStile = id - Z_STILE_VISUALIZZATORE;
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
@@ -1510,11 +1513,11 @@ private:
                     testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
             const wchar_t* stiliVisualizzatore[] = {
                 testi::t(L"Barre", L"Bars"), testi::t(L"Onda", L"Wave"),
-                testi::t(L"Segmenti", L"Segmented Pill"), testi::t(L"Specchio", L"Mirror")
+                testi::t(L"Specchio", L"Mirror")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
                       testi::t(L"Notch e capsula multimediale del dock", L"Notch and dock media capsule"),
-                      stiliVisualizzatore, 4, std::clamp(valori().visualizzatoreStile, 0, 3), Z_STILE_VISUALIZZATORE);
+                      stiliVisualizzatore, 3, std::clamp(valori().visualizzatoreStile, 0, 2), Z_STILE_VISUALIZZATORE);
             palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
                     testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
                     valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);

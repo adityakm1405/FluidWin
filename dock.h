@@ -1054,7 +1054,9 @@ public:
             }
             const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
             const float weight = notch::pesoVisivoInPosizione(pos, pesoInizio, pesoCentro, pesoFine);
-            return std::clamp(raw * weight, 0.0f, 1.0f);
+            // Match the notch's perceptual lift so quiet frequency bins still show the selected weights.
+            const float perceptual = std::pow(std::clamp(raw, 0.0f, 1.0f), 0.72f);
+            return std::clamp(perceptual * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1072,35 +1074,12 @@ public:
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
             }
-        } else if (stileVisualizzatore == 2) { // Segmented Pill: compact vertical LED-like segments.
-            const int cols = 7, rows = 6;
-            const float stepX = 14.0f * d / cols;
-            const float segmentW = 1.25f * d, segmentH = 1.15f * d, gapY = 0.45f * d;
-            const float pitchY = segmentH + gapY;
-            const float totalH = rows * segmentH + (rows - 1) * gapY;
-            for (int i = 0; i < cols; ++i) {
-                const float amp = std::clamp(ampiezza(i, cols, i, cols), 0.0f, 1.0f);
-                const float activeSegments = amp * rows;
-                const int fullSegments = (int)std::floor(activeSegments);
-                const float partialSegment = activeSegments - fullSegments;
-                tinta(i, cols);
-                const D2D1_COLOR_F baseColor = pennello->GetColor();
-                for (int j = 0; j < rows; ++j) {
-                    const float level = j < fullSegments ? 1.0f : (j == fullSegments ? partialSegment : 0.0f);
-                    if (level <= 0.025f) continue;
-                    const float glow = 0.42f + 0.58f * (j + 1) / (float)rows;
-                    pennello->SetColor(D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, baseColor.a * level * glow));
-                    const float sx = x + (i + 0.5f) * stepX - segmentW / 2;
-                    const float sy = cy + totalH / 2 - segmentH - j * pitchY;
-                    dc->FillRoundedRectangle({{sx, sy, sx + segmentW, sy + segmentH}, segmentW / 2, segmentH / 2}, pennello);
-                }
-            }
         } else { // Bars / Mirror: centre-weighted amplitude across the visual width.
             const int n = 7;
             const float lb = 1.55f * d, passo = 14.0f * d / n;
             for (int i = 0; i < n; ++i) {
-                const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
-                const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+                const int bandCount = stileVisualizzatore == 2 ? (n + 1) / 2 : n;
+                const int bandIndex = stileVisualizzatore == 2 ? std::min(i, n - 1 - i) : i;
                 const float amp = ampiezza(bandIndex, bandCount, i, n);
                 const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 11.0f * amp) : (2.2f + 7.5f * amp)) * d);
                 tinta(i, n);
@@ -1118,7 +1097,7 @@ public:
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
-        stile = std::clamp(stile, 0, 3);
+        stile = std::clamp(stile, 0, 2);
         forza = std::clamp(forza, 50, 200);
         pesoInizio = std::clamp(pesoInizio, 0, 200);
         pesoCentro = std::clamp(pesoCentro, 0, 200);
