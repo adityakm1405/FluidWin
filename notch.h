@@ -1722,17 +1722,24 @@ private:
 
     // Quattro stili compatti. Quando la reattivita' e' attiva, l'ampiezza segue il picco reale
     // dell'uscita audio predefinita di Windows; altrimenti resta un'animazione ambientale delicata.
-    // Four spectrum styles. Reactive mode uses the WASAPI FFT bands directly; non-reactive mode
-    // deliberately uses separate gentle animations rather than synthetic music response.
+    // Four spectrum styles with a symmetric centre-focus curve shared by every visual form.
     void barrette(float x, float cy, float largo, float a, float mix) {
         const float d = dpi;
         const double t = adesso();
         const float forza = forzaVisualizzatore / 100.0f;
         const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
-        auto ampiezza = [&](int i, int n) {
-            if (audioReale) return std::clamp(misuratoreAudio.banda(i, n) * forza, 0.0f, 1.0f);
-            const float idle = 0.22f + 0.78f * (0.5f + 0.5f * (float)std::sin(t * 2.1 + i * 0.65));
-            return std::clamp(idle * forza, 0.0f, 1.0f);
+        auto ampiezza = [&](int bandIndex, int bandCount, int visualIndex, int visualCount) {
+            float raw = 0.0f;
+            if (audioReale) {
+                raw = std::clamp(misuratoreAudio.banda(bandIndex, bandCount) * forza, 0.0f, 1.0f);
+            } else {
+                const float phase = 0.5f + 0.5f * (float)std::sin(t * 2.1 + bandIndex * 0.65);
+                raw = std::clamp((0.22f + 0.78f * phase) * forza, 0.0f, 1.0f);
+            }
+            const float pos = visualCount > 1 ? std::fabs(2.0f * visualIndex / (visualCount - 1) - 1.0f) : 0.0f;
+            const float centre = std::cos(pos * (float)(M_PI * 0.5));
+            const float focus = 0.38f + 0.62f * std::pow(std::max(0.0f, centre), 1.35f);
+            return raw * focus;
         };
         auto tinta = [&](int i, int n) {
             const int indice = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1740,11 +1747,12 @@ private:
             colore(col.r, col.g, col.b, col.a);
         };
 
-        if (stileVisualizzatore == 1) { // Spectral wave: FFT bins shape the wave, no preset wave overlay.
+        if (stileVisualizzatore == 1) { // Spectral wave: highest amplitude at centre, tapered toward both ends.
             const int n = 13;
             float px = x, py = cy;
             for (int i = 0; i < n; i++) {
-                const float u = i / (float)(n - 1), amp = ampiezza(i, n);
+                const float u = i / (float)(n - 1);
+                const float amp = ampiezza(i, n, i, n);
                 const float xx = x + u * largo;
                 const float polarity = (i % 2 == 0) ? 1.0f : -1.0f;
                 const float idleShape = (float)std::sin(t * 2.6 + i * 0.78);
@@ -1755,19 +1763,17 @@ private:
             }
             return;
         }
-        if (stileVisualizzatore == 2) { // Dots: stacked pixel spectrum columns
+        if (stileVisualizzatore == 2) { // Dots: stacked columns, tallest and most active at the centre.
             const int cols = 7, rows = 5;
             const float stepX = largo / cols, dot = 1.45f * d, stepY = 2.65f * d;
             for (int i = 0; i < cols; i++) {
-                const float amp = ampiezza(i, cols);
-                const int lit = audioReale ? (int)std::round(amp * rows) : 1 + (int)std::round((0.5f + 0.5f * std::sin(t * 2.3 + i)) * 3.0f);
+                const float amp = ampiezza(i, cols, i, cols);
+                const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
                 tinta(i, cols);
-                for (int j = 0; j < rows; j++) {
+                for (int j = 0; j < lit; j++) {
                     const float fade = 0.28f + 0.72f * (j + 1) / (float)rows;
-                    if (j < lit) {
-                        colore(pen->GetColor().r, pen->GetColor().g, pen->GetColor().b, 0.92f * a * mix * fade);
-                        rt->FillEllipse({{x + (i + 0.5f) * stepX, cy + (rows - 1) * stepY / 2 - j * stepY}, dot, dot}, pen);
-                    }
+                    colore(pen->GetColor().r, pen->GetColor().g, pen->GetColor().b, 0.92f * a * mix * fade);
+                    rt->FillEllipse({{x + (i + 0.5f) * stepX, cy + (rows - 1) * stepY / 2 - j * stepY}, dot, dot}, pen);
                 }
             }
             return;
@@ -1775,10 +1781,10 @@ private:
         const int n = 9;
         const float lb = 2.0f * d, passo = largo / n;
         for (int i = 0; i < n; i++) {
-            const int indiceAmp = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
-            const float amp = ampiezza(indiceAmp, stileVisualizzatore == 3 ? (n + 1) / 2 : n);
-            const float idle = 0.22f + 0.78f * (0.5f + 0.5f * (float)std::sin(t * 2.4 + i * 0.75));
-            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 10.0f * amp) : (1.5f + 8.0f * idle * forza)) * d * mix);
+            const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
+            const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+            const float amp = ampiezza(bandIndex, bandCount, i, n);
+            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 10.0f * amp) : (1.5f + 8.0f * amp)) * d * mix);
             const float bx = x + (i + 0.5f) * passo - lb / 2;
             tinta(i, n);
             rt->FillRoundedRectangle({{bx, cy - h / 2, bx + lb, cy + h / 2}, lb / 2, lb / 2}, pen);
