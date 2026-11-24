@@ -11,7 +11,7 @@
 // l'indicatore di vetro.
 // Notch spento nelle impostazioni (1.3.0, "a scomparsa"): a riposo (ora, musica, timer) sta sopra il bordo dello schermo;
 // per volume, notifiche, avvisi, sveglia del timer e scaffale scende dall'alto e poi risale. Musica e timer li mostra il
-// dock (una capsula all'inizio, con i loro controlli al passaggio del mouse: comandoMusica()).
+// dock (i controlli multimediali restano nel notch).
 //
 // Disegno: una finestra a strati di misura fissa (la piu' grande che serve), la forma disegnata al centro con
 // Direct2D software in un DIB tenuto da parte; ogni fotogramma e' un UpdateLayeredWindow. La trasparenza col mouse
@@ -339,7 +339,7 @@ public:
         coloreTimerFine = pulsante;
         if (visibile) ridisegna();
     }
-    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine, bool capsulaAttiva = false) {
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
         stile = std::clamp(stile, 0, 2);
         forza = std::clamp(forza, 50, 200);
         pesoInizio = std::clamp(pesoInizio, 0, 200);
@@ -347,11 +347,9 @@ public:
         pesoFine = std::clamp(pesoFine, 0, 200);
         if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo &&
             forza == forzaVisualizzatore && pesoInizio == visualizzatorePesoInizio &&
-            pesoCentro == visualizzatorePesoCentro && pesoFine == visualizzatorePesoFine &&
-            capsulaAttiva == capsulaAttivaAudio) return;
+            pesoCentro == visualizzatorePesoCentro && pesoFine == visualizzatorePesoFine) return;
         stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
         visualizzatorePesoInizio = pesoInizio; visualizzatorePesoCentro = pesoCentro; visualizzatorePesoFine = pesoFine;
-        capsulaAttivaAudio = capsulaAttiva;
         aggiornaMisuratoreAudio();
         if (visibile) ridisegna();
     }
@@ -397,7 +395,6 @@ public:
         if (!animando) ridisegna();   // (non visibile: niente animazione, solo il disegno)
     }
     // Spegnimento completo, distinto dalla modalita' "sempre visibile".
-    // Il polling media continua a 500 ms per aggiornare la capsula musicale del dock.
     void attivaFeature(bool si) {
         if (si == featureEnabled) return;
         featureEnabled = si;
@@ -411,20 +408,8 @@ public:
     bool basso = false;
     void inBasso(bool b) { if (b != basso) { basso = b; ridisegna(); } }
 
-    // musica e timer per la capsula del dock (notch a scomparsa)
+    // Metadati della sessione multimediale, usati dalla diagnostica.
     const musica::Brano& musicaOra() const { return brano; }
-    // tasti della musica dalla capsula del dock: 0 indietro, 1 play/pausa, 2 avanti
-    void comandoMusica(int b) {
-        if (b < 0 || b > 2) return;
-        lettore.comando(b == 0 ? musica::Lettore::INDIETRO : b == 1 ? musica::Lettore::PLAY_PAUSA : musica::Lettore::AVANTI);
-        if (b == 1) { iniziaTransizioneVisualizzatore(); brano.suona = !brano.suona; }   // subito, senza aspettare la prossima lettura
-        aggiornaMisuratoreAudio();
-        // fra poco si rilegge lo stato vero anche se il lettore non ha cambiato versione: un comando rifiutato
-        // lasciava il simbolo al contrario per sempre (R20261121-002056-S11)
-        risincronizzaAlle = adesso() + 1.5;
-        if (visibile && !animando && salita() < 0.5) ridisegna();
-    }
-
     // volume 0..1 dai tasti; false se il notch non si vede (allora lo mostra l'indicatore di vetro)
     bool volume(float liv, bool muto) {
         if (!visibile) return false;
@@ -492,7 +477,7 @@ private:
     MisuratoreAudio misuratoreAudio;
     int stileVisualizzatore = 0, forzaVisualizzatore = 100;
     int visualizzatorePesoInizio = 40, visualizzatorePesoCentro = 100, visualizzatorePesoFine = 40;
-    bool visualizzatoreReattivo = true, capsulaAttivaAudio = false;
+    bool visualizzatoreReattivo = true;
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
@@ -580,7 +565,7 @@ private:
         tVisualizzatore = adesso();
     }
     void aggiornaMisuratoreAudio() {
-        if ((visibile || capsulaAttivaAudio) && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
+        if (visibile && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
         else misuratoreAudio.ferma();
     }
 
@@ -813,26 +798,7 @@ private:
         return cambiato;
     }
     void controlla() {
-        if (!visibile) {
-            if (acceso && !featureEnabled && modoAtt != NASCOSTO) {
-                const double t = adesso();
-                if (risincronizzaAlle > 0 && t >= risincronizzaAlle) {
-                    risincronizzaAlle = 0;
-                    const bool vero = lettore.stato().suona;
-                    if (vero != brano.suona) { iniziaTransizioneVisualizzatore(); brano.suona = vero; }
-                }
-                const UINT versione = lettore.versione();
-                if (versione != versioneBrano) {
-                    versioneBrano = versione;
-                    musica::Brano b = lettore.stato();
-                    if (b.versione != brano.versione || b.copertina.size() != brano.copertina.size()) copertinaNuova = true;
-                    if ((b.c && b.suona) != (brano.c && brano.suona)) iniziaTransizioneVisualizzatore();
-                    brano = std::move(b);
-                }
-                aggiornaMisuratoreAudio();   // anche la capsula del dock puo' essere visibile col notch spento
-            }
-            return;
-        }
+        if (!visibile) return;
         const double t = adesso();
         bool ridisegnare = false;
         // musica

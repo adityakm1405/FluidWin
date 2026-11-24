@@ -50,8 +50,6 @@ struct Valori {
     int dockMargine = 8;          // distanza fra dock e bordo dello schermo, px
     int dockIngrandimentoHover = 100; // intensita' della lente (0 = spento)
     int dockSeparatoreAltezza = 70, dockSeparatoreOpacita = 22, dockSeparatoreSpessore = 1;
-    bool dockCapsula = false;     // capsula media nel dock, alternativa al notch
-    bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
     int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Mirror
@@ -175,10 +173,6 @@ inline void carica() {
     v.dockSeparatoreAltezza = std::clamp((int)leggiDword(L"DockSeparatoreAltezza", 70), 20, 100);
     v.dockSeparatoreOpacita = std::clamp((int)leggiDword(L"DockSeparatoreOpacita", 22), 0, 100);
     v.dockSeparatoreSpessore = std::clamp((int)leggiDword(L"DockSeparatoreSpessore", 1), 1, 4);
-    v.dockCapsula = leggiDword(L"DockCapsula", 0) != 0;
-    v.dockCapsulaSempre = leggiDword(L"DockCapsulaSempre", 0) != 0;
-    // La capsula del dock sostituisce il notch: le due modalita' non devono partire insieme.
-    if (v.dockCapsula) { v.notchAttivo = false; v.notch = false; }
     if (!v.notchAttivo) v.notch = false;
     v.colorePulsantiMedia = leggiDword(L"ColorePulsantiMedia", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.coloreVisualizzatore = leggiDword(L"ColoreVisualizzatore", 0) & (COLORE_SCELTO | 0xFFFFFF);
@@ -210,6 +204,8 @@ inline void carica() {
     // la capsula dei tasti non c'e' piu' (1.1.1): via i suoi valori rimasti dalle versioni prima
     RegDeleteKeyValueW(HKEY_CURRENT_USER, CHIAVE, L"Capsula");
     RegDeleteKeyValueW(HKEY_CURRENT_USER, CHIAVE, L"CapsulaMisura");
+    RegDeleteKeyValueW(HKEY_CURRENT_USER, CHIAVE, L"DockCapsula");
+    RegDeleteKeyValueW(HKEY_CURRENT_USER, CHIAVE, L"DockCapsulaSempre");
 }
 
 inline void salva() {
@@ -235,8 +231,6 @@ inline void salva() {
     scriviDword(L"DockSeparatoreAltezza", (DWORD)v.dockSeparatoreAltezza);
     scriviDword(L"DockSeparatoreOpacita", (DWORD)v.dockSeparatoreOpacita);
     scriviDword(L"DockSeparatoreSpessore", (DWORD)v.dockSeparatoreSpessore);
-    scriviDword(L"DockCapsula", v.dockCapsula);
-    scriviDword(L"DockCapsulaSempre", v.dockCapsulaSempre);
     scriviDword(L"ColorePulsantiMedia", v.colorePulsantiMedia); scriviDword(L"ColoreVisualizzatore", v.coloreVisualizzatore);
     scriviDword(L"ColoreVisualizzatoreFine", v.coloreVisualizzatoreFine); scriviDword(L"VisualizzatoreGradiente", v.visualizzatoreGradiente);
     scriviDword(L"VisualizzatoreStile", (DWORD)v.visualizzatoreStile);
@@ -527,10 +521,6 @@ private:
          L"Mouse on the bottom edge of another screen. Off: main only", &Valori::dockSchermi, S_DOCK},
         {L"Anteprime delle finestre", L"Window previews",
          L"Mouse fermo su un'icona: le sue finestre dal vivo", L"Hover an icon: its windows, live", &Valori::dockAnteprime, S_DOCK},
-        {L"Capsula multimediale nel dock", L"Media capsule in dock",
-         L"Spegne il notch e sposta i controlli multimediali nel dock", L"Turns off the notch and moves media controls to the dock", &Valori::dockCapsula, S_NOTCH},
-        {L"Sempre visibile", L"Always visible",
-         L"La capsula resta visibile solo quando non ci sono sessioni multimediali", L"Keep the capsule visible even when no media session exists", &Valori::dockCapsulaSempre, S_NOTCH},
         {L"Visualizzatore a gradiente", L"Gradient visualizer",
          L"Interpola il colore fra i due colori scelti", L"Blend between the two selected visualizer colors", &Valori::visualizzatoreGradiente, S_NOTCH},
         {L"Finestre di gelatina", L"Jelly windows",
@@ -967,18 +957,8 @@ private:
             b = !b;
             if (campo == &Valori::avvio) impostaAvvio(b);   // (sta nel registro di Windows, non in salva)
 
-            // Le due modalita' sono alternative. Attivando la capsula si spegne
-            // completamente il notch e anche la sua opzione "Sempre visibile".
-            if (campo == &Valori::dockCapsula && b) {
-                valori().notchAttivo = false;
-                valori().notch = false;
-            } else if (campo == &Valori::notchAttivo) {
-                if (b) valori().dockCapsula = false;
-                else valori().notch = false;
-            } else if (campo == &Valori::notch && b) {
-                valori().notchAttivo = true;
-                valori().dockCapsula = false;
-            }
+            if (campo == &Valori::notchAttivo && !b) valori().notch = false;
+            else if (campo == &Valori::notch && b) valori().notchAttivo = true;
         }
         salva();
         if (cambiato) cambiato();
@@ -1539,7 +1519,7 @@ private:
                 testi::t(L"Specchio", L"Mirror")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
-                      testi::t(L"Notch e capsula multimediale del dock", L"Notch and dock media capsule"),
+                      testi::t(L"Visualizzatore del notch", L"Notch visualizer"),
                       stiliVisualizzatore, 3, std::clamp(valori().visualizzatoreStile, 0, 2), Z_STILE_VISUALIZZATORE);
             palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
                     testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),

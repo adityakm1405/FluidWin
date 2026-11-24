@@ -4089,8 +4089,6 @@ static void applicaImpostazioni() {
         gDock.impostaLogoStart(v.dockLogoStart);
         gDock.impostaFileIconaStart(v.dockStartIconPath);
         gDock.impostaMargineBordo(v.dockMargine);
-        gDock.impostaCapsulaDock(v.dockCapsula);
-        gDock.impostaCapsulaSempreVisibile(v.dockCapsulaSempre);
         gDock.impostaColoriMedia(v.colorePulsantiMedia, v.coloreVisualizzatore,
                                  v.coloreVisualizzatoreFine, v.visualizzatoreGradiente);
         gDock.impostaVisualizzatore(v.visualizzatoreStile, v.visualizzatoreReattivo, v.visualizzatoreForza,
