@@ -55,6 +55,9 @@ struct Valori {
     int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Dots, 3 Mirror
     bool visualizzatoreReattivo = true; // reagisce al livello reale dell'uscita audio di Windows
     int visualizzatoreForza = 100;      // ampiezza delle barre, percento
+    int visualizzatorePesoInizio = 40;  // intensita' al bordo sinistro del visualizzatore, percento
+    int visualizzatorePesoCentro = 100;// intensita' al centro del visualizzatore, percento
+    int visualizzatorePesoFine = 40;    // intensita' al bordo destro del visualizzatore, percento
     std::wstring dockStartIconPath;
     DWORD dockColore = 0;         // colore condiviso dal vetro dock e centro di controllo
     DWORD dockTestoColore = 0;    // colore condiviso del testo; 0 segue il tema
@@ -174,6 +177,9 @@ inline void carica() {
     { const DWORD s = leggiDword(L"VisualizzatoreStile", 0); v.visualizzatoreStile = s <= 4 ? (int)s : 0; }
     v.visualizzatoreReattivo = leggiDword(L"VisualizzatoreReattivo", 1) != 0;
     v.visualizzatoreForza = std::clamp((int)leggiDword(L"VisualizzatoreForza", 100), 50, 200);
+    v.visualizzatorePesoInizio = std::clamp((int)leggiDword(L"VisualizzatorePesoInizio", 40), 0, 200);
+    v.visualizzatorePesoCentro = std::clamp((int)leggiDword(L"VisualizzatorePesoCentro", 100), 0, 200);
+    v.visualizzatorePesoFine = std::clamp((int)leggiDword(L"VisualizzatorePesoFine", 40), 0, 200);
     v.dockStartIconPath = leggiTesto(L"DockStartIconPath");
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
@@ -219,6 +225,9 @@ inline void salva() {
     scriviDword(L"VisualizzatoreStile", (DWORD)v.visualizzatoreStile);
     scriviDword(L"VisualizzatoreReattivo", v.visualizzatoreReattivo);
     scriviDword(L"VisualizzatoreForza", (DWORD)v.visualizzatoreForza);
+    scriviDword(L"VisualizzatorePesoInizio", (DWORD)v.visualizzatorePesoInizio);
+    scriviDword(L"VisualizzatorePesoCentro", (DWORD)v.visualizzatorePesoCentro);
+    scriviDword(L"VisualizzatorePesoFine", (DWORD)v.visualizzatorePesoFine);
     scriviTesto(L"DockStartIconPath", v.dockStartIconPath);
     scriviDword(L"DockSpazio", v.dockSpazio); scriviDword(L"DockAltriSchermi", v.dockSchermi); scriviDword(L"DockAnteprime", v.dockAnteprime); scriviDword(L"Aggiornamenti", v.aggiornamenti); scriviDword(L"Affiancamento", v.affianca);
     scriviTesto(L"Cursore", v.cursore);
@@ -590,6 +599,12 @@ private:
          L" %", &Valori::notchDimensione, NOTCH_SCALA_MIN, NOTCH_SCALA_MAX, NOTCH_SCALA_PASSO, S_NOTCH},
         {L"Intensità visualizzatore", L"Visualizer strength", L"Regola l'ampiezza delle barre", L"Adjust the visualizer bar height",
          L" %", &Valori::visualizzatoreForza, 50, 200, 5, S_NOTCH},
+        {L"Peso inizio visualizzatore", L"Visualizer start weighting", L"Intensita' all'estremita' sinistra", L"Response at the left edge",
+         L" %", &Valori::visualizzatorePesoInizio, 0, 200, 5, S_NOTCH},
+        {L"Peso centro visualizzatore", L"Visualizer middle weighting", L"Intensita' al centro", L"Response at the centre",
+         L" %", &Valori::visualizzatorePesoCentro, 0, 200, 5, S_NOTCH},
+        {L"Peso fine visualizzatore", L"Visualizer end weighting", L"Intensita' all'estremita' destra", L"Response at the right edge",
+         L" %", &Valori::visualizzatorePesoFine, 0, 200, 5, S_NOTCH},
         {L"Opacità", L"Opacity", L"Il vetro di dock e centro di controllo; le icone restano piene", L"Dock and Control Center glass; icons stay solid",
          L"%", &Valori::dockOpacita, OPACITA_MIN, 100, OPACITA_PASSO, S_DOCK},
     };
