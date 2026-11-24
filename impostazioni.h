@@ -58,7 +58,7 @@ struct Valori {
     int visualizzatorePesoInizio = 40;  // intensita' al bordo sinistro del visualizzatore, percento
     int visualizzatorePesoCentro = 100;// intensita' al centro del visualizzatore, percento
     int visualizzatorePesoFine = 40;    // intensita' al bordo destro del visualizzatore, percento
-    std::wstring dockStartIconPath;
+    std::wstring dockStartIconPath, dockDownloadIconPath, dockTrashIconPath;
     DWORD dockColore = 0;         // colore condiviso dal vetro dock e centro di controllo
     DWORD dockTestoColore = 0;    // colore condiviso del testo; 0 segue il tema
     int dockMateriale = 3;        // DWM: 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
@@ -188,6 +188,8 @@ inline void carica() {
     v.visualizzatorePesoCentro = std::clamp((int)leggiDword(L"VisualizzatorePesoCentro", 100), 0, 200);
     v.visualizzatorePesoFine = std::clamp((int)leggiDword(L"VisualizzatorePesoFine", 40), 0, 200);
     v.dockStartIconPath = leggiTesto(L"DockStartIconPath");
+    v.dockDownloadIconPath = leggiTesto(L"DockDownloadIconPath");
+    v.dockTrashIconPath = leggiTesto(L"DockTrashIconPath");
     v.dockColore = leggiDword(L"DockColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.dockTestoColore = leggiDword(L"DockTestoColore", 0) & (COLORE_SCELTO | 0xFFFFFF);
     { const DWORD m = leggiDword(L"DockMateriale", 3); v.dockMateriale = (m >= 1 && m <= 7) ? (int)m : 3; }
@@ -240,6 +242,8 @@ inline void salva() {
     scriviDword(L"VisualizzatorePesoCentro", (DWORD)v.visualizzatorePesoCentro);
     scriviDword(L"VisualizzatorePesoFine", (DWORD)v.visualizzatorePesoFine);
     scriviTesto(L"DockStartIconPath", v.dockStartIconPath);
+    scriviTesto(L"DockDownloadIconPath", v.dockDownloadIconPath);
+    scriviTesto(L"DockTrashIconPath", v.dockTrashIconPath);
     scriviDword(L"DockSpazio", v.dockSpazio); scriviDword(L"DockAltriSchermi", v.dockSchermi); scriviDword(L"DockAnteprime", v.dockAnteprime); scriviDword(L"Aggiornamenti", v.aggiornamenti); scriviDword(L"Affiancamento", v.affianca);
     scriviTesto(L"Cursore", v.cursore);
 }
@@ -544,11 +548,11 @@ private:
         {L"Sempre visibile", L"Always visible",
          L"Spento: il notch compare solo durante la riproduzione multimediale", L"Off: the notch appears only while media is playing", &Valori::notch, S_NOTCH},
         {L"Orologio a 12 ore", L"12-hour clock",
-         L"Mostra AM/PM nel notch; il dock resta a 24 ore", L"Show AM/PM in the notch; the dock stays 24-hour", &Valori::notch12Ore, S_NOTCH},
+         L"Mostra AM/PM nel notch; il dock segue il formato Windows", L"Show AM/PM in the Notch; the dock follows the Windows time format", &Valori::notch12Ore, S_NOTCH},
         {L"Visualizzatore reattivo", L"Reactive visualizer",
          L"Le barre seguono il livello reale dell'audio in uscita", L"Bars respond to the live Windows audio output level", &Valori::visualizzatoreReattivo, S_NOTCH},
-        {L"Ora e data nel dock", L"Time and date in the dock",
-         L"In fondo al dock, dopo il centro di controllo", L"At the end of the dock, after the control center", &Valori::oraDock, S_DOCK},
+        {L"Ora nel dock", L"Time in the dock",
+         L"Mostra solo l'ora dopo il centro di controllo", L"Show only the time after Control Center", &Valori::oraDock, S_DOCK},
         {L"Notifiche di FluidWin", L"FluidWin notifications",
          L"Escono dal notch, con il numero sulle icone del dock", L"They come out of the notch, with badges on the dock", &Valori::banner, S_NOTCH},
         {L"Volume nel notch", L"Volume in the notch",
@@ -640,6 +644,8 @@ private:
     static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140, Z_START_ICON_FILE = 2160;
     static constexpr int Z_STILE_VISUALIZZATORE = 2180;
     static constexpr int Z_TIMER_COLORE = 2200, Z_TIMER_COLORE_FINE = 2220;
+    static constexpr int Z_DOWNLOAD_ICON_FILE = 2240, Z_TRASH_ICON_FILE = 2260;
+    static constexpr int Z_DOWNLOAD_ICON_RESET = 2280, Z_TRASH_ICON_RESET = 2300;
     void scegliColore(DWORD& c, int id, int base) {
         if (id == base) c = 0;
         else if (id <= base + N_COLORI) c = COLORE_SCELTO | COLORI[id - base - 1];
@@ -834,6 +840,21 @@ private:
         }
     }
 
+    void scegliIconaDock(std::wstring& destinazione) {
+        static bool aperta = false;
+        if (aperta) return;
+        aperta = true;
+        wchar_t percorso[MAX_PATH] = L"";
+        OPENFILENAMEW of{};
+        of.lStructSize = sizeof(of); of.hwndOwner = v.fin;
+        of.lpstrFile = percorso; of.nMaxFile = MAX_PATH;
+        of.lpstrFilter = L"Immagini (*.png;*.jpg;*.jpeg;*.bmp;*.ico)\0*.png;*.jpg;*.jpeg;*.bmp;*.ico\0Tutti i file (*.*)\0*.*\0\0";
+        of.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        const bool scelto = GetOpenFileNameW(&of) != FALSE;
+        aperta = false;
+        if (scelto) { destinazione = percorso; salva(); if (cambiato) cambiato(); disegna(); }
+    }
+
     int zonaIn(float x, float y) const {
         for (const auto& z : zone) if (x >= z.r.left && x < z.r.right && y >= z.r.top && y < z.r.bottom) return z.id;
         return -1;
@@ -896,6 +917,13 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
+        if (id == Z_DOWNLOAD_ICON_FILE) { scegliIconaDock(valori().dockDownloadIconPath); return; }
+        if (id == Z_TRASH_ICON_FILE) { scegliIconaDock(valori().dockTrashIconPath); return; }
+        if (id == Z_DOWNLOAD_ICON_RESET || id == Z_TRASH_ICON_RESET) {
+            if (id == Z_DOWNLOAD_ICON_RESET) valori().dockDownloadIconPath.clear();
+            else valori().dockTrashIconPath.clear();
+            salva(); if (cambiato) cambiato(); disegna(); return;
+        }
         if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 3) {
             valori().visualizzatoreStile = id - Z_STILE_VISUALIZZATORE;
             salva(); if (cambiato) cambiato(); disegna(); return;
@@ -1460,6 +1488,21 @@ private:
             rigaClic(testi::t(L"Scegli icona personale", L"Choose custom icon"),
                      nomeIconaPersonale.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
                          : nomeIconaPersonale, Z_START_ICON_FILE);
+            auto nomeFileIcona = [](std::wstring p) {
+                const size_t slash = p.find_last_of(L"\\/");
+                return slash == std::wstring::npos ? p : p.substr(slash + 1);
+            };
+            const std::wstring downloadIconName = valori().dockDownloadIconPath.empty()
+                ? testi::t(L"Icona Fluent predefinita", L"Built-in Fluent icon") : nomeFileIcona(valori().dockDownloadIconPath);
+            const std::wstring trashIconName = valori().dockTrashIconPath.empty()
+                ? testi::t(L"Icona Fluent predefinita", L"Built-in Fluent icon") : nomeFileIcona(valori().dockTrashIconPath);
+            rigaClic(testi::t(L"Icona Download", L"Downloads icon"), downloadIconName, Z_DOWNLOAD_ICON_FILE);
+            rigaClic(testi::t(L"Ripristina icona Download", L"Reset Downloads icon"),
+                     testi::t(L"Usa l'icona Fluent inclusa", L"Use the bundled Fluent icon"), Z_DOWNLOAD_ICON_RESET);
+            rigaClic(testi::t(L"Icona Cestino", L"Trash icon"), trashIconName, Z_TRASH_ICON_FILE);
+            rigaClic(testi::t(L"Ripristina icona Cestino", L"Reset Trash icon"),
+                     testi::t(L"Usa l'icona Fluent inclusa", L"Use the bundled Fluent icon"), Z_TRASH_ICON_RESET);
+
         }
         if (sezione == S_DOCK) {
             if (nascDock.empty()) {

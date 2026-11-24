@@ -355,7 +355,7 @@ static void tastiWin(WORD vk) {
 
 class Motore {
 public:
-    HWND icone = nullptr, vetro = nullptr, vetroStato = nullptr, vetroOra = nullptr;   // vetroOra: la capsula di data e ora
+    HWND icone = nullptr, vetro = nullptr, vetroStato = nullptr;
     bool attivo = false;
     long diagMosse = 0, diagFotogrammi = 0;   // diagnostica: movimenti del mouse ricevuti, fotogrammi disegnati
     double diagLente() const { return lente; }
@@ -422,7 +422,6 @@ public:
         RegisterClassW(&wv);
         vetro = creaVetro(inst);
         vetroStato = creaVetro(inst);
-        vetroOra = creaVetro(inst);
 
         // icone: finestra larga quanto lo schermo, disegnata con Direct2D; la regione limita i clic al dock
         WNDCLASSW wi{}; wi.lpfnWndProc = procIcone; wi.hInstance = inst; wi.lpszClassName = L"FluidWin.DockIcone";
@@ -492,7 +491,7 @@ public:
         aggiornaAppbar();   // lo spazio riservato si libera (le finestre ingrandite tornano fino in fondo)
         // (solo se il dock l'aveva cambiata: senza, si annullerebbe una scelta fatta intanto dall'utente, R20261121-115814-S2)
         if (barraSalvata) { APPBARDATA tb{}; tb.cbSize = sizeof(tb); tb.lParam = statoBarraPrima; SHAppBarMessage(ABM_SETSTATE, &tb); }
-        ShowWindow(icone, SW_HIDE); ShowWindow(vetro, SW_HIDE); ShowWindow(vetroStato, SW_HIDE); ShowWindow(vetroOra, SW_HIDE); notch.mostra(false);
+        ShowWindow(icone, SW_HIDE); ShowWindow(vetro, SW_HIDE); ShowWindow(vetroStato, SW_HIDE); notch.mostra(false);
         nascondiSchede(); nascondiLauncher();
     }
 
@@ -501,7 +500,7 @@ public:
 
     // Lingua dell'interfaccia cambiata: date, nomi delle voci fisse e pannelli si rifanno nella lingua nuova
     void linguaCambiata() {
-        testoOra.clear();   // le date si ricalcolano anche se l'ora non e' cambiata
+        testoOra.clear(); testoOraOre.clear(); testoOraMinuti.clear(); testoOraMeridiem.clear();
         aggiornaStato(true);
         appDaAggiornare = true; dirty = true; pDirty = true; lDirty = true;
     }
@@ -527,7 +526,7 @@ public:
         if (w != W && w > 0) ridimensiona(w, H);
         posizionaFinestra();
         if (appbarOk) aggiornaAppbar();   // lo spazio riservato passa al nuovo schermo
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};          // i vetri si rimettono al prossimo fotogramma
+        rettVetro = rettVetroStato = RECT{};          // i vetri si rimettono al prossimo fotogramma
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (registro) { char b[96]; snprintf(b, 96, "ora su %ld,%ld-%ld,%ld", schermo.left, schermo.top, schermo.right, schermo.bottom); scrivi(b); }
         // nascondersi o no dipende dalle finestre del nuovo schermo
@@ -708,8 +707,8 @@ public:
     HWND finestraPiuBassa() const {
         HWND ultima = icone;
         int trovati = 0;
-        for (HWND x = GetWindow(icone, GW_HWNDNEXT); x && trovati < 3; x = GetWindow(x, GW_HWNDNEXT))
-            if (x == vetro || x == vetroStato || x == vetroOra) { ultima = x; trovati++; }
+        for (HWND x = GetWindow(icone, GW_HWNDNEXT); x && trovati < 2; x = GetWindow(x, GW_HWNDNEXT))
+            if (x == vetro || x == vetroStato) { ultima = x; trovati++; }
         return ultima;
     }
 
@@ -824,7 +823,7 @@ public:
         lato = l;
         ridimensiona(lunghezzaBordo(), H);   // (anche con la stessa lunghezza: ai lati la superficie e' girata)
         posizionaFinestra();
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};
+        rettVetro = rettVetroStato = RECT{};
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (spazioRiservato) aggiornaAppbar();
         notch.inBasso(lato == 1); notch.posto(schermo, dpi);
@@ -865,7 +864,7 @@ public:
         const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
         if (h != H) ridimensiona(W, h);
         posizionaFinestra();
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};
+        rettVetro = rettVetroStato = RECT{};
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (appbarOk) aggiornaAppbar();
         controllaFinestre(true);
@@ -933,7 +932,7 @@ public:
         fondoScuro = 0.2126f * col.r + 0.7152f * col.g + 0.0722f * col.b < 0.55f;
         // Il tema DWM segue anche la tinta scelta; le superfici hanno lo stesso materiale.
         BOOL s = coloreAuto ? temaScuro() : fondoScuro;
-        for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher})
+        for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher})
             if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
         dirty = pDirty = altra.pDirty = lDirty = true;
     }
@@ -942,7 +941,7 @@ public:
         if (std::fabs(a - opacita) < 0.001f) return;
         opacita = a;
         // Il pannello usa opacita' nel velo Direct2D, non nell'alpha DComp animato.
-        for (HWND v : {vetro, vetroStato, vetroOra}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
+        for (HWND v : {vetro, vetroStato}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
         dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaMateriale(int tipo) {
@@ -951,7 +950,7 @@ public:
         if (tipo == materialeVetro) return;
         materialeVetro = tipo;
         // DWM/Windows Composition compongono gli effetti; applicati solo al cambio setting, mai nel loop dei frame.
-        for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher})
+        for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher})
             vetro::applicaEffetto(v, materialeVetro);
         dirty = pDirty = altra.pDirty = lDirty = true;
     }
@@ -1004,6 +1003,26 @@ public:
         }
         dirty = true;
     }
+    void impostaIconeDownloadCestino(const std::wstring& download, const std::wstring& cestino) {
+        if (download == fileIconaDownload && cestino == fileIconaCestino && iconaDownload && iconaCestino) return;
+        fileIconaDownload = download; fileIconaCestino = cestino;
+        if (iconaDownload) { iconaDownload->Release(); iconaDownload = nullptr; }
+        if (iconaCestino) { iconaCestino->Release(); iconaCestino = nullptr; }
+        if (!dc) return;
+        wchar_t exe[MAX_PATH] = L"";
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir = exe;
+        const size_t slash = dir.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) dir.resize(slash + 1);
+        const std::wstring defaultDownload = dir + L"assets\\downloads-fluent.png";
+        const std::wstring defaultTrash = dir + L"assets\\recycle-bin-fluent-empty.png";
+        if (!fileIconaDownload.empty()) iconaDownload = caricaIcona(fileIconaDownload, 256);
+        if (!iconaDownload) iconaDownload = caricaIcona(defaultDownload, 256);
+        if (!fileIconaCestino.empty()) iconaCestino = caricaIcona(fileIconaCestino, 256);
+        if (!iconaCestino) iconaCestino = caricaIcona(defaultTrash, 256);
+        dirty = true;
+    }
+
     void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
     void impostaEffettoNotch(int tipo) { notch.impostaEffetto(tipo); }
     void impostaDimensioneNotch(int percento) { notch.impostaDimensione(percento); }
@@ -1176,8 +1195,9 @@ private:
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
     int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
-    std::wstring fileIconaStart;
+    std::wstring fileIconaStart, fileIconaDownload, fileIconaCestino;
     ID2D1Bitmap1* iconaStartPersonale = nullptr;
+    ID2D1Bitmap1* iconaDownload = nullptr, *iconaCestino = nullptr;
     bool notch12Ore = false;
     std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
@@ -1254,7 +1274,7 @@ private:
     int trascinata = -1;             // indice della voce trascinata
     float presa = 0.5f;              // dove la si e' presa, 0..1 della larghezza dell'icona
     std::vector<std::wstring> ordineFissate;   // collegamenti delle app aggiunte, nell'ordine scelto (vuoto: quello di Windows)
-    RECT rettVetro{}, rettVetroStato{}, rettVetroOra{}, regioneDock{}, regioneIsola{}, regioneEtichetta{};
+    RECT rettVetro{}, rettVetroStato{}, regioneDock{}, regioneIsola{}, regioneEtichetta{};
     D2D1_RECT_F rettEtichetta{};
     // etichetta (una sola, per il dock o per l'isola di stato)
     double etichettaAlfa = 0; std::wstring etichettaTesto; float etichettaCx = 0, etichettaTop = 0;
@@ -1262,14 +1282,15 @@ private:
     // ---- isola di stato ----
     // isola: il centro di controllo (un solo pulsante, con rete e volume a colpo d'occhio) e, a parte, data e ora
     enum { CONTROLLO, ORA, N_STATO };
-    D2D1_RECT_F pillolaControllo{}, pillolaOra{};
     D2D1_RECT_F rettStato[N_STATO]{}, isola{};
     double evidenza[N_STATO]{};      // 0..1, sfondo dell'elemento sotto il mouse
     int statoSopra = -1, statoPremuto = -1;
-    std::wstring testoOra, testoData, testoDataLunga, testoNotch;
+    std::wstring testoOra, testoOraOre, testoOraMinuti, testoOraMeridiem, testoNotch;
+    bool oraDodici = false;
     const wchar_t *fontTesto = L"Segoe UI Variable Text", *fontTitoli = L"Segoe UI Variable Display";   // scelti in grafica()
     notch::Notch notch;                  // ora e data in alto al centro, come il notch del Mac e dell'iPhone (notch.h)
-    std::wstring misuratoOra, misuratoData; float larghezzaOra = 0;   // ultima misura dei due testi
+    std::wstring misuratoOra, misuratoOraOre, misuratoOraMinuti, misuratoOraMeridiem;
+    float larghezzaOra = 0;
     float volume = 0; bool muto = false, audioOk = false;
     int rete = 0; std::wstring nomeRete;   // 0 = nessuna, 1 = cavo, 2 = Wi-Fi
     int conteggioTimer = 0;
@@ -1279,7 +1300,7 @@ private:
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     IDXGISwapChain1* sc = nullptr; IDCompositionDevice* dcomp = nullptr; IDCompositionTarget* target = nullptr; IDCompositionVisual* visual = nullptr;
     ID2D1Factory1* f2d = nullptr; ID2D1Device* d2dev = nullptr; ID2D1DeviceContext* dc = nullptr; ID2D1Bitmap1* bersaglio = nullptr;
-    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr, *fmtData = nullptr;
+    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr;
     ID2D1SolidColorBrush* pennello = nullptr;
     ID2D1StrokeStyle* tratto = nullptr;   // estremi arrotondati, per i simboli
 
@@ -1369,8 +1390,7 @@ private:
         fontTesto = fTesto; fontTitoli = fTitoli;
         }
         formato(fTesto, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.0f, &testo);
-        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 15.0f, &fmtOra);
-        formato(fTesto, DWRITE_FONT_WEIGHT_NORMAL, 11.5f, &fmtData);
+        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 22.0f, &fmtOra);
         // testi dei pannelli: allineati a sinistra, con "..." se non entrano
         auto sinistra = [&](const wchar_t* font, DWRITE_FONT_WEIGHT peso, float px, IDWriteTextFormat** out) {
             formato(font, peso, px, out); testi::allinea(*out, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -2054,16 +2074,33 @@ private:
         dc->DrawLine({x, cy - h / 2}, {x, cy + h / 2}, pennello, tr);
     }
 
-    // ora e data in fondo al dock: separatore e testo (larghezzaOra la misura render quando il testo cambia)
-    // (ai lati l'ora e la data stanno una sopra l'altra nello spessore del dock: lungo il dock conta l'altezza delle due righe)
+    // Text-only dock clock; vertical docks stack hour, minutes and AM/PM on separate lines.
+    void aggiornaLarghezzaOra() {
+        if (misuratoOra == testoOra && misuratoOraOre == testoOraOre &&
+            misuratoOraMinuti == testoOraMinuti && misuratoOraMeridiem == testoOraMeridiem) return;
+        misuratoOra = testoOra; misuratoOraOre = testoOraOre;
+        misuratoOraMinuti = testoOraMinuti; misuratoOraMeridiem = testoOraMeridiem;
+        larghezzaOra = std::max({larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoOraOre, fmtOra),
+                                 larghezzaTesto(testoOraMinuti, fmtOra), larghezzaTesto(testoOraMeridiem, fmtOra)});
+    }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
-        return GAP * 2 + 1 + (verticale() ? (2 * 20 * dpi + 6 * dpi) * kOra() : (larghezzaOra + 16 * dpi) * kOra());
+        const int righe = oraDodici ? 3 : 2;
+        const float estensione = verticale() ? (righe * 22.0f + 4.0f) * dpi * kOra()
+                                             : (larghezzaOra + 12.0f * dpi) * kOra();
+        return GAP * 2 + 1 + estensione;
     }
-    // le due righe dell'ora (~34 px) devono stare nell'altezza delle icone: con icone piccole il testo si rimpicciolisce
-    float scalaOra() const { return std::clamp((S - 6 * dpi) / (34 * dpi), 0.7f, 1.0f); }
-    // ... e ai lati anche la larghezza del testo nello spessore del dock
-    float kOra() const { return verticale() ? std::min(scalaOra(), (S - 2 * dpi) / std::max(1.0f, larghezzaOra + 16 * dpi)) : scalaOra(); }
+    float scalaOra() const {
+        if (verticale()) {
+            const int righe = oraDodici ? 3 : 2;
+            return std::clamp((S - 4.0f * dpi) / (righe * 22.0f * dpi), 0.55f, 1.1f);
+        }
+        return std::clamp(S / 42.0f, 0.75f, 1.55f);
+    }
+    float kOra() const {
+        return verticale() ? std::min(scalaOra(), (S - 4.0f * dpi) / std::max(1.0f, larghezzaOra))
+                           : scalaOra();
+    }
 
     // x di ogni icona a riposo; lo spazio prima di un'icona cresce e cala con lei
     std::vector<float> posizioniRiposo() const { return disponi(std::vector<float>(voci.size(), S)); }
@@ -2164,11 +2201,7 @@ private:
         else movimento |= molla(yNascostoI, velNascostoI, 0, 340, 0.42);
         if (vuoleNascondersi && t <= rivelaFino) movimento = true;   // allo scadere della comparsa temporanea deve riscendere
 
-        // ora e data in fondo al dock: si rimisurano solo quando cambia il testo (la larghezza entra nella disposizione)
-        if (oraNelDock && (testoOra != misuratoOra || testoData != misuratoData)) {
-            misuratoOra = testoOra; misuratoData = testoData;
-            larghezzaOra = std::max(larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoData, fmtData));
-        }
+        if (oraNelDock) aggiornaLarghezzaOra();
 
 
         // il dock resta centrato e si allarga attorno alle icone ingrandite
@@ -2235,7 +2268,9 @@ private:
             if (d < 0.5f) continue;
             const float alfa = (premuto < 1 ? 0.8f : 1.0f) * std::min(1.0f, sc * 1.5f);
             dritto((r.left + r.right) / 2, (r.top + r.bottom) / 2);   // (icona e numero dritti anche ai lati e in alto)
-            if (v.icona) dc->DrawBitmap(v.icona, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            if (v.avvio == AVVIO_PILA && iconaDownload) dc->DrawBitmap(iconaDownload, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else if (v.avvio == AVVIO_CESTINO && iconaCestino) dc->DrawBitmap(iconaCestino, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else if (v.icona) dc->DrawBitmap(v.icona, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             else if (v.avvio == AVVIO_LAUNCHER) disegnaIconaApp(r, alfa, scuro);
             else if (v.avvio == AVVIO_CONTROLLO) disegnaIconaControllo(r, alfa, scuro);
             else if (v.avvio == AVVIO_CESTINO) disegnaIconaCestino(r, alfa, scuro, dropSopra == (int)i);
@@ -2266,51 +2301,38 @@ private:
             }
         }
 
-        // ora e data in fondo al dock (impostazione): un separatore, poi l'ora e sotto la data, dopo il centro di controllo
+        // Time-only, text-only clock at the end of the dock.
         if (const float coda = larghezzaCoda(); coda > 0) {
             const float x0 = sinistra + tot - coda;
             pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f));
             dc->DrawLine({x0 + GAP + 0.5f, yb - S * 0.85f}, {x0 + GAP + 0.5f, yb - S * 0.15f}, pennello, 1.0f);
             const D2D1_RECT_F r = {x0 + GAP * 2 + 1, yb - S, x0 + coda, yb};
-            isola = {r.left, fondoT, r.right + PAD, fondoB};   // il suo posto per il mouse (vedi oraNelDock)
+            isola = {r.left, fondoT, r.right + PAD, fondoB};
             rettStato[ORA] = r; rettStato[CONTROLLO] = {};
-            const double e = verso(evidenza[ORA], (statoSopra == ORA && mouseDentro) ? 1.0 : 0.0, 0.05);
-            if (e != evidenza[ORA]) movimento = true;
-            evidenza[ORA] = e;
-            const float s = statoPremuto == ORA ? 0.92f : 1.0f;   // si "schiaccia" un poco alla pressione
-            const float k = kOra();                              // icone piccole (e ai lati, testo largo): piu' piccolo (vedi kOra)
+            const float press = statoPremuto == ORA ? 0.92f : 1.0f;
+            const float k = kOra();
             const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-            const float h2 = 17 * dpi;                           // altezza di una riga (a grandezza piena)
-            // capsula attorno al testo: la stessa per il fondo e per l'evidenza del mouse
-            const float pw = (larghezzaOra / 2 + 8 * dpi) * k * s, ph = (h2 + 3 * dpi) * k * s;
-            const D2D1_ROUNDED_RECT capsula = {{cx - pw, cy - ph, cx + pw, cy + ph}, std::min(9 * dpi, ph) * raggio::fattore(), std::min(9 * dpi, ph) * raggio::fattore()};
-            dritto(cx, cy);   // (capsula e testo dritti: ai lati stanno nello spessore del dock)
-            // fondo: compare solo quanto il vetro del dock e' trasparente (opacita' nelle impostazioni), cosi' l'ora si legge
-            // anche sopra una finestra chiara; col vetro pieno non c'e'. Lo dice la trasparenza della finestra del vetro
-            {
-                BYTE av = 255; DWORD fl = 0;
-                if (!GetLayeredWindowAttributes(vetro, nullptr, &av, &fl) || !(fl & LWA_ALPHA)) av = 255;
-                const float quanto = std::clamp((1 - av / 255.0f) / 0.8f, 0.0f, 1.0f);
-                if (quanto > 0.02f) {
-                    pennello->SetColor(scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.5f * quanto) : D2D1::ColorF(1, 1, 1, 0.6f * quanto));
-                    dc->FillRoundedRectangle(capsula, pennello);
-                }
-            }
-            if (e > 0.01) {
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e));
-                dc->FillRoundedRectangle(capsula, pennello);
-            }
-            // testo disegnato a grandezza piena e rimpicciolito attorno al centro (pressione e icone piccole)
-            dritto(cx, cy, s * k);
+            dritto(cx, cy, press * k);
             const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
-            const float lt = larghezzaOra / 2 + 8 * dpi;
             pennello->SetColor(ink);
-            dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {cx - lt, cy - h2 - 1 * dpi, cx + lt, cy + 1 * dpi}, pennello);
-            pennello->SetColor({ink.r, ink.g, ink.b, ink.a * 0.72f});
-            dc->DrawText(testoData.c_str(), (UINT32)testoData.size(), fmtData, {cx - lt, cy + 1 * dpi, cx + lt, cy + h2 - 1 * dpi}, pennello);
+            if (verticale()) {
+                const int righe = oraDodici ? 3 : 2;
+                const float passo = 22.0f * dpi;
+                const float primoY = cy - (righe - 1) * passo / 2.0f;
+                const std::wstring* testiRighe[3] = {&testoOraOre, &testoOraMinuti, &testoOraMeridiem};
+                for (int j = 0; j < righe; ++j) {
+                    const float yy = primoY + j * passo;
+                    dc->DrawText(testiRighe[j]->c_str(), (UINT32)testiRighe[j]->size(), fmtOra,
+                                 {cx - larghezzaOra / 2 - 3 * dpi, yy - 11 * dpi,
+                                  cx + larghezzaOra / 2 + 3 * dpi, yy + 11 * dpi}, pennello);
+                }
+            } else {
+                const float lt = larghezzaOra / 2 + 6 * dpi;
+                dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra,
+                             {cx - lt, cy - 14 * dpi, cx + lt, cy + 14 * dpi}, pennello);
+            }
             piano();
         }
-
 
         // icona sotto il mouse ricalcolata sulle posizioni appena disegnate (il dock si muove anche col mouse fermo)
         sopra = (mouseDentro && mouseSulDock) ? iconaInPunto(mouseX, mouseY) : -1;
@@ -2426,65 +2448,6 @@ private:
         return tm.widthIncludingTrailingWhitespace;
     }
 
-    // disegna l'isola a destra, alla stessa altezza del dock; restituisce true se sta animando
-    bool disegnaIsola(bool scuro, float top, float bottom) {
-        const float P = 6 * dpi, GAP_ISOLE = 8 * dpi;
-        // larghezza della pillola dell'ora: si rimisura solo quando cambia il testo (prima a ogni fotogramma)
-        if (testoOra != misuratoOra || testoData != misuratoData) {
-            misuratoOra = testoOra; misuratoData = testoData;
-            larghezzaOra = std::max(larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoData, fmtData));
-        }
-        const float largOra = larghezzaOra + 22 * dpi;
-        const float largControllo = 3 * 30 * dpi;   // simbolo del centro di controllo, rete, volume
-        const float destra = std::round(W - 12 * dpi);
-        pillolaOra = {std::round(destra - 2 * P - largOra), top, destra, bottom};
-        pillolaControllo = {std::round(pillolaOra.left - GAP_ISOLE - 2 * P - largControllo), top, std::round(pillolaOra.left - GAP_ISOLE), bottom};
-        isola = {pillolaControllo.left, top, destra, bottom};
-        rettStato[CONTROLLO] = {pillolaControllo.left + P, top + P, pillolaControllo.right - P, bottom - P};
-        rettStato[ORA] = {pillolaOra.left + P, top + P, pillolaOra.right - P, bottom - P};
-        disegnaFondo(pillolaControllo, scuro);
-        disegnaFondo(pillolaOra, scuro);
-        aggiornaVetro(vetroStato, rettVetroStato, pillolaControllo.left, top, pillolaControllo.right, bottom);
-        aggiornaVetro(vetroOra, rettVetroOra, pillolaOra.left, top, pillolaOra.right, bottom);
-
-        bool movimento = false;
-        const D2D1_COLOR_F inchiostro = inchiostroUI(scuro, 0.92f);
-        for (int i = 0; i < N_STATO; i++) {
-            const double e = verso(evidenza[i], (i == statoSopra && mouseDentro) ? 1.0 : 0.0, 0.05);
-            if (e != evidenza[i]) movimento = true;
-            evidenza[i] = e;
-            const float s = (i == statoPremuto) ? 0.92f : 1.0f;   // si "schiaccia" un poco alla pressione, come su iOS
-            const D2D1_RECT_F& r = rettStato[i];
-            const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-            if (e > 0.01) {
-                const float hw = (r.right - r.left) / 2 * s, hh = (r.bottom - r.top) / 2 * s;
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e));
-                dc->FillRoundedRectangle({{cx - hw, cy - hh, cx + hw, cy + hh}, std::max(0.0f, RAGGIO - 2 * dpi), std::max(0.0f, RAGGIO - 2 * dpi)}, pennello);
-            }
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(s, s, {cx, cy}));
-            pennello->SetColor(inchiostro);
-            switch (i) {
-                case CONTROLLO: {   // tre simboli in un solo pulsante: centro di controllo, rete, volume
-                    const float passo = (r.right - r.left) / 3;
-                    simboloControllo(r.left + passo * 0.5f, cy);
-                    simboloRete(r.left + passo * 1.5f, cy, inchiostro);
-                    pennello->SetColor(inchiostro);
-                    simboloVolume(r.left + passo * 2.5f, cy);
-                    break;
-                }
-                case ORA: {
-                    const float h2 = 17 * dpi;
-                    dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {r.left, cy - h2 - 1 * dpi, r.right, cy + 1 * dpi}, pennello);
-                    pennello->SetColor({inchiostro.r, inchiostro.g, inchiostro.b, inchiostro.a * 0.72f});
-                    dc->DrawText(testoData.c_str(), (UINT32)testoData.size(), fmtData, {r.left, cy + 1 * dpi, r.right, cy + h2 - 1 * dpi}, pennello);
-                    break;
-                }
-            }
-            dc->SetTransform(D2D1::Matrix3x2F::Identity());
-        }
-        return movimento;
-    }
-
     std::wstring descrizioneStato(int i) const {
         switch (i) {
             case CONTROLLO: {
@@ -2493,7 +2456,7 @@ private:
                 if (muto) return s + testi::t(L" \u00b7 audio disattivato", L" \u00b7 sound off");
                 wchar_t b[32]; swprintf(b, 32, L" \u00b7 volume %d%%", (int)std::lround(volume * 100)); return s + b;
             }
-            case ORA:      return testoDataLunga;
+            case ORA:      return testoOra;
         }
         return L"";
     }
@@ -2583,18 +2546,33 @@ private:
     void aggiornaStato(bool tutto) {
         bool cambiato = false;
         SYSTEMTIME st; GetLocalTime(&st);
-        wchar_t b[96], oraNotch[96] = L"";
-        swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);  // il dock conserva il formato 24 ore
+        wchar_t b[96] = L"", formatoLocale[96] = L"", ore[32] = L"", minuti[32] = L"", meridiem[32] = L"", oraNotch[96] = L"";
         const wchar_t* loc = testi::locale();
+        const bool formato12 = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, formatoLocale, 96) > 0 &&
+                               wcschr(formatoLocale, L'h') != nullptr && wcschr(formatoLocale, L'H') == nullptr;
+        const wchar_t* formatoOra = formato12 ? L"h:mm tt" : L"HH:mm";
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formatoOra, b, 96)) {
+            if (formato12) swprintf(b, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12,
+                                    st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
+            else swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
+        }
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formato12 ? L"h" : L"HH", ore, 32))
+            swprintf(ore, 32, formato12 ? L"%d" : L"%02d",
+                     formato12 ? ((st.wHour % 12) ? (st.wHour % 12) : 12) : st.wHour);
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, L"mm", minuti, 32))
+            swprintf(minuti, 32, L"%02d", st.wMinute);
+        if (formato12 && !GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, L"tt", meridiem, 32))
+            wcscpy(meridiem, st.wHour < 12 ? L"AM" : L"PM");
+        if (testoOra != b || testoOraOre != ore || testoOraMinuti != minuti ||
+            testoOraMeridiem != meridiem || oraDodici != formato12) {
+            testoOra = b; testoOraOre = ore; testoOraMinuti = minuti; testoOraMeridiem = meridiem;
+            oraDodici = formato12; cambiato = true;
+        }
         const std::wstring giornoPrima = testoNotch;
-        if (testoOra != b) {
-            testoOra = b; cambiato = true;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), b, 96, nullptr)) testoData = b;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM yyyy", L"dddd, MMMM d, yyyy"), b, 96, nullptr)) { testoDataLunga = b; if (!testoDataLunga.empty()) testoDataLunga[0] = (wchar_t)towupper(testoDataLunga[0]); }
-            // con un calendario non gregoriano scelto in Windows la data del pannello (sopra il calendario) e' nel suo
-            // (issue #24); ora, data breve del dock e notch restano quelle di sempre
-            if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty()) testoDataLunga = cm.dataLunga;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
+        wchar_t giorno[96] = L"";
+        if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), giorno, 96, nullptr)) {
+            testoNotch = giorno;
+            if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]);
         }
         if (notch12Ore) {
             if (!GetTimeFormatEx(loc, 0, &st, L"h:mm tt", oraNotch, 96))
@@ -3121,7 +3099,7 @@ private:
     // dal bordo, e ai lati oltre il bordo c'e' spesso l'altro schermo (dock a destra del secondario, a sinistra del
     // principale): il vetro ci finiva sopra come una striscia staccata. Tutto fuori: nascosto, segnato con
     // VETRO_FUORI, e rimesso quando rientra (con WS_THICKFRAME Windows non lo farebbe piu' piccolo della misura minima
-    // di una finestra). Solo quelli nascosti cosi' si rimostrano: vetroStato e vetroOra non sono mai visibili
+    // di una finestra). Solo il vetro dello stato e' nascosto cosi' e rimesso quando rientra.
     static constexpr const wchar_t* VETRO_FUORI = L"FluidWin.VetroFuori";
     void aggiornaVetro(HWND h, RECT& ultimo, float l, float t, float r, float b) {
         const RECT pieno = aSchermo({l, t, r, b});   // (sul lato del dock)
@@ -3148,7 +3126,7 @@ private:
     void posizionaVetri() {
         vetroDaRiposizionare = false;
         SetWindowPos(icone, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        for (HWND v : {vetro, vetroStato, vetroOra}) SetWindowPos(v, icone, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        for (HWND v : {vetro, vetroStato}) SetWindowPos(v, icone, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----

@@ -4088,6 +4088,7 @@ static void applicaImpostazioni() {
         gDock.impostaColoreTesto(v.dockTestoColore);
         gDock.impostaLogoStart(v.dockLogoStart);
         gDock.impostaFileIconaStart(v.dockStartIconPath);
+        gDock.impostaIconeDownloadCestino(v.dockDownloadIconPath, v.dockTrashIconPath);
         gDock.impostaMargineBordo(v.dockMargine);
         gDock.impostaColoriMedia(v.colorePulsantiMedia, v.coloreVisualizzatore,
                                  v.coloreVisualizzatoreFine, v.visualizzatoreGradiente);
