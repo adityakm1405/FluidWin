@@ -4060,7 +4060,7 @@ static void applicaImpostazioni() {
         gDock.impostaNotchAttivo(v.notchAttivo);
         gDock.impostaOraNotch12(v.notch12Ore);
         gDock.impostaAspettoNotch(v.notchSfondo, v.notchTesto);
-        gDock.impostaColoriTimerNotch(v.timerColoreConto, v.timerColoreAnello, v.timerColoreFine);
+        gDock.impostaColoriTimerNotch(v.timerColore, v.timerColoreFine);
         gDock.impostaEffettoNotch(v.notchMateriale);
         gDock.impostaDimensioneNotch(v.notchDimensione);
         gDock.impostaOraNelDock(v.oraDock);
