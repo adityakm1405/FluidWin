@@ -670,6 +670,44 @@ private:
         if (!se.camApp.empty()) { colore(0.2f, 0.84f, 0.29f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); }
     }
 
+    struct LayoutTimer {
+        float larghezza = 0.0f;
+        float offsetOrologio = 0.0f;
+        float centroAnello = 0.0f;
+        float xConto = 0.0f;
+        float larghezzaConto = 0.0f;
+    };
+
+    // The timer is laid out around the normal clock/date block. The gaps are measured
+    // from the visible ring edge to the time and from the date to the countdown text.
+    // Keeping both gaps identical avoids the oversized empty area at the right edge.
+    LayoutTimer disposizioneTimer() const {
+        const float d = dpi;
+        const float separatore = larghezzaSeparatoreOra();
+        const float spazio = spazioOra();
+        const float xs = std::round(largoOra / 2.0f - separatore / 2.0f);
+        const float xOra = std::round(xs - spazio - lo);
+        const float xDataFine = std::round(xs + separatore + spazio + lg);
+        const float distanza = 18.0f * d;
+        const float raggioAnello = 6.5f * d;
+        const float margineEsterno = 14.0f * d;
+        const float xAnello = xOra - distanza - raggioAnello;
+        const float xConto = xDataFine + distanza;
+        // Presets max out at one hour; reserve this width so the capsule does not
+        // resize when the countdown changes from mm:ss to h:mm:ss.
+        const float larghezzaConto = fNumero ? larghezza(L"1:00:00", fNumero) : 52.0f * d;
+        const float sinistra = std::min(0.0f, xAnello - raggioAnello);
+        const float destra = std::max(largoOra, xConto + larghezzaConto);
+        const float offset = std::round(margineEsterno - sinistra);
+        return {
+            std::round(destra - sinistra + 2.0f * margineEsterno),
+            offset,
+            std::round(offset + xAnello),
+            std::round(offset + xConto),
+            larghezzaConto
+        };
+    }
+
     void misura(int s, float& w, float& h, float& R) const {
         const float d = dpi;
         switch (s) {
@@ -680,7 +718,7 @@ private:
             case SCAFFALE: w = 372 * d; h = 96 * d; R = 26 * d; break;
             // avviso: largo quanto simbolo e testo con un margine uguale ai due lati (vedi AVVISO in disegna)
             case AVVISO:   w = std::clamp(larghezzaAvviso + (AV_SIMBOLO + AV_SPAZIO + 2 * AV_MARGINE) * d, 150 * d, 372 * d); h = 32 * d; R = 14 * d; break;
-            case TIMER:    w = largoOra + 104 * d + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;
+            case TIMER:    w = disposizioneTimer().larghezza + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;
             case TIMER_APERTO: w = 312 * d; h = 60 * d; R = 24 * d; break;
             case SUONA:    w = 300 * d; h = 42 * d; R = 20 * d; break;
             default:       w = largoOra; h = 22 * d; R = 9 * d;
@@ -855,7 +893,7 @@ private:
         bersagli();
         if (scena != prima) ridisegnare = false;   // ci pensa l'animazione
         if (ridisegnare && !animando) ridisegna();
-        // Il separatore audio resta animato anche mentre il timer occupa la parte destra del notch.
+        // The media visualizer keeps updating in both the compact music and timer scenes.
         else if ((brano.suona || fattoreVisualizzatore() > 0.001f) &&
                  (scena == MUSICA || scena == TIMER) && !animando && salita() < 0.5) ridisegnaBarrette();
         // ogni 2 s di nuovo in cima (un'app sempre in primo piano aperta dopo poteva coprirlo)
@@ -1187,16 +1225,19 @@ private:
 
     // zona del visualizzatore centrale nella scena MUSICA (coordinate della finestra)
     bool zonaBarrette(D2D1_RECT_F& r, D2D1_POINT_2F& o) const {
-        if (scena != MUSICA && scena != TIMER) return false;   // visualizzatore nel separatore di orologio e timer
+        if (scena != MUSICA && scena != TIMER) return false;
         float w, h, R; misura(scena, w, h, R);
         const float margine = puntiW() + segniW();
-        const float L = sinistra(scena) + margine, d = dpi;
+        float L = sinistra(scena) + margine;
         w -= 2 * margine;
-        // Nel timer il separatore resta nel blocco normale ora/data; la larghezza extra e' riservata a icona e conto.
-        if (scena == TIMER) w = std::min(w, largoOra);
+        if (scena == TIMER) {
+            const LayoutTimer layout = disposizioneTimer();
+            L += layout.offsetOrologio;
+            w = largoOra;
+        }
         const float sep = larghezzaSeparatoreOra();
         const float centro = std::round(L + w / 2);
-        o = {std::round(centro - sep / 2), h / 2};   // il visualizzatore e' ancorato al centro esatto del notch
+        o = {std::round(centro - sep / 2), h / 2};   // anchored to the clock's actual centre
         o.y += scesa(scena);   // (notch in basso: contro il bordo in basso)
         r = {std::floor(o.x - 2 * d), std::floor(o.y - 8 * d),
              std::ceil(o.x + sep + 2 * d), std::ceil(o.y + 8 * d)};
@@ -1339,40 +1380,57 @@ private:
                 break;
             case APERTO: aperto(L, w, h, a); break;
             case SCAFFALE: scaffaleScena(L, w, h, a); break;
-            case TIMER: {   // blocco ora/data a larghezza normale, anello a sinistra e conto allineato a destra
-                // La parte extra della capsula e' riservata all'anello e al conto: non sposta il separatore centrale.
-                ora(L, std::min(largoOra, w), h, a, true);
-                // comparsa: l'anello cresce dal centro e il tempo entra scivolando da destra
-                const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0), e = ka * ka * (3 - 2 * ka);
-                if (e > 0.01f) anello(L + 20 * d, h / 2, 6.5f * d * e, (float)comodita::timerAvanzamento(), a * e);
+            case TIMER: {
+                const LayoutTimer layout = disposizioneTimer();
+                const float clockLeft = L + layout.offsetOrologio;
+                ora(clockLeft, largoOra, h, a, true);
+
+                // The timer ring and countdown sit at the same measured distance from
+                // the clock's first time character and last date character respectively.
+                const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0);
+                const float e = ka * ka * (3.0f - 2.0f * ka);
+                if (e > 0.01f)
+                    anello(L + layout.centroAnello, h / 2, 6.5f * d * e,
+                           (float)comodita::timerAvanzamento(), a * e);
+
                 colore(1.0f, 0.62f, 0.04f, a * e);
                 const std::wstring r = comodita::durata(comodita::timerResto());
 
-                // Allinea il conto alla stessa linea di base dell'ora, non solo al centro del rettangolo.
-                float altezzaOra = 0.0f, baseOra = 0.0f, altezzaConto = 0.0f, baseConto = 0.0f;
+                // Match the date baseline (the date uses a small optical -1.5 px correction
+                // relative to the time), not the larger 12-hour clock's text box centre.
                 auto metricheLinea = [&](const std::wstring& testo, IDWriteTextFormat* formato,
                                          float& altezza, float& lineaBase) {
-                    IDWriteTextLayout* layout = nullptr;
+                    altezza = lineaBase = 0.0f;
+                    IDWriteTextLayout* layoutTesto = nullptr;
                     if (!formato || FAILED(fabbriche::testo()->CreateTextLayout(
-                            testo.c_str(), (UINT32)testo.size(), formato, 1000, 100, &layout)) || !layout) return;
+                            testo.c_str(), (UINT32)testo.size(), formato, 1000, 100, &layoutTesto)) || !layoutTesto)
+                        return;
                     DWRITE_LINE_METRICS lm{}; UINT32 quanti = 0;
-                    if (SUCCEEDED(layout->GetLineMetrics(&lm, 1, &quanti)) && quanti) {
+                    if (SUCCEEDED(layoutTesto->GetLineMetrics(&lm, 1, &quanti)) && quanti) {
                         altezza = lm.height;
                         lineaBase = lm.baseline;
                     }
-                    layout->Release();
+                    layoutTesto->Release();
                 };
-                metricheLinea(testoOra, fOra, altezzaOra, baseOra);
-                metricheLinea(r, fNumero, altezzaConto, baseConto);
-                const float yConto = (altezzaOra > 0.0f && altezzaConto > 0.0f)
-                    ? (h - altezzaOra) / 2.0f + baseOra - baseConto
-                    : (h - std::max(altezzaConto, 12.0f * d)) / 2.0f;
+                float hOra = 0.0f, baseOra = 0.0f, hData = 0.0f, baseData = 0.0f;
+                float hConto = 0.0f, baseConto = 0.0f;
+                metricheLinea(testoOra, fOra, hOra, baseOra);
+                metricheLinea(testoGiorno, fGiorno, hData, baseData);
+                metricheLinea(r, fNumero, hConto, baseConto);
 
+                const float yOra = std::round((h - hOra) / 2.0f);
+                const float yData = std::round(yOra + baseOra - baseData - 1.5f * d);
+                const float yConto = std::round(yData + baseData - baseConto);
                 const float ingresso = (1.0f - e) * 12.0f * d;
+
+                const DWRITE_TEXT_ALIGNMENT allineamento = fNumero->GetTextAlignment();
+                fNumero->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 rt->DrawText(r.c_str(), (UINT32)r.size(), fNumero,
-                    {L + w - 70 * d + ingresso, yConto, L + w - 14 * d + ingresso,
-                     yConto + std::max(altezzaConto, 12.0f * d)},
+                    {L + layout.xConto + ingresso, yConto,
+                     L + layout.xConto + layout.larghezzaConto + ingresso,
+                     yConto + std::max(hConto, 12.0f * d)},
                     pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                fNumero->SetTextAlignment(allineamento);
                 break;
             }
             case TIMER_APERTO: {   // timer grande: anello, tempo che resta, +1 min, stop
