@@ -2422,8 +2422,8 @@ private:
                 const float inset = 5.0f * dpi;
                 // Keep the two large rows close, with a compact sideways colon between them.
                 const float yOraInizio = tile.top + 1.0f * dpi;
-                const float yOraFine = tile.top + 35.0f * dpi;
-                const float yMinutiInizio = tile.top + 37.0f * dpi;
+                const float yOraFine = tile.top + 36.0f * dpi;
+                const float yMinutiInizio = tile.top + 38.0f * dpi;
                 const float yMinutiFine = tile.top + (oraDodici ? 72.0f : 81.0f) * dpi;
 
                 pennello->SetColor(ink);
@@ -2433,7 +2433,7 @@ private:
 
                 // A vertical clock stacks the two colon dots horizontally (rotated 90 degrees).
                 const float yDuePunti = (yOraFine + yMinutiInizio) / 2.0f;
-                const float raggioPunto = 1.45f * dpi;
+                const float raggioPunto = 1.9f * dpi;
                 const float distanzaPunti = 3.6f * dpi;
                 dc->FillEllipse(D2D1::Ellipse({cx - distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
                 dc->FillEllipse(D2D1::Ellipse({cx + distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
@@ -2443,8 +2443,8 @@ private:
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
 
                 if (oraDodici && !testoOraMeridiem.empty()) {
-                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 76.0f * dpi,
-                                                      tile.right - inset, tile.bottom - 1.0f * dpi};
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 72.0f * dpi,
+                                                      tile.right - inset, tile.bottom - 5.0f * dpi};
                     dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
                                  fmtOraMeridiem, areaMeridiem, pennello);
                 }
