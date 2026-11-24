@@ -33,6 +33,8 @@
 #include <atomic>
 #include <thread>
 #include <array>
+#include <cstring>
+#include <audioclient.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
 
@@ -62,9 +64,10 @@ __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 
 
 namespace notch {
 
-// Picco reale dell'uscita audio predefinita di Windows, letto su un thread COM dedicato.
+// Analizzatore audio loopback WASAPI con FFT: bands are frequency bins, not delayed peak samples.
 class MisuratoreAudio {
 public:
+    MisuratoreAudio() { for (auto& b : bande) b.store(0.0f); }
     ~MisuratoreAudio() { ferma(); }
     void avvia() {
         if (lavoro.joinable()) return;
@@ -76,54 +79,137 @@ public:
         if (lavoro.joinable()) lavoro.join();
         disponibile = false;
         picco = 0.0f;
+        for (auto& b : bande) b.store(0.0f);
     }
     float livello() const { return picco.load(); }
-    // Sample history lets compact visualizers use distinct envelope snapshots as pseudo-bands.
     float banda(int indice, int count) const {
-        count = std::max(1, count); indice = std::clamp(indice, 0, count - 1);
-        const int delay = 1 + (indice * 31 / count);
-        const int slot = (ultimoSlot.load() - delay + (int)STORIA) % (int)STORIA;
-        return std::clamp(storia[slot].load() * 3.8f, 0.0f, 1.0f);
+        count = std::max(1, count);
+        indice = std::clamp(indice, 0, count - 1);
+        const int ix = std::clamp((int)((indice + 0.5f) * BAND_COUNT / count), 0, BAND_COUNT - 1);
+        return bande[ix].load();
     }
     bool pronto() const { return disponibile.load(); }
 
 private:
+    static constexpr int FFT_SIZE = 512, BAND_COUNT = 32;
     std::atomic<bool> arresta{true}, disponibile{false};
-    static constexpr size_t STORIA = 64;
-    std::array<std::atomic<float>, STORIA> storia{};
-    std::atomic<int> ultimoSlot{0};
+    std::array<std::atomic<float>, BAND_COUNT> bande{};
     std::atomic<float> picco{0.0f};
     std::thread lavoro;
+    std::array<float, FFT_SIZE> campioni{};
+    int scrittura = 0, raccolti = 0;
 
+    static float campione(const BYTE* p, const WAVEFORMATEX* f, bool floating) {
+        if (floating && f->wBitsPerSample == 32) {
+            float v = 0; std::memcpy(&v, p, sizeof(v)); return std::clamp(v, -1.0f, 1.0f);
+        }
+        switch (f->wBitsPerSample) {
+        case 8: return ((int)p[0] - 128) / 128.0f;
+        case 16: { short v = 0; std::memcpy(&v, p, 2); return v / 32768.0f; }
+        case 24: {
+            int v = (int)p[0] | ((int)p[1] << 8) | ((int)p[2] << 16);
+            if (v & 0x800000) v |= ~0xFFFFFF;
+            return v / 8388608.0f;
+        }
+        case 32: { int v = 0; std::memcpy(&v, p, 4); return v / 2147483648.0f; }
+        default: return 0.0f;
+        }
+    }
+    void aggiungi(float s) {
+        campioni[scrittura] = s; scrittura = (scrittura + 1) % FFT_SIZE;
+        raccolti = std::min(raccolti + 1, FFT_SIZE);
+        if (raccolti < FFT_SIZE) return;
+        std::array<float, FFT_SIZE> re{}, im{};
+        for (int i = 0; i < FFT_SIZE; ++i) {
+            const float w = 0.5f - 0.5f * std::cos(2.0f * (float)M_PI * i / (FFT_SIZE - 1));
+            re[i] = campioni[(scrittura + i) % FFT_SIZE] * w;
+        }
+        // In-place radix-2 FFT.
+        for (int i = 1, j = 0; i < FFT_SIZE; ++i) {
+            int bit = FFT_SIZE >> 1;
+            for (; j & bit; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+        }
+        for (int len = 2; len <= FFT_SIZE; len <<= 1) {
+            const float ang = -2.0f * (float)M_PI / len;
+            const float wr0 = std::cos(ang), wi0 = std::sin(ang);
+            for (int i = 0; i < FFT_SIZE; i += len) {
+                float wr = 1.0f, wi = 0.0f;
+                for (int j = 0; j < len / 2; ++j) {
+                    const int u = i + j, v = u + len / 2;
+                    const float vr = re[v] * wr - im[v] * wi, vi = re[v] * wi + im[v] * wr;
+                    const float ur = re[u], ui = im[u];
+                    re[u] = ur + vr; im[u] = ui + vi; re[v] = ur - vr; im[v] = ui - vi;
+                    const float nw = wr * wr0 - wi * wi0, ni = wr * wi0 + wi * wr0; wr = nw; wi = ni;
+                }
+            }
+        }
+        const int minBin = 2, maxBin = FFT_SIZE / 2 - 1;
+        for (int b = 0; b < BAND_COUNT; ++b) {
+            const float lo = minBin * std::pow((float)maxBin / minBin, b / (float)BAND_COUNT);
+            const float hi = minBin * std::pow((float)maxBin / minBin, (b + 1) / (float)BAND_COUNT);
+            const int first = std::max(minBin, (int)lo), last = std::max(first, (int)hi);
+            float mag = 0.0f;
+            for (int k = first; k <= last && k <= maxBin; ++k) {
+                const float m = std::sqrt(re[k] * re[k] + im[k] * im[k]) * (2.0f / FFT_SIZE);
+                mag = std::max(mag, m);
+            }
+            // Dynamic range compression with a low noise gate; preserves transients while smoothing decay.
+            const float target = std::clamp((mag - 0.008f) * 22.0f, 0.0f, 1.0f);
+            const float old = bande[b].load(), smooth = target > old ? 0.62f : 0.18f;
+            bande[b] = old + (target - old) * smooth;
+        }
+        float peak = 0.0f;
+        for (const auto& b : bande) peak = std::max(peak, b.load());
+        const float oldPeak = picco.load(), smoothPeak = peak > oldPeak ? 0.65f : 0.16f;
+        picco = oldPeak + (peak - oldPeak) * smoothPeak;
+    }
     void ciclo() {
         const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        IMMDeviceEnumerator* enumeratore = nullptr;
-        IMMDevice* dispositivo = nullptr;
-        IAudioMeterInformation* misuratore = nullptr;
-        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                      __uuidof(IMMDeviceEnumerator), (void**)&enumeratore);
-        if (SUCCEEDED(hr) && enumeratore)
-            hr = enumeratore->GetDefaultAudioEndpoint(eRender, eMultimedia, &dispositivo);
-        if (SUCCEEDED(hr) && dispositivo)
-            hr = dispositivo->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, nullptr, (void**)&misuratore);
-        if (SUCCEEDED(hr) && misuratore) disponibile = true;
-
-        while (!arresta) {
-            float letto = 0.0f;
-            if (misuratore && SUCCEEDED(misuratore->GetPeakValue(&letto))) {
-                letto = std::clamp(letto, 0.0f, 1.0f);
-                const float vecchio = picco.load();
-                const float velocita = letto > vecchio ? 0.68f : 0.20f;
-                picco = vecchio + (letto - vecchio) * velocita;
+        IMMDeviceEnumerator* enumeratore = nullptr; IMMDevice* dispositivo = nullptr;
+        IAudioClient* client = nullptr; IAudioCaptureClient* capture = nullptr; WAVEFORMATEX* formato = nullptr;
+        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&enumeratore);
+        if (SUCCEEDED(hr) && enumeratore) hr = enumeratore->GetDefaultAudioEndpoint(eRender, eMultimedia, &dispositivo);
+        if (SUCCEEDED(hr) && dispositivo) hr = dispositivo->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client);
+        if (SUCCEEDED(hr) && client) hr = client->GetMixFormat(&formato);
+        bool floating = false;
+        if (formato) {
+            floating = formato->wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
+            if (formato->wFormatTag == WAVE_FORMAT_EXTENSIBLE && formato->cbSize >= 22) {
+                auto* ext = (WAVEFORMATEXTENSIBLE*)formato;
+                floating = ext->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
             }
-            const int slot = (ultimoSlot.load() + 1) % (int)STORIA;
-            storia[slot] = picco.load(); ultimoSlot = slot;
-            Sleep(16);
         }
-
-        if (misuratore) misuratore->Release();
+        if (SUCCEEDED(hr) && client && formato) hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, formato, nullptr);
+        if (SUCCEEDED(hr) && client) hr = client->GetService(__uuidof(IAudioCaptureClient), (void**)&capture);
+        if (SUCCEEDED(hr) && client) hr = client->Start();
+        if (SUCCEEDED(hr) && capture && formato) disponibile = true;
+        while (!arresta && SUCCEEDED(hr) && capture && formato) {
+            UINT32 frames = 0;
+            if (SUCCEEDED(capture->GetNextPacketSize(&frames)) && frames) {
+                BYTE* data = nullptr; UINT32 n = 0; DWORD flags = 0;
+                if (SUCCEEDED(capture->GetBuffer(&data, &n, &flags, nullptr, nullptr))) {
+                    const int bytes = std::max(1, (int)formato->wBitsPerSample / 8), frameBytes = bytes * std::max(1, (int)formato->nChannels);
+                    for (UINT32 i = 0; i < n; ++i) {
+                        float mono = 0;
+                        if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+                            for (int ch = 0; ch < formato->nChannels; ++ch)
+                                mono += campione(data + (size_t)i * frameBytes + ch * bytes, formato, floating);
+                            mono /= std::max(1, (int)formato->nChannels);
+                        }
+                        aggiungi(mono);
+                    }
+                    capture->ReleaseBuffer(n);
+                }
+            } else Sleep(4);
+        }
+        if (client) client->Stop();
+        if (capture) capture->Release();
+        if (client) client->Release();
         if (dispositivo) dispositivo->Release();
         if (enumeratore) enumeratore->Release();
+        if (formato) CoTaskMemFree(formato);
         if (SUCCEEDED(com)) CoUninitialize();
     }
 };
