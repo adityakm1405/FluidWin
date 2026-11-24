@@ -37,9 +37,8 @@ struct Valori {
     bool notch12Ore = false;      // formato 12 ore solo per l'orologio del notch
     DWORD notchSfondo = 0;        // 0 automatico (nero), altrimenti 0x01RRGGBB
     DWORD notchTesto = 0;         // 0 automatico (bianco), altrimenti 0x01RRGGBB
-    DWORD timerColoreConto = 0;    // colore del testo del conto alla rovescia
-    DWORD timerColoreAnello = 0;   // colore dell'anello di avanzamento, anche nel timer aperto
-    DWORD timerColoreFine = 0;     // colore del cerchio quando il timer termina
+    DWORD timerColore = 0;         // colore condiviso dal testo del conto alla rovescia e dall'anello
+    DWORD timerColoreFine = 0;     // colore del cerchio pulsante quando il timer termina
     int notchMateriale = 3;       // 1 none, 2 Mica, 3 Acrylic, 4 Mica Alt, 5 Blur, 6 Glass, 7 Translucent
     int notchDimensione = 100;    // scala del notch, percento
     bool oraDock = false;         // ora e data in fondo al dock, dopo il centro di controllo
@@ -155,8 +154,13 @@ inline void carica() {
     v.notch12Ore = leggiDword(L"Notch12Ore", 0);
     v.notchSfondo = leggiDword(L"NotchSfondo", 0) & (COLORE_SCELTO | 0xFFFFFF);
     v.notchTesto = leggiDword(L"NotchTesto", 0) & (COLORE_SCELTO | 0xFFFFFF);
-    v.timerColoreConto = leggiDword(L"TimerColoreConto", 0) & (COLORE_SCELTO | 0xFFFFFF);
-    v.timerColoreAnello = leggiDword(L"TimerColoreAnello", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    // Unisce le due vecchie preferenze: prima l'anello, poi il testo se l'anello non era personalizzato.
+    const DWORD coloreContoPrecedente = leggiDword(L"TimerColoreConto", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    const DWORD coloreAnelloPrecedente = leggiDword(L"TimerColoreAnello", 0) & (COLORE_SCELTO | 0xFFFFFF);
+    const DWORD coloreUnificatoSalvato = leggiDword(L"TimerColore", 0xFFFFFFFF);
+    v.timerColore = coloreUnificatoSalvato != 0xFFFFFFFF
+        ? coloreUnificatoSalvato & (COLORE_SCELTO | 0xFFFFFF)
+        : ((coloreAnelloPrecedente & COLORE_SCELTO) ? coloreAnelloPrecedente : coloreContoPrecedente);
     v.timerColoreFine = leggiDword(L"TimerColoreFine", 0) & (COLORE_SCELTO | 0xFFFFFF);
     { const DWORD m = leggiDword(L"NotchMateriale", 3); v.notchMateriale = (m >= 1 && m <= 7) ? (int)m : 3; }
     v.notchDimensione = std::clamp((int)leggiDword(L"NotchDimensione", 100), NOTCH_SCALA_MIN, NOTCH_SCALA_MAX);
@@ -216,7 +220,9 @@ inline void salva() {
     scriviDword(L"WinS", v.winS); scriviDword(L"TastoWin", v.tastoWin); scriviDword(L"Banner", v.banner); scriviDword(L"MenuDestro", v.menuDestro); scriviDword(L"Lingua", (DWORD)v.lingua);
     scriviDword(L"Notch", v.notch); scriviDword(L"NotchAttivo", v.notchAttivo); scriviDword(L"Notch12Ore", v.notch12Ore);
     scriviDword(L"NotchSfondo", v.notchSfondo); scriviDword(L"NotchTesto", v.notchTesto);
-    scriviDword(L"TimerColoreConto", v.timerColoreConto); scriviDword(L"TimerColoreAnello", v.timerColoreAnello);
+    scriviDword(L"TimerColore", v.timerColore);
+    // Mantiene allineati i nomi precedenti per compatibilita' con versioni meno recenti.
+    scriviDword(L"TimerColoreConto", v.timerColore); scriviDword(L"TimerColoreAnello", v.timerColore);
     scriviDword(L"TimerColoreFine", v.timerColoreFine);
     scriviDword(L"NotchMateriale", (DWORD)v.notchMateriale); scriviDword(L"NotchDimensione", (DWORD)v.notchDimensione);
     scriviDword(L"OraDock", v.oraDock);
@@ -643,7 +649,7 @@ private:
     static constexpr int Z_COLORI_PULSANTI_MEDIA = 2100, Z_COLORE_VISUALIZZATORE = 2120;
     static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140, Z_START_ICON_FILE = 2160;
     static constexpr int Z_STILE_VISUALIZZATORE = 2180;
-    static constexpr int Z_TIMER_COLORE_CONTO = 2200, Z_TIMER_COLORE_FINE = 2220, Z_TIMER_COLORE_ANELLO = 2240;
+    static constexpr int Z_TIMER_COLORE = 2200, Z_TIMER_COLORE_FINE = 2220;
     void scegliColore(DWORD& c, int id, int base) {
         if (id == base) c = 0;
         else if (id <= base + N_COLORI) c = COLORE_SCELTO | COLORI[id - base - 1];
@@ -882,16 +888,12 @@ private:
             scegliColore(valori().coloreVisualizzatoreFine, id, Z_COLORE_VISUALIZZATORE_FINE);
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
-        if (id >= Z_TIMER_COLORE_CONTO && id <= Z_TIMER_COLORE_CONTO + N_COLORI + 1) {
-            scegliColore(valori().timerColoreConto, id, Z_TIMER_COLORE_CONTO);
+        if (id >= Z_TIMER_COLORE && id <= Z_TIMER_COLORE + N_COLORI + 1) {
+            scegliColore(valori().timerColore, id, Z_TIMER_COLORE);
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id >= Z_TIMER_COLORE_FINE && id <= Z_TIMER_COLORE_FINE + N_COLORI + 1) {
             scegliColore(valori().timerColoreFine, id, Z_TIMER_COLORE_FINE);
-            salva(); if (cambiato) cambiato(); disegna(); return;
-        }
-        if (id >= Z_TIMER_COLORE_ANELLO && id <= Z_TIMER_COLORE_ANELLO + N_COLORI + 1) {
-            scegliColore(valori().timerColoreAnello, id, Z_TIMER_COLORE_ANELLO);
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id >= Z_MATERIALE && id < Z_MATERIALE + 7) {
@@ -1548,13 +1550,10 @@ private:
             palette(testi::t(L"Fine gradiente visualizzatore", L"Visualizer gradient end"),
                     testi::t(L"Secondo colore delle barre", L"Second visualizer color"),
                     valori().coloreVisualizzatoreFine, Z_COLORE_VISUALIZZATORE_FINE);
-            palette(testi::t(L"Colore conto alla rovescia", L"Timer countdown text color"),
-                    testi::t(L"Colore del tempo rimanente; predefinito arancione", L"Remaining-time text color; default orange"),
-                    valori().timerColoreConto, Z_TIMER_COLORE_CONTO);
-            palette(testi::t(L"Colore anello del timer", L"Timer progress ring color"),
-                    testi::t(L"Anello a sinistra dell'orologio, anche nel timer aperto; predefinito arancione", L"Ring to the left of the clock, including the expanded timer; default orange"),
-                    valori().timerColoreAnello, Z_TIMER_COLORE_ANELLO);
-            palette(testi::t(L"Colore timer terminato", L"Timer finished color"),
+            palette(testi::t(L"Colore timer", L"Timer Color"),
+                    testi::t(L"Testo del conto alla rovescia e anello di avanzamento; predefinito arancione", L"Countdown text and progress ring; default orange"),
+                    valori().timerColore, Z_TIMER_COLORE);
+            palette(testi::t(L"Colore pulsazione timer", L"Timer Pulsing Color"),
                     testi::t(L"Cerchio pulsante quando il timer finisce; predefinito arancione", L"Pulsing circle when the timer ends; default orange"),
                     valori().timerColoreFine, Z_TIMER_COLORE_FINE);
             riga(testi::t(L"Nel notch, sempre", L"Always in the notch"),
