@@ -2408,12 +2408,11 @@ private:
             dritto(cx, cy, press * k);
             const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
             if (verticale()) {
-                // Match the reference tile: large hour, fine divider, large minute, compact mint AM/PM.
+                // Minimal vertical clock: no background tile, just the time and its fine divider.
                 const float tileW = larghezzaOrologioVerticale();
                 const float tileH = altezzaOrologioVerticale();
                 const D2D1_RECT_F tile = {cx - tileW / 2.0f, cy - tileH / 2.0f,
                                           cx + tileW / 2.0f, cy + tileH / 2.0f};
-                disegnaFondo(tile, scuro, 1.0f, coloreAuto ? nullptr : &coloreFondo);
 
                 const float inset = 5.0f * dpi;
                 const float yDivider = tile.top + (oraDodici ? 57.0f : 48.0f) * dpi;
@@ -2434,7 +2433,7 @@ private:
                 dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
 
                 if (oraDodici && !testoOraMeridiem.empty()) {
-                    pennello->SetColor(D2D1::ColorF(0.43f, 0.82f, 0.72f, 0.98f));
+                    pennello->SetColor(ink);
                     const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 105.0f * dpi,
                                                       tile.right - inset, tile.bottom - 3.0f * dpi};
                     dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
