@@ -1285,7 +1285,7 @@ private:
     D2D1_RECT_F rettStato[N_STATO]{}, isola{};
     double evidenza[N_STATO]{};      // 0..1, sfondo dell'elemento sotto il mouse
     int statoSopra = -1, statoPremuto = -1;
-    std::wstring testoOra, testoOraOre, testoOraMinuti, testoOraMeridiem, testoNotch;
+    std::wstring testoOra, testoOraOre, testoOraMinuti, testoOraMeridiem, testoDataLunga, testoNotch;
     bool oraDodici = false;
     const wchar_t *fontTesto = L"Segoe UI Variable Text", *fontTitoli = L"Segoe UI Variable Display";   // scelti in grafica()
     notch::Notch notch;                  // ora e data in alto al centro, come il notch del Mac e dell'iPhone (notch.h)
@@ -2569,11 +2569,18 @@ private:
             oraDodici = formato12; cambiato = true;
         }
         const std::wstring giornoPrima = testoNotch;
-        wchar_t giorno[96] = L"";
+        wchar_t giorno[96] = L"", dataLunga[96] = L"";
         if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), giorno, 96, nullptr)) {
             testoNotch = giorno;
             if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]);
         }
+        // Control Center's calendar header still needs the localized long date; it is no longer drawn in the dock.
+        if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM yyyy", L"dddd, MMMM d, yyyy"), dataLunga, 96, nullptr)) {
+            testoDataLunga = dataLunga;
+            if (!testoDataLunga.empty()) testoDataLunga[0] = (wchar_t)towupper(testoDataLunga[0]);
+        }
+        if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty())
+            testoDataLunga = cm.dataLunga;
         if (notch12Ore) {
             if (!GetTimeFormatEx(loc, 0, &st, L"h:mm tt", oraNotch, 96))
                 swprintf(oraNotch, 96, L"%d:%02d %s", (st.wHour % 12) ? (st.wHour % 12) : 12, st.wMinute, st.wHour < 12 ? L"AM" : L"PM");

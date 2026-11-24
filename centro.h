@@ -2152,7 +2152,7 @@ inline auto Motore::luminositaDaMouse(float x) -> void {
 // tema cambiato (dal centro di controllo o dalle Impostazioni): i vetri seguono il chiaro/scuro
 inline auto Motore::aggiornaTemaVetri() -> void {
     BOOL s = coloreAuto ? temaScuro(true) : fondoScuro;
-    for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) {
+    for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) {
         DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
         vetro::applicaEffetto(v, materialeVetro);
     }
