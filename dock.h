@@ -2080,8 +2080,13 @@ private:
             misuratoOraMinuti == testoOraMinuti && misuratoOraMeridiem == testoOraMeridiem) return;
         misuratoOra = testoOra; misuratoOraOre = testoOraOre;
         misuratoOraMinuti = testoOraMinuti; misuratoOraMeridiem = testoOraMeridiem;
-        larghezzaOra = std::max({larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoOraOre, fmtOra),
-                                 larghezzaTesto(testoOraMinuti, fmtOra), larghezzaTesto(testoOraMeridiem, fmtOra)});
+        if (verticale()) {
+            larghezzaOra = std::max({larghezzaTesto(testoOraOre, fmtOra),
+                                     larghezzaTesto(testoOraMinuti, fmtOra),
+                                     larghezzaTesto(testoOraMeridiem, fmtOra)});
+        } else {
+            larghezzaOra = larghezzaTesto(testoOra, fmtOra);
+        }
     }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
