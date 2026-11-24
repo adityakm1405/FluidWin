@@ -1053,9 +1053,7 @@ public:
                 raw = std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + bandIndex * 0.72))) * forza, 0.0f, 1.0f);
             }
             const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
-            const float weight = pos <= 0.5f
-                ? pesoInizio + (pesoCentro - pesoInizio) * (pos * 2.0f)
-                : pesoCentro + (pesoFine - pesoCentro) * ((pos - 0.5f) * 2.0f);
+            const float weight = notch::pesoVisivoInPosizione(pos, pesoInizio, pesoCentro, pesoFine);
             return std::clamp(raw * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
@@ -1069,13 +1067,13 @@ public:
                 const float xx = x + (i / (float)(n - 1)) * 14.0f * d;
                 const float amp = ampiezza(i, n, i, n);
                 const float shape = visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 2.4 + i * 0.78);
-                const float yy = cy + shape * amp * 5.4f * d;
+                const float yy = cy + shape * amp * 7.0f * d;
                 tinta(i, n);
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
             }
         } else if (stileVisualizzatore == 2) { // Stacked dots: central columns rise higher.
-            const int cols = 5, rows = 4; const float dx = 14.0f / cols * d, dy = 2.2f * d, dot = 0.65f * d;
+            const int cols = 7, rows = 6; const float dx = 14.0f / cols * d, dy = 1.8f * d, dot = 0.65f * d;
             for (int i = 0; i < cols; ++i) {
                 const float amp = ampiezza(i, cols, i, cols);
                 const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
@@ -1087,13 +1085,13 @@ public:
                 }
             }
         } else { // Bars / Mirror: centre-weighted amplitude across the visual width.
-            const int n = stileVisualizzatore == 3 ? 6 : 7;
+            const int n = 7;
             const float lb = 1.55f * d, passo = 14.0f * d / n;
             for (int i = 0; i < n; ++i) {
                 const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
                 const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
                 const float amp = ampiezza(bandIndex, bandCount, i, n);
-                const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 8.0f * amp) : (2.2f + 6.0f * amp)) * d);
+                const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 11.0f * amp) : (2.2f + 7.5f * amp)) * d);
                 tinta(i, n);
                 dc->FillRoundedRectangle({{x + (i + 0.5f) * passo - lb / 2, cy - h / 2, x + (i + 0.5f) * passo + lb / 2, cy + h / 2}, lb / 2, lb / 2}, pennello);
             }

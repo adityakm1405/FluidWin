@@ -65,6 +65,25 @@ __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 
 
 namespace notch {
 
+// A centre plateau makes the middle weighting apply to a band of bars, not just one exact midpoint.
+// The transition into and out of that plateau uses smoothstep to avoid visible weighting boundaries.
+inline float pesoVisivoInPosizione(float posizione, float pesoInizio, float pesoCentro, float pesoFine) {
+    posizione = std::clamp(posizione, 0.0f, 1.0f);
+    constexpr float CENTRO_INIZIO = 0.32f;
+    constexpr float CENTRO_FINE = 0.68f;
+    if (posizione < CENTRO_INIZIO) {
+        float t = posizione / CENTRO_INIZIO;
+        t = t * t * (3.0f - 2.0f * t);
+        return pesoInizio + (pesoCentro - pesoInizio) * t;
+    }
+    if (posizione > CENTRO_FINE) {
+        float t = (posizione - CENTRO_FINE) / (1.0f - CENTRO_FINE);
+        t = t * t * (3.0f - 2.0f * t);
+        return pesoCentro + (pesoFine - pesoCentro) * t;
+    }
+    return pesoCentro;
+}
+
 // Analizzatore audio loopback WASAPI con FFT: bands are frequency bins, not delayed peak samples.
 class MisuratoreAudio {
 public:
@@ -1747,9 +1766,7 @@ private:
                 raw = std::clamp((0.22f + 0.78f * phase) * forza, 0.0f, 1.0f);
             }
             const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
-            const float weight = pos <= 0.5f
-                ? pesoInizio + (pesoCentro - pesoInizio) * (pos * 2.0f)
-                : pesoCentro + (pesoFine - pesoCentro) * ((pos - 0.5f) * 2.0f);
+            const float weight = pesoVisivoInPosizione(pos, pesoInizio, pesoCentro, pesoFine);
             return std::clamp(raw * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
@@ -1767,7 +1784,7 @@ private:
                 const float xx = x + u * largo;
                 const float polarity = (i % 2 == 0) ? 1.0f : -1.0f;
                 const float idleShape = (float)std::sin(t * 2.6 + i * 0.78);
-                const float yy = cy + (audioReale ? polarity * amp : idleShape * amp) * 8.0f * d * mix;
+                const float yy = cy + (audioReale ? polarity * amp : idleShape * amp) * 11.0f * d * mix;
                 tinta(i, n);
                 if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.6f * d);
                 px = xx; py = yy;
@@ -1775,8 +1792,8 @@ private:
             return;
         }
         if (stileVisualizzatore == 2) { // Dots: stacked columns, tallest and most active at the centre.
-            const int cols = 7, rows = 5;
-            const float stepX = largo / cols, dot = 1.45f * d, stepY = 2.65f * d;
+            const int cols = 7, rows = 7;
+            const float stepX = largo / cols, dot = 1.45f * d, stepY = 2.1f * d;
             for (int i = 0; i < cols; i++) {
                 const float amp = ampiezza(i, cols, i, cols);
                 const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
@@ -1795,7 +1812,7 @@ private:
             const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
             const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
             const float amp = ampiezza(bandIndex, bandCount, i, n);
-            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 10.0f * amp) : (1.5f + 8.0f * amp)) * d * mix);
+            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 14.0f * amp) : (1.5f + 10.0f * amp)) * d * mix);
             const float bx = x + (i + 0.5f) * passo - lb / 2;
             tinta(i, n);
             rt->FillRoundedRectangle({{bx, cy - h / 2, bx + lb, cy + h / 2}, lb / 2, lb / 2}, pen);
