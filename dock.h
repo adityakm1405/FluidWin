@@ -76,6 +76,9 @@
 
 namespace dock {
 
+// Embedded resources keep the Finder and Trash replacements available even when only FluidWin.exe is copied.
+static constexpr WORD RISORSA_ICONA_MACOS = 204;
+static constexpr WORD RISORSA_ICONA_CESTINO = 205;
 static const UINT WM_APPBAR = WM_APP + 20;
 
 // Spazio riservato al dock (impostazione): il dock si registra come "appbar", come la barra di Windows, e le finestre
@@ -1000,6 +1003,51 @@ public:
         return risultato;
     }
 
+    // Decode a PNG embedded in FluidWin.exe; the resource data remains valid for the lifetime of the process.
+    ID2D1Bitmap1* caricaIconaWicRisorsa(WORD id, int lato = 256) {
+        if (!dc || lato < 16 || lato > 1024) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(id), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione) return nullptr;
+
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICStream* flusso = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapScaler* ridimensionatore = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateStream(&flusso)) &&
+            SUCCEEDED(flusso->InitializeFromMemory((WICBYTE*)dati, dimensione)) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromStream(flusso, nullptr, WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
+            const double scala = std::min({1.0, (double)lato / sorgenteW, (double)lato / sorgenteH});
+            const UINT destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
+            const UINT destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
+            if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
+                SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                if (FAILED(dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &risultato))) risultato = nullptr;
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ridimensionatore) ridimensionatore->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (flusso) flusso->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
     void impostaFileIconaStart(const std::wstring& percorso) {
         // Se lo stesso percorso e' gia' caricato non si fa lavoro; se il target D2D e' stato ricreato,
         // il puntatore nullo permette invece di ricaricare l'immagine.
@@ -1027,13 +1075,27 @@ public:
         const std::wstring defaultTrashSvg = dir + L"assets\\icons8-bin-windows-240.svg";
         const std::wstring defaultDownloadPng = dir + L"assets\\downloads-fluent.png";
         const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
-        iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
+
+        // Prefer executable-embedded resources: users can update FluidWin.exe without separately copying assets/.
+        iconaStartMacOS = caricaIconaWicRisorsa(RISORSA_ICONA_MACOS, 256);
+        if (!iconaStartMacOS) iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
+
         if (!fileIconaDownload.empty()) iconaDownload = caricaIconaFile(fileIconaDownload, 256);
         if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
         if (!iconaDownload) iconaDownload = caricaIcona(defaultDownloadPng, 256);
+
         if (!fileIconaCestino.empty()) iconaCestino = caricaIconaFile(fileIconaCestino, 256);
+        if (!iconaCestino) iconaCestino = caricaIconaSvgRisorsa(RISORSA_ICONA_CESTINO, 256);
         if (!iconaCestino) iconaCestino = caricaIconaSvg(defaultTrashSvg, 256);
         if (!iconaCestino) iconaCestino = caricaIcona(defaultTrashPng, 256);
+
+        if (registro) {
+            char b[160];
+            snprintf(b, sizeof(b), "dock icons: Finder PNG %s, Windows Trash SVG %s",
+                     iconaStartMacOS ? "loaded" : "FAILED",
+                     iconaCestino ? "loaded" : "FAILED");
+            scrivi(b);
+        }
         dirty = true;
     }
 
@@ -1472,35 +1534,10 @@ private:
         return out;
     }
 
-    // Render SVG files directly through Direct2D so bundled and custom dock icons remain crisp.
-    ID2D1Bitmap1* caricaIconaSvg(const std::wstring& percorso, int lato = 256) {
-        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
-
+    ID2D1Bitmap1* rasterizzaSvg(IStream* flusso, int lato = 256) {
+        if (!dc || !flusso || lato < 16 || lato > 1024) { if (flusso) flusso->Release(); return nullptr; }
         ID2D1DeviceContext5* dc5 = nullptr;
-        if (FAILED(dc->QueryInterface(IID_PPV_ARGS(&dc5))) || !dc5) return nullptr;
-
-        HANDLE file = CreateFileW(percorso.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE) { dc5->Release(); return nullptr; }
-
-        LARGE_INTEGER dimensione{};
-        if (!GetFileSizeEx(file, &dimensione) || dimensione.QuadPart <= 0 || dimensione.QuadPart > 2 * 1024 * 1024) {
-            CloseHandle(file); dc5->Release(); return nullptr;
-        }
-        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)dimensione.QuadPart);
-        if (!memoria) { CloseHandle(file); dc5->Release(); return nullptr; }
-        void* dati = GlobalLock(memoria);
-        DWORD letti = 0;
-        const DWORD richiesti = (DWORD)dimensione.QuadPart;
-        const bool letto = dati && ReadFile(file, dati, richiesti, &letti, nullptr) && letti == richiesti;
-        if (dati) GlobalUnlock(memoria);
-        CloseHandle(file);
-        if (!letto) { GlobalFree(memoria); dc5->Release(); return nullptr; }
-
-        IStream* flusso = nullptr;
-        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
-            GlobalFree(memoria); dc5->Release(); return nullptr;
-        }
+        if (FAILED(dc->QueryInterface(IID_PPV_ARGS(&dc5))) || !dc5) { flusso->Release(); return nullptr; }
         ID2D1SvgDocument* svg = nullptr;
         const HRESULT creatoSvg = dc5->CreateSvgDocument(flusso, D2D1::SizeF((float)lato, (float)lato), &svg);
         flusso->Release();
@@ -1513,9 +1550,7 @@ private:
         ID2D1Bitmap1* bitmap = nullptr;
         const HRESULT creatoBitmap = dc->CreateBitmap(D2D1::SizeU((UINT32)lato, (UINT32)lato),
                                                        nullptr, 0, &proprieta, &bitmap);
-        if (FAILED(creatoBitmap) || !bitmap) {
-            svg->Release(); dc5->Release(); return nullptr;
-        }
+        if (FAILED(creatoBitmap) || !bitmap) { svg->Release(); dc5->Release(); return nullptr; }
 
         dc->Flush();
         ID2D1Image* bersaglioPrecedente = nullptr;
@@ -1533,9 +1568,55 @@ private:
         if (bersaglioPrecedente) bersaglioPrecedente->Release();
         svg->Release();
         dc5->Release();
-
         if (FAILED(disegnato)) { bitmap->Release(); return nullptr; }
         return bitmap;
+    }
+
+    // Render SVG files directly through Direct2D so custom dock icons remain crisp.
+    ID2D1Bitmap1* caricaIconaSvg(const std::wstring& percorso, int lato = 256) {
+        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
+        HANDLE file = CreateFileW(percorso.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return nullptr;
+        LARGE_INTEGER dimensione{};
+        if (!GetFileSizeEx(file, &dimensione) || dimensione.QuadPart <= 0 || dimensione.QuadPart > 2 * 1024 * 1024) {
+            CloseHandle(file); return nullptr;
+        }
+        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)dimensione.QuadPart);
+        if (!memoria) { CloseHandle(file); return nullptr; }
+        void* dati = GlobalLock(memoria);
+        DWORD letti = 0;
+        const DWORD richiesti = (DWORD)dimensione.QuadPart;
+        const bool letto = dati && ReadFile(file, dati, richiesti, &letti, nullptr) && letti == richiesti;
+        if (dati) GlobalUnlock(memoria);
+        CloseHandle(file);
+        if (!letto) { GlobalFree(memoria); return nullptr; }
+        IStream* flusso = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
+            GlobalFree(memoria); return nullptr;
+        }
+        return rasterizzaSvg(flusso, lato);
+    }
+
+    ID2D1Bitmap1* caricaIconaSvgRisorsa(WORD id, int lato = 256) {
+        if (!dc || lato < 16 || lato > 1024) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(id), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione || dimensione > 2 * 1024 * 1024) return nullptr;
+        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, dimensione);
+        if (!memoria) return nullptr;
+        void* copia = GlobalLock(memoria);
+        if (!copia) { GlobalFree(memoria); return nullptr; }
+        memcpy(copia, dati, dimensione);
+        GlobalUnlock(memoria);
+        IStream* flusso = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
+            GlobalFree(memoria); return nullptr;
+        }
+        return rasterizzaSvg(flusso, lato);
     }
 
     ID2D1Bitmap1* caricaIconaFile(const std::wstring& percorso, int lato = 256) {
