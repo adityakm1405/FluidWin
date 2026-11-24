@@ -307,12 +307,18 @@ public:
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
         if (visibile) ridisegna();
     }
-    void impostaVisualizzatore(int stile, bool reattivo, int forza, bool capsulaAttiva = false) {
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine, bool capsulaAttiva = false) {
         stile = std::clamp(stile, 0, 3);
         forza = std::clamp(forza, 50, 200);
+        pesoInizio = std::clamp(pesoInizio, 0, 200);
+        pesoCentro = std::clamp(pesoCentro, 0, 200);
+        pesoFine = std::clamp(pesoFine, 0, 200);
         if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo &&
-            forza == forzaVisualizzatore && capsulaAttiva == capsulaAttivaAudio) return;
+            forza == forzaVisualizzatore && pesoInizio == visualizzatorePesoInizio &&
+            pesoCentro == visualizzatorePesoCentro && pesoFine == visualizzatorePesoFine &&
+            capsulaAttiva == capsulaAttivaAudio) return;
         stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
+        visualizzatorePesoInizio = pesoInizio; visualizzatorePesoCentro = pesoCentro; visualizzatorePesoFine = pesoFine;
         capsulaAttivaAudio = capsulaAttiva;
         aggiornaMisuratoreAudio();
         if (visibile) ridisegna();
@@ -453,6 +459,7 @@ private:
     bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
     MisuratoreAudio misuratoreAudio;
     int stileVisualizzatore = 0, forzaVisualizzatore = 100;
+    int visualizzatorePesoInizio = 40, visualizzatorePesoCentro = 100, visualizzatorePesoFine = 40;
     bool visualizzatoreReattivo = true, capsulaAttivaAudio = false;
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
@@ -1722,11 +1729,14 @@ private:
 
     // Quattro stili compatti. Quando la reattivita' e' attiva, l'ampiezza segue il picco reale
     // dell'uscita audio predefinita di Windows; altrimenti resta un'animazione ambientale delicata.
-    // Four spectrum styles with a symmetric centre-focus curve shared by every visual form.
+    // The response envelope is controlled by three user weights: left/start, centre and right/end.
     void barrette(float x, float cy, float largo, float a, float mix) {
         const float d = dpi;
         const double t = adesso();
         const float forza = forzaVisualizzatore / 100.0f;
+        const float pesoInizio = visualizzatorePesoInizio / 100.0f;
+        const float pesoCentro = visualizzatorePesoCentro / 100.0f;
+        const float pesoFine = visualizzatorePesoFine / 100.0f;
         const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
         auto ampiezza = [&](int bandIndex, int bandCount, int visualIndex, int visualCount) {
             float raw = 0.0f;
@@ -1736,13 +1746,11 @@ private:
                 const float phase = 0.5f + 0.5f * (float)std::sin(t * 2.1 + bandIndex * 0.65);
                 raw = std::clamp((0.22f + 0.78f * phase) * forza, 0.0f, 1.0f);
             }
-            const float pos = visualCount > 1 ? std::fabs(2.0f * visualIndex / (visualCount - 1) - 1.0f) : 0.0f;
-            const float centre = std::max(0.0f, std::cos(pos * (float)(M_PI * 0.5)));
-            // Much stronger centre focus: full response in the middle, only 10% at the outer edges.
-            const float focus = 0.10f + 0.90f * centre * centre;
-            // Lift quieter FFT bands so normal-volume music still produces visible movement.
-            const float response = raw > 0.0f ? std::pow(raw, 0.72f) : 0.0f;
-            return std::clamp(response * focus, 0.0f, 1.0f);
+            const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
+            const float weight = pos <= 0.5f
+                ? pesoInizio + (pesoCentro - pesoInizio) * (pos * 2.0f)
+                : pesoCentro + (pesoFine - pesoCentro) * ((pos - 0.5f) * 2.0f);
+            return std::clamp(raw * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int indice = n > 1 ? i * 3 / (n - 1) : 0;
