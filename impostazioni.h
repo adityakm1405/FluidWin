@@ -657,10 +657,9 @@ private:
     static constexpr int Z_TESTO_DOCK = 620, Z_NOTCH_SFONDO = 2000, Z_NOTCH_TESTO = 2020;
     static constexpr int Z_MATERIALE = 2040, Z_LOGO_START = 2050, Z_NOTCH_MATERIALE = 2070;
     static constexpr int Z_COLORI_PULSANTI_MEDIA = 2100, Z_COLORE_VISUALIZZATORE = 2120;
-    static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140, Z_START_ICON_FILE = 2160;
+    static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140;
     static constexpr int Z_STILE_VISUALIZZATORE = 2180;
     static constexpr int Z_TIMER_COLORE = 2200, Z_TIMER_COLORE_FINE = 2220;
-    static constexpr int Z_DOWNLOAD_ICON_FILE = 2240, Z_TRASH_ICON_FILE = 2260;
     static constexpr int Z_DOWNLOAD_ICON_RESET = 2280, Z_TRASH_ICON_RESET = 2300;
     static constexpr int Z_DOWNLOAD_ICON_STYLE = 2320, Z_TRASH_ICON_STYLE = 2340;
     void scegliColore(DWORD& c, int id, int base) {
@@ -934,23 +933,31 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id >= Z_LOGO_START && id < Z_LOGO_START + 3) {
-            valori().dockLogoStart = id - Z_LOGO_START;
+            const int stile = id - Z_LOGO_START;
+            // Selecting Custom opens the picker first. Cancel leaves the previous style and path untouched.
+            if (stile == 2) { scegliIconaStart(); return; }
+            valori().dockLogoStart = stile;
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
-        if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
         if (id >= Z_DOWNLOAD_ICON_STYLE && id < Z_DOWNLOAD_ICON_STYLE + 2) {
-            valori().dockDownloadIconStyle = id - Z_DOWNLOAD_ICON_STYLE;
+            const int stile = id - Z_DOWNLOAD_ICON_STYLE;
+            // Do not commit Custom until a file is actually selected.
+            if (stile == 1) {
+                scegliIconaDock(valori().dockDownloadIconPath, &valori().dockDownloadIconStyle, 1);
+                return;
+            }
+            valori().dockDownloadIconStyle = stile;
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id >= Z_TRASH_ICON_STYLE && id < Z_TRASH_ICON_STYLE + 4) {
-            valori().dockTrashIconStyle = id - Z_TRASH_ICON_STYLE;
+            const int stile = id - Z_TRASH_ICON_STYLE;
+            // Do not commit Custom until a file is actually selected.
+            if (stile == 3) {
+                scegliIconaDock(valori().dockTrashIconPath, &valori().dockTrashIconStyle, 3);
+                return;
+            }
+            valori().dockTrashIconStyle = stile;
             salva(); if (cambiato) cambiato(); disegna(); return;
-        }
-        if (id == Z_DOWNLOAD_ICON_FILE) {
-            scegliIconaDock(valori().dockDownloadIconPath, &valori().dockDownloadIconStyle, 1); return;
-        }
-        if (id == Z_TRASH_ICON_FILE) {
-            scegliIconaDock(valori().dockTrashIconPath, &valori().dockTrashIconStyle, 3); return;
         }
         if (id == Z_DOWNLOAD_ICON_RESET || id == Z_TRASH_ICON_RESET) {
             if (id == Z_DOWNLOAD_ICON_RESET) {
@@ -1520,24 +1527,11 @@ private:
             selettore(testi::t(L"Icona Start", L"Start icon"),
                       testi::t(L"Windows, Dock macOS o immagine personale", L"Windows, macOS Dock or your own image"),
                       loghi, 3, valori().dockLogoStart, Z_LOGO_START);
-            std::wstring nomeIconaPersonale = valori().dockStartIconPath;
-            const size_t separatoreIcona = nomeIconaPersonale.find_last_of(L"\\/");
-            if (separatoreIcona != std::wstring::npos) nomeIconaPersonale = nomeIconaPersonale.substr(separatoreIcona + 1);
-            rigaClic(testi::t(L"Scegli icona personale", L"Choose custom icon"),
-                     nomeIconaPersonale.empty() ? testi::t(L"Seleziona un'immagine dal dispositivo", L"Select an image from this device")
-                         : nomeIconaPersonale, Z_START_ICON_FILE);
-            auto nomeFileIcona = [](std::wstring p) {
-                const size_t slash = p.find_last_of(L"\\/");
-                return slash == std::wstring::npos ? p : p.substr(slash + 1);
-            };
+
             const wchar_t* stiliDownload[] = {L"Default", L"Custom"};
             selettore(testi::t(L"Icona Download", L"Downloads icon"),
                       testi::t(L"Icona predefinita o immagine personale", L"Built-in icon or your own image"),
                       stiliDownload, 2, valori().dockDownloadIconStyle, Z_DOWNLOAD_ICON_STYLE);
-            const std::wstring downloadIconName = valori().dockDownloadIconPath.empty()
-                ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
-                : nomeFileIcona(valori().dockDownloadIconPath);
-            rigaClic(testi::t(L"Scegli icona Download", L"Choose Downloads icon"), downloadIconName, Z_DOWNLOAD_ICON_FILE);
             rigaClic(testi::t(L"Ripristina icona Download", L"Reset Downloads icon"),
                      testi::t(L"Usa l'icona predefinita", L"Use the default icon"), Z_DOWNLOAD_ICON_RESET);
 
@@ -1545,10 +1539,6 @@ private:
             selettore(testi::t(L"Icona Cestino", L"Trash icon"),
                       testi::t(L"Scegli lo stile del cestino", L"Choose the Trash icon style"),
                       stiliCestino, 4, valori().dockTrashIconStyle, Z_TRASH_ICON_STYLE);
-            const std::wstring trashIconName = valori().dockTrashIconPath.empty()
-                ? testi::t(L"Nessuna icona personalizzata selezionata", L"No custom icon selected")
-                : nomeFileIcona(valori().dockTrashIconPath);
-            rigaClic(testi::t(L"Scegli icona Cestino", L"Choose Trash icon"), trashIconName, Z_TRASH_ICON_FILE);
             rigaClic(testi::t(L"Ripristina icona Cestino", L"Reset Trash icon"),
                      testi::t(L"Usa Windows 10", L"Use Windows 10"), Z_TRASH_ICON_RESET);
 
