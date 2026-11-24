@@ -2583,12 +2583,7 @@ private:
         return anima;
     }
     // larghezze piene di musica e timer (con i tasti in proporzione all'allargamento), alla scala attuale
-    float larghezzaMusica() const {
-        const float d = dpi * scTesta;
-        const float copertina = S * scTesta * 0.70f;
-        if (verticale()) return copertina + 22 * d + (float)kMus * 66 * d;
-        return copertina + 22 * d + (float)kMus * (12 + 112 + 8 + 78) * d;
-    }
+    float larghezzaMusica() const { const float d = dpi * scTesta; return S * scTesta * 0.62f + 22 * d + (float)kMus * (3 * 26 + 6) * d; }
     float cifreTimer() {   // larghezza del tempo a grandezza 1 (cifre a larghezza fissa mentre i secondi scorrono)
         std::wstring z = comodita::durata(comodita::timerResto());
         for (wchar_t& c : z) if (c >= L'0' && c <= L'9') c = L'0';
@@ -2701,9 +2696,6 @@ private:
             pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e * k) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e * k));
             dc->FillRoundedRectangle(capsula, pennello);
         }
-        // Contorno appena percettibile: definisce la capsula senza creare un secondo pannello.
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.075f * k) : D2D1::ColorF(0, 0, 0, 0.065f * k));
-        dc->DrawRoundedRectangle(capsula, pennello, 0.8f * d);
         // contenuti: entrano con la comparsa, tagliati alla capsula mentre si allarga
         dc->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         const D2D1_COLOR_F ink0 = inchiostroUI(scuro, k);
@@ -2733,11 +2725,11 @@ private:
             const float p = (float)std::clamp(pMu, 0.0, 1.0);
             x += 12 * d * p * prima;
             const float x1 = x, largo = larghezzaMusica();
-            dc->PushAxisAlignedClip({x1, r.top, x1 + largo * p, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             const D2D1_COLOR_F ink = {ink0.r, ink0.g, ink0.b, ink0.a * p};
-            const float q = Ss * 0.70f;
+            dc->PushAxisAlignedClip({x1, r.top, x1 + largo * p, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            const float q = Ss * 0.62f;
             const D2D1_RECT_F rc = {x, cy - q / 2, x + q, cy + q / 2};
-            dritto((rc.left + rc.right) / 2, cy);
+            dritto((rc.left + rc.right) / 2, cy);   // (copertina dritta)
             ID2D1BitmapBrush* bb = nullptr;
             if (notch.musicaOra().c && bTesta && SUCCEEDED(dc->CreateBitmapBrush(bTesta, &bb)) && bb) {
                 const D2D1_SIZE_F bs = bTesta->GetSize();
@@ -2746,7 +2738,7 @@ private:
                 bb->SetOpacity(k * p);
                 dc->FillRoundedRectangle({rc, q * 0.22f, q * 0.22f}, bb);
                 bb->Release();
-            } else {
+            } else {   // senza copertina: riquadro con una nota
                 pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.14f * k * p) : D2D1::ColorF(0, 0, 0, 0.10f * k * p));
                 dc->FillRoundedRectangle({rc, q * 0.22f, q * 0.22f}, pennello);
                 const float nx = (rc.left + rc.right) / 2, ny = cy;
@@ -2756,111 +2748,48 @@ private:
                 dc->DrawLine({nx, ny - 5.5f * d}, {nx + 4 * d, ny - 3.5f * d}, pennello, 1.3f * d);
             }
             piano();
-
+            // barrette: ballano mentre suona, ferme e basse in pausa (come nel notch)
             const musica::Brano& br = notch.musicaOra();
+            const float bx = rc.right + 8 * d;
+            // Stesso stile e lo stesso picco audio del notch: nessun visualizzatore separato o hard-coded.
+            disegnaVisualizzatoreCapsula(bx, cy, d, ink, k * p, br.suona, t);
+            x = bx + 14 * d;
+            // tasti (col mouse sopra): indietro, play/pausa, avanti; disegnati solo nello spazio gia' concesso
             const float km = (float)std::clamp(kMus, 0.0, 1.0);
-            if (verticale()) {
-                const float bx = rc.right + 8 * d;
-                disegnaVisualizzatoreCapsula(bx, cy, d, ink, k * p, br.suona, t);
-                x = bx + 14 * d;
-                const float controlli = 66 * d;
-                dc->PushAxisAlignedClip({x, r.top, x + km * controlli, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                for (int i = 0; i < 3; i++) {
-                    const float tc = x + (10.5f + 21.0f * i) * d;
-                    tastoTesta[i] = {tc - 10 * d, cy - 10 * d, tc + 10 * d, cy + 10 * d};
-                    if (km < 0.02f) continue;
-                    fondoTasto(i, scuro, km * k * p);
-                    dritto(tc, cy);
-                    pennello->SetColor(coloreMedia(colorePulsantiMedia, ink, km));
-                    const float tr = 3.6f * d;
-                    auto triangolo = [&](float ax, bool destra) {
-                        ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
-                        if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
-                            const float dx = destra ? tr : -tr;
-                            sk->BeginFigure({ax - dx, cy - tr}, D2D1_FIGURE_BEGIN_FILLED);
-                            sk->AddLine({ax + dx, cy}); sk->AddLine({ax - dx, cy + tr});
-                            sk->EndFigure(D2D1_FIGURE_END_CLOSED);
-                            if (SUCCEEDED(sk->Close())) dc->FillGeometry(g, pennello);
-                        }
-                        if (sk) sk->Release();
-                        if (g) g->Release();
-                    };
-                    if (i == 1) {
-                        if (br.suona) {
-                            dc->FillRoundedRectangle({{tc - 3.4f * d, cy - 4.5f * d, tc - 1.1f * d, cy + 4.5f * d}, 0.8f * d, 0.8f * d}, pennello);
-                            dc->FillRoundedRectangle({{tc + 1.1f * d, cy - 4.5f * d, tc + 3.4f * d, cy + 4.5f * d}, 0.8f * d, 0.8f * d}, pennello);
-                        } else triangolo(tc + 1 * d, true);
-                    } else {
-                        const bool destra = i == 2;
-                        triangolo(tc + (destra ? -2.2f : 2.2f) * d, destra);
-                        triangolo(tc + (destra ? 2.2f : -2.2f) * d, destra);
+            dc->PushAxisAlignedClip({x, r.top, x + km * (3 * 26 + 6) * d, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            for (int i = 0; i < 3; i++) {
+                const float tc = x + 6 * d + (13 + 26 * i) * d;
+                tastoTesta[i] = {tc - 12 * d, cy - 12 * d, tc + 12 * d, cy + 12 * d};
+                if (km < 0.02f) continue;
+                fondoTasto(i, scuro, km * k * p);
+                dritto(tc, cy);   // (simboli dritti: ai lati i tasti stanno in colonna)
+                pennello->SetColor(coloreMedia(colorePulsantiMedia, ink, km));
+                const float tr = 4.2f * d;
+                auto triangolo = [&](float ax, bool destra) {   // punta a destra o a sinistra
+                    ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
+                    if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
+                        const float dx = destra ? tr : -tr;
+                        sk->BeginFigure({ax - dx, cy - tr}, D2D1_FIGURE_BEGIN_FILLED);
+                        sk->AddLine({ax + dx, cy}); sk->AddLine({ax - dx, cy + tr});
+                        sk->EndFigure(D2D1_FIGURE_END_CLOSED);
+                        if (SUCCEEDED(sk->Close())) dc->FillGeometry(g, pennello);
                     }
-                    piano();
+                    if (sk) sk->Release();
+                    if (g) g->Release();
+                };
+                if (i == 1) {
+                    if (br.suona) {   // pausa: due barre
+                        dc->FillRoundedRectangle({{tc - 4 * d, cy - 5 * d, tc - 1.3f * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
+                        dc->FillRoundedRectangle({{tc + 1.3f * d, cy - 5 * d, tc + 4 * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
+                    } else triangolo(tc + 1 * d, true);
+                } else {
+                    const bool destra = i == 2;
+                    triangolo(tc + (destra ? -2.5f : 2.5f) * d, destra);
+                    triangolo(tc + (destra ? 2.5f : -2.5f) * d, destra);
                 }
-                dc->PopAxisAlignedClip();
-            } else {
-                const float bx = rc.right + 8 * d;
-                if (km < 0.999f)
-                    disegnaVisualizzatoreCapsula(bx, cy, d, ink, k * p * (1.0f - km), br.suona, t);
-
-                const float infoX = rc.right + 12 * d, infoW = 112 * d;
-                if (km > 0.001f) {
-                    dc->PushAxisAlignedClip({infoX, r.top, infoX + infoW * km, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                    dritto(infoX + infoW / 2, cy, sc);
-                    pennello->SetColor({ink.r, ink.g, ink.b, ink.a * km});
-                    const std::wstring titolo = br.titolo.empty() ? std::wstring(testi::t(L"Musica", L"Music")) : br.titolo;
-                    const std::wstring artista = br.artista.empty()
-                        ? std::wstring(testi::t(br.suona ? L"In riproduzione" : L"In pausa", br.suona ? L"Now playing" : L"Paused"))
-                        : br.artista;
-                    dc->DrawText(titolo.c_str(), (UINT32)titolo.size(), fmtTitolo,
-                                 {infoX, cy - 14 * d, infoX + infoW, cy + 1 * d}, pennello);
-                    pennello->SetColor({ink.r, ink.g, ink.b, ink.a * 0.68f * km});
-                    dc->DrawText(artista.c_str(), (UINT32)artista.size(), fmtSotto,
-                                 {infoX, cy + 1 * d, infoX + infoW - 22 * d, cy + 15 * d}, pennello);
-                    piano();
-                    dc->PopAxisAlignedClip();
-                    disegnaVisualizzatoreCapsula(infoX + infoW - 18 * d, cy + 10 * d, 0.52f * d,
-                                                 ink, k * p * km, br.suona, t);
-                }
-
-                x = infoX + infoW + 8 * d;
-                const float controlli = 78 * d;
-                dc->PushAxisAlignedClip({x, r.top, x + km * controlli, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                for (int i = 0; i < 3; i++) {
-                    const float tc = x + (12.0f + 26.0f * i) * d;
-                    tastoTesta[i] = {tc - 11 * d, cy - 11 * d, tc + 11 * d, cy + 11 * d};
-                    if (km < 0.02f) continue;
-                    fondoTasto(i, scuro, km * k * p);
-                    dritto(tc, cy);
-                    pennello->SetColor(coloreMedia(colorePulsantiMedia, ink, km));
-                    const float tr = 4.0f * d;
-                    auto triangolo = [&](float ax, bool destra) {
-                        ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
-                        if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
-                            const float dx = destra ? tr : -tr;
-                            sk->BeginFigure({ax - dx, cy - tr}, D2D1_FIGURE_BEGIN_FILLED);
-                            sk->AddLine({ax + dx, cy}); sk->AddLine({ax - dx, cy + tr});
-                            sk->EndFigure(D2D1_FIGURE_END_CLOSED);
-                            if (SUCCEEDED(sk->Close())) dc->FillGeometry(g, pennello);
-                        }
-                        if (sk) sk->Release();
-                        if (g) g->Release();
-                    };
-                    if (i == 1) {
-                        if (br.suona) {
-                            dc->FillRoundedRectangle({{tc - 4 * d, cy - 5 * d, tc - 1.3f * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
-                            dc->FillRoundedRectangle({{tc + 1.3f * d, cy - 5 * d, tc + 4 * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
-                        } else triangolo(tc + 1 * d, true);
-                    } else {
-                        const bool destra = i == 2;
-                        triangolo(tc + (destra ? -2.5f : 2.5f) * d, destra);
-                        triangolo(tc + (destra ? 2.5f : -2.5f) * d, destra);
-                    }
-                    piano();
-                }
-                dc->PopAxisAlignedClip();
+                piano();
             }
-
+            dc->PopAxisAlignedClip();
             dc->PopAxisAlignedClip();
             x = x1 + largo * p;
             rettMus = p > 0.5f ? D2D1_RECT_F{x1 - 6 * d, r.top, x + 6 * d, r.bottom} : D2D1_RECT_F{};
