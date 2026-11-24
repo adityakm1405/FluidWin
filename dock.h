@@ -1041,32 +1041,39 @@ public:
     }
     void disegnaVisualizzatoreCapsula(float x, float cy, float d, D2D1_COLOR_F ink, float alfa, bool suona, double t) {
         const float forza = forzaVisualizzatore / 100.0f;
-        auto ampiezza = [&](int i, int n) {
-            if (!suona) return 0.0f;
-            if (visualizzatoreReattivo)
-                return std::clamp(notch.bandaVisualizzatore(i, n) * forza, 0.0f, 1.0f);
-            return std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + i * 0.72))) * forza, 0.0f, 1.0f);
+        auto ampiezza = [&](int bandIndex, int bandCount, int visualIndex, int visualCount) {
+            float raw = 0.0f;
+            if (suona && visualizzatoreReattivo) {
+                raw = std::clamp(notch.bandaVisualizzatore(bandIndex, bandCount) * forza, 0.0f, 1.0f);
+            } else if (suona) {
+                raw = std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + bandIndex * 0.72))) * forza, 0.0f, 1.0f);
+            }
+            const float pos = visualCount > 1 ? std::fabs(2.0f * visualIndex / (visualCount - 1) - 1.0f) : 0.0f;
+            const float centre = std::cos(pos * (float)(M_PI * 0.5));
+            const float focus = 0.38f + 0.62f * std::pow(std::max(0.0f, centre), 1.35f);
+            return raw * focus;
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
             pennello->SetColor(coloreBarraMedia(gradiente, ink, alfa));
         };
         dritto(x + 7 * d, cy);
-        if (stileVisualizzatore == 1) { // Spectrum wave
+        if (stileVisualizzatore == 1) { // Spectrum wave: strongest around centre, tapering to both sides.
             const int n = 9; float px = x, py = cy;
             for (int i = 0; i < n; ++i) {
                 const float xx = x + (i / (float)(n - 1)) * 14.0f * d;
-                const float amp = ampiezza(i, n);
-                const float yy = cy + (visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) * amp : (float)std::sin(t * 2.4 + i * 0.78) * amp) * 5.4f * d;
+                const float amp = ampiezza(i, n, i, n);
+                const float shape = visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 2.4 + i * 0.78);
+                const float yy = cy + shape * amp * 5.4f * d;
                 tinta(i, n);
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
             }
-        } else if (stileVisualizzatore == 2) { // stacked dots
+        } else if (stileVisualizzatore == 2) { // Stacked dots: central columns rise higher.
             const int cols = 5, rows = 4; const float dx = 14.0f / cols * d, dy = 2.2f * d, dot = 0.65f * d;
             for (int i = 0; i < cols; ++i) {
-                const float amp = ampiezza(i, cols);
-                const int lit = visualizzatoreReattivo && suona ? (int)std::round(amp * rows) : 1 + (int)std::round((0.5f + 0.5f * std::sin(t * 2.2 + i)) * 2.0f);
+                const float amp = ampiezza(i, cols, i, cols);
+                const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
                 tinta(i, cols);
                 for (int j = 0; j < lit; ++j) {
                     const D2D1_COLOR_F color = pennello->GetColor();
@@ -1074,14 +1081,14 @@ public:
                     dc->FillEllipse({{x + (i + 0.5f) * dx, cy + (rows - 1) * dy / 2 - j * dy}, dot, dot}, pennello);
                 }
             }
-        } else { // Bars and Mirror spectrum
+        } else { // Bars / Mirror: centre-weighted amplitude across the visual width.
             const int n = stileVisualizzatore == 3 ? 6 : 7;
             const float lb = 1.55f * d, passo = 14.0f * d / n;
             for (int i = 0; i < n; ++i) {
-                const int ix = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
-                const float amp = ampiezza(ix, stileVisualizzatore == 3 ? (n + 1) / 2 : n);
-                const float idle = 0.18f + 0.82f * (0.5f + 0.5f * (float)std::sin(t * 2.4 + i * 0.75));
-                const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 8.0f * amp) : (2.2f + 6.0f * idle * forza)) * d);
+                const int bandCount = stileVisualizzatore == 3 ? (n + 1) / 2 : n;
+                const int bandIndex = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+                const float amp = ampiezza(bandIndex, bandCount, i, n);
+                const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 8.0f * amp) : (2.2f + 6.0f * amp)) * d);
                 tinta(i, n);
                 dc->FillRoundedRectangle({{x + (i + 0.5f) * passo - lb / 2, cy - h / 2, x + (i + 0.5f) * passo + lb / 2, cy + h / 2}, lb / 2, lb / 2}, pennello);
             }
