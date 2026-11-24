@@ -865,7 +865,7 @@ private:
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id == Z_START_ICON_FILE) { scegliIconaStart(); return; }
-        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 5) {
+        if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 4) {
             valori().visualizzatoreStile = id - Z_STILE_VISUALIZZATORE;
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
@@ -1495,12 +1495,11 @@ private:
                     testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
             const wchar_t* stiliVisualizzatore[] = {
                 testi::t(L"Barre", L"Bars"), testi::t(L"Onda", L"Wave"),
-                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror"),
-                testi::t(L"Cerchio", L"Circle")
+                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
                       testi::t(L"Notch e capsula multimediale del dock", L"Notch and dock media capsule"),
-                      stiliVisualizzatore, 5, valori().visualizzatoreStile, Z_STILE_VISUALIZZATORE);
+                      stiliVisualizzatore, 4, std::clamp(valori().visualizzatoreStile, 0, 3), Z_STILE_VISUALIZZATORE);
             palette(testi::t(L"Colore tasti multimediali", L"Media button color"),
                     testi::t(L"Indietro, play/pausa e avanti", L"Previous, play/pause and next"),
                     valori().colorePulsantiMedia, Z_COLORI_PULSANTI_MEDIA);
