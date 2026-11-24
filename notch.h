@@ -333,6 +333,12 @@ public:
         colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
         if (visibile) ridisegna();
     }
+    void impostaColoriTimer(DWORD conto, DWORD fine) {
+        if (coloreTimerConto == conto && coloreTimerFine == fine) return;
+        coloreTimerConto = conto;
+        coloreTimerFine = fine;
+        if (visibile) ridisegna();
+    }
     void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine, bool capsulaAttiva = false) {
         stile = std::clamp(stile, 0, 2);
         forza = std::clamp(forza, 50, 200);
@@ -490,6 +496,7 @@ private:
     float visualizzatoreDa = 0.0f;
     double tVisualizzatore = -1.0;
     DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
+    DWORD coloreTimerConto = 0, coloreTimerFine = 0;
     D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
     int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
     DWORD colorePulsanti = 0, coloreBarrette = 0, coloreBarretteFine = 0;
@@ -1072,6 +1079,9 @@ private:
         return D2D1::ColorF(((scelto >> 16) & 255) / 255.0f, ((scelto >> 8) & 255) / 255.0f,
                             (scelto & 255) / 255.0f, alfa);
     }
+    D2D1_COLOR_F coloreTimer(DWORD scelto, float alfa) const {
+        return coloreMedia(scelto, D2D1::ColorF(1.0f, 0.62f, 0.04f, 1.0f), alfa);
+    }
     D2D1_COLOR_F coloreBarretta(int i, float alfa) const {
         const D2D1_COLOR_F base = D2D1::ColorF(1, 1, 1, 1);
         const D2D1_COLOR_F c1 = coloreMedia(coloreBarrette, base, 1);
@@ -1390,11 +1400,13 @@ private:
                 // the clock's first time character and last date character respectively.
                 const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0);
                 const float e = ka * ka * (3.0f - 2.0f * ka);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerConto, a * e);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 if (e > 0.01f)
                     anello(L + layout.centroAnello, h / 2, 6.5f * d * e,
                            (float)comodita::timerAvanzamento(), a * e);
 
-                colore(1.0f, 0.62f, 0.04f, a * e);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
 
                 // Match the date baseline (the date uses a small optical -1.5 px correction
@@ -1437,8 +1449,10 @@ private:
             case TIMER_APERTO: {   // timer grande: anello, tempo che resta, +1 min, stop
                 const float cy = h / 2, ka = (float)std::clamp((adesso() - tScena - 0.06) / 0.3, 0.0, 1.0);
                 const float e = ka * ka * (3 - 2 * ka);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerConto, a);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a);
-                colore(1.0f, 0.62f, 0.04f, a);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
                 rt->DrawText(r.c_str(), (UINT32)r.size(), fGrande, {L + 60 * d + (1 - e) * 10 * d, 0, L + w - 126 * d, h}, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 const D2D1_RECT_F rp = tastoTimer(0), rs = tastoTimer(1);
@@ -1457,8 +1471,10 @@ private:
             case SUONA: {   // timer finito: cerchio arancio che pulsa
                 const float cx = L + 26 * d, cy = h / 2;
                 const float k = (float)(0.5 + 0.5 * std::sin(adesso() * 7));
-                colore(1.0f, 0.62f, 0.04f, a * (0.25f + 0.25f * k));
+                const D2D1_COLOR_F tintaFine = coloreTimer(coloreTimerFine, a);
+                colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a * (0.25f + 0.25f * k));
                 rt->FillEllipse({{cx, cy}, (11 + 3 * k) * d, (11 + 3 * k) * d}, pen);
+                colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a);
                 anello(cx, cy, 7.5f * d, 1, a);
                 scrivi(testi::t(L"Timer finito", L"Timer done"), fTitolo, {L + 50 * d, 0, L + w - 110 * d, h}, a);
                 scrivi(testi::t(L"Clic per fermare", L"Click to stop"), fPiccolo, {L + w - 112 * d, 0, L + w - 16 * d, h}, 0.6f * a);
