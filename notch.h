@@ -179,7 +179,8 @@ private:
             floating = formato->wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
             if (formato->wFormatTag == WAVE_FORMAT_EXTENSIBLE && formato->cbSize >= 22) {
                 auto* ext = (WAVEFORMATEXTENSIBLE*)formato;
-                floating = ext->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+                const GUID ieeeFloat = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+                floating = IsEqualGUID(ext->SubFormat, ieeeFloat) != FALSE;
             }
         }
         if (SUCCEEDED(hr) && client && formato) hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, formato, nullptr);
