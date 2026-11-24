@@ -660,7 +660,6 @@ private:
     static constexpr int Z_COLORE_VISUALIZZATORE_FINE = 2140;
     static constexpr int Z_STILE_VISUALIZZATORE = 2180;
     static constexpr int Z_TIMER_COLORE = 2200, Z_TIMER_COLORE_FINE = 2220;
-    static constexpr int Z_DOWNLOAD_ICON_RESET = 2280, Z_TRASH_ICON_RESET = 2300;
     static constexpr int Z_DOWNLOAD_ICON_STYLE = 2320, Z_TRASH_ICON_STYLE = 2340;
     void scegliColore(DWORD& c, int id, int base) {
         if (id == base) c = 0;
@@ -957,16 +956,6 @@ private:
                 return;
             }
             valori().dockTrashIconStyle = stile;
-            salva(); if (cambiato) cambiato(); disegna(); return;
-        }
-        if (id == Z_DOWNLOAD_ICON_RESET || id == Z_TRASH_ICON_RESET) {
-            if (id == Z_DOWNLOAD_ICON_RESET) {
-                valori().dockDownloadIconPath.clear();
-                valori().dockDownloadIconStyle = 0;
-            } else {
-                valori().dockTrashIconPath.clear();
-                valori().dockTrashIconStyle = 0;
-            }
             salva(); if (cambiato) cambiato(); disegna(); return;
         }
         if (id >= Z_STILE_VISUALIZZATORE && id < Z_STILE_VISUALIZZATORE + 3) {
@@ -1532,15 +1521,10 @@ private:
             selettore(testi::t(L"Icona Download", L"Downloads icon"),
                       testi::t(L"Icona predefinita o immagine personale", L"Built-in icon or your own image"),
                       stiliDownload, 2, valori().dockDownloadIconStyle, Z_DOWNLOAD_ICON_STYLE);
-            rigaClic(testi::t(L"Ripristina icona Download", L"Reset Downloads icon"),
-                     testi::t(L"Usa l'icona predefinita", L"Use the default icon"), Z_DOWNLOAD_ICON_RESET);
-
-            const wchar_t* stiliCestino[] = {L"Windows 10", L"Windows 11", L"macOS", L"Custom"};
+            const wchar_t* stiliCestino[] = {L"Win10", L"Win11", L"macOS", L"Custom"};
             selettore(testi::t(L"Icona Cestino", L"Trash icon"),
                       testi::t(L"Scegli lo stile del cestino", L"Choose the Trash icon style"),
                       stiliCestino, 4, valori().dockTrashIconStyle, Z_TRASH_ICON_STYLE);
-            rigaClic(testi::t(L"Ripristina icona Cestino", L"Reset Trash icon"),
-                     testi::t(L"Usa Windows 10", L"Use Windows 10"), Z_TRASH_ICON_RESET);
 
         }
         if (sezione == S_DOCK) {
