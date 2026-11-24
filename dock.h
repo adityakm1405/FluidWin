@@ -923,7 +923,8 @@ public:
     void impostaCapsulaDock(bool si) {
         if (si == capsulaDock) return;
         capsulaDock = si;
-        notch.impostaVisualizzatore(stileVisualizzatore, visualizzatoreReattivo, forzaVisualizzatore, capsulaDock);
+        notch.impostaVisualizzatore(stileVisualizzatore, visualizzatoreReattivo, forzaVisualizzatore,
+                                  visualizzatorePesoInizio, visualizzatorePesoCentro, visualizzatorePesoFine, capsulaDock);
         firmaTesta = 0xFFFFFFFF;
         dirty = true;
     }
@@ -1041,6 +1042,9 @@ public:
     }
     void disegnaVisualizzatoreCapsula(float x, float cy, float d, D2D1_COLOR_F ink, float alfa, bool suona, double t) {
         const float forza = forzaVisualizzatore / 100.0f;
+        const float pesoInizio = visualizzatorePesoInizio / 100.0f;
+        const float pesoCentro = visualizzatorePesoCentro / 100.0f;
+        const float pesoFine = visualizzatorePesoFine / 100.0f;
         auto ampiezza = [&](int bandIndex, int bandCount, int visualIndex, int visualCount) {
             float raw = 0.0f;
             if (suona && visualizzatoreReattivo) {
@@ -1048,13 +1052,11 @@ public:
             } else if (suona) {
                 raw = std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + bandIndex * 0.72))) * forza, 0.0f, 1.0f);
             }
-            const float pos = visualCount > 1 ? std::fabs(2.0f * visualIndex / (visualCount - 1) - 1.0f) : 0.0f;
-            const float centre = std::max(0.0f, std::cos(pos * (float)(M_PI * 0.5)));
-            // Much stronger centre focus: full response in the middle, only 10% at the outer edges.
-            const float focus = 0.10f + 0.90f * centre * centre;
-            // Lift quieter FFT bands so normal-volume music still produces visible movement.
-            const float response = raw > 0.0f ? std::pow(raw, 0.72f) : 0.0f;
-            return std::clamp(response * focus, 0.0f, 1.0f);
+            const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
+            const float weight = pos <= 0.5f
+                ? pesoInizio + (pesoCentro - pesoInizio) * (pos * 2.0f)
+                : pesoCentro + (pesoFine - pesoCentro) * ((pos - 0.5f) * 2.0f);
+            return std::clamp(raw * weight, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
@@ -1106,11 +1108,15 @@ public:
         notch12Ore = si; aggiornaStato(true);
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
-    void impostaVisualizzatore(int stile, bool reattivo, int forza) {
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
         stile = std::clamp(stile, 0, 3);
         forza = std::clamp(forza, 50, 200);
+        pesoInizio = std::clamp(pesoInizio, 0, 200);
+        pesoCentro = std::clamp(pesoCentro, 0, 200);
+        pesoFine = std::clamp(pesoFine, 0, 200);
         stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
-        notch.impostaVisualizzatore(stile, reattivo, forza, capsulaDock);
+        visualizzatorePesoInizio = pesoInizio; visualizzatorePesoCentro = pesoCentro; visualizzatorePesoFine = pesoFine;
+        notch.impostaVisualizzatore(stile, reattivo, forza, pesoInizio, pesoCentro, pesoFine, capsulaDock);
         firmaTesta = 0xFFFFFFFF;
         dirty = true;
     }
@@ -1292,6 +1298,7 @@ private:
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
     int stileVisualizzatore = 0, forzaVisualizzatore = 100;
+    int visualizzatorePesoInizio = 40, visualizzatorePesoCentro = 100, visualizzatorePesoFine = 40;
     bool visualizzatoreReattivo = true;
     DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
     int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
