@@ -1045,57 +1045,45 @@ public:
             if (!suona) return 0.0f;
             if (visualizzatoreReattivo)
                 return std::clamp(notch.bandaVisualizzatore(i, n) * forza, 0.0f, 1.0f);
-            return std::clamp((0.5f + 0.5f * (float)std::sin(t * 4.1 - i * 0.82)) * forza, 0.0f, 1.0f);
+            return std::clamp((0.2f + 0.8f * (0.5f + 0.5f * (float)std::sin(t * 2.2 + i * 0.72))) * forza, 0.0f, 1.0f);
         };
         auto tinta = [&](int i, int n) {
             const int gradiente = n > 1 ? i * 3 / (n - 1) : 0;
             pennello->SetColor(coloreBarraMedia(gradiente, ink, alfa));
         };
         dritto(x + 7 * d, cy);
-        if (stileVisualizzatore == 1) {   // Wave
-            const int n = 7;
-            float px = x, py = cy;
-            for (int i = 0; i < n; i++) {
-                const float u = i / (float)(n - 1), amp = ampiezza(i, n);
-                const float xx = x + u * 14 * d;
-                const float pattern = visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) : (float)std::sin(t * 4.0 + i * 0.92);
-                const float yy = cy + pattern * (visualizzatoreReattivo && suona ? (1.0f + 5.0f * amp) : (1.0f + 4.8f * amp)) * d;
+        if (stileVisualizzatore == 1) { // Spectrum wave
+            const int n = 9; float px = x, py = cy;
+            for (int i = 0; i < n; ++i) {
+                const float xx = x + (i / (float)(n - 1)) * 14.0f * d;
+                const float amp = ampiezza(i, n);
+                const float yy = cy + (visualizzatoreReattivo && suona ? (i % 2 ? -1.0f : 1.0f) * amp : (float)std::sin(t * 2.4 + i * 0.78) * amp) * 5.4f * d;
                 tinta(i, n);
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
             }
-        } else if (stileVisualizzatore == 2) {   // Dots
-            const int n = 5;
-            for (int i = 0; i < n; i++) {
-                const float amp = ampiezza(i, n);
-                const float r = (0.85f + 1.1f * amp) * d;
-                const float yy = cy + (visualizzatoreReattivo && suona ? 0.0f : (float)std::sin(t * 3.4 - i * 0.9) * amp * 1.5f * d);
-                tinta(i, n);
-                dc->FillEllipse({{x + (i + 0.5f) * (14.0f / n) * d, yy}, r, r}, pennello);
+        } else if (stileVisualizzatore == 2) { // stacked dots
+            const int cols = 5, rows = 4; const float dx = 14.0f / cols * d, dy = 2.2f * d, dot = 0.65f * d;
+            for (int i = 0; i < cols; ++i) {
+                const float amp = ampiezza(i, cols);
+                const int lit = visualizzatoreReattivo && suona ? (int)std::round(amp * rows) : 1 + (int)std::round((0.5f + 0.5f * std::sin(t * 2.2 + i)) * 2.0f);
+                tinta(i, cols);
+                for (int j = 0; j < lit; ++j) {
+                    const D2D1_COLOR_F color = pennello->GetColor();
+                    pennello->SetColor(D2D1::ColorF(color.r, color.g, color.b, color.a * (0.35f + 0.65f * (j + 1) / (float)rows)));
+                    dc->FillEllipse({{x + (i + 0.5f) * dx, cy + (rows - 1) * dy / 2 - j * dy}, dot, dot}, pennello);
+                }
             }
-        } else if (stileVisualizzatore == 4) {   // Circle: ring of dots with outward bars
-            const int n = 8;
-            const float cx = x + 7.0f * d, r = 3.2f * d, dot = 0.75f * d;
-            for (int i = 0; i < n; i++) {
-                const float amp = ampiezza(i, n);
-                const float ang = (float)(-M_PI / 2.0 + i * 2.0 * M_PI / n);
-                const float bx = cx + std::cos(ang) * r, by = cy + std::sin(ang) * r;
-                const float ext = (visualizzatoreReattivo && suona ? (1.0f + 4.5f * amp) : (1.5f + 2.5f * amp)) * d;
+        } else { // Bars and Mirror spectrum
+            const int n = stileVisualizzatore == 3 ? 6 : 7;
+            const float lb = 1.55f * d, passo = 14.0f * d / n;
+            for (int i = 0; i < n; ++i) {
+                const int ix = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
+                const float amp = ampiezza(ix, stileVisualizzatore == 3 ? (n + 1) / 2 : n);
+                const float idle = 0.18f + 0.82f * (0.5f + 0.5f * (float)std::sin(t * 2.4 + i * 0.75));
+                const float h = std::max(2.2f * d, (visualizzatoreReattivo && suona ? (2.2f + 8.0f * amp) : (2.2f + 6.0f * idle * forza)) * d);
                 tinta(i, n);
-                dc->FillEllipse({{bx, by}, dot, dot}, pennello);
-                dc->DrawLine({bx + std::cos(ang) * dot * 1.5f, by + std::sin(ang) * dot * 1.5f},
-                            {bx + std::cos(ang) * (dot * 1.5f + ext), by + std::sin(ang) * (dot * 1.5f + ext)}, pennello, 1.1f * d);
-            }
-        } else {   // Bars / Mirror
-            const int n = 4;
-            const float lb = 2.4f * d, passo = 3.5f * d;
-            for (int i = 0; i < n; i++) {
-                const int index = stileVisualizzatore == 3 ? std::min(i, n - 1 - i) : i;
-                const float amp = ampiezza(index, n);
-                const float h = std::max(2.4f * d, (2.4f + 8.2f * amp) * d);
-                tinta(i, n);
-                dc->FillRoundedRectangle({{x + i * passo, cy - h / 2, x + i * passo + lb, cy + h / 2},
-                                          lb / 2, lb / 2}, pennello);
+                dc->FillRoundedRectangle({{x + (i + 0.5f) * passo - lb / 2, cy - h / 2, x + (i + 0.5f) * passo + lb / 2, cy + h / 2}, lb / 2, lb / 2}, pennello);
             }
         }
         piano();
@@ -1109,7 +1097,7 @@ public:
     }
     void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
     void impostaVisualizzatore(int stile, bool reattivo, int forza) {
-        stile = std::clamp(stile, 0, 4);
+        stile = std::clamp(stile, 0, 3);
         forza = std::clamp(forza, 50, 200);
         stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
         notch.impostaVisualizzatore(stile, reattivo, forza, capsulaDock);
