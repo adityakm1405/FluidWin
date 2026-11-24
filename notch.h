@@ -1791,17 +1791,27 @@ private:
             }
             return;
         }
-        if (stileVisualizzatore == 2) { // Dots: stacked columns, tallest and most active at the centre.
-            const int cols = 7, rows = 7;
-            const float stepX = largo / cols, dot = 1.45f * d, stepY = 2.1f * d;
+        if (stileVisualizzatore == 2) { // Segmented Pill: vertical stacks of softly lit rounded segments.
+            const int cols = 7, rows = 6;
+            const float stepX = largo / cols;
+            const float segmentW = 1.55f * d, segmentH = 1.25f * d, gapY = 0.55f * d;
+            const float pitchY = segmentH + gapY;
+            const float totalH = rows * segmentH + (rows - 1) * gapY;
             for (int i = 0; i < cols; i++) {
-                const float amp = ampiezza(i, cols, i, cols);
-                const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
+                const float amp = std::clamp(ampiezza(i, cols, i, cols), 0.0f, 1.0f);
+                const float activeSegments = amp * rows;
+                const int fullSegments = (int)std::floor(activeSegments);
+                const float partialSegment = activeSegments - fullSegments;
                 tinta(i, cols);
-                for (int j = 0; j < lit; j++) {
-                    const float fade = 0.28f + 0.72f * (j + 1) / (float)rows;
-                    colore(pen->GetColor().r, pen->GetColor().g, pen->GetColor().b, 0.92f * a * mix * fade);
-                    rt->FillEllipse({{x + (i + 0.5f) * stepX, cy + (rows - 1) * stepY / 2 - j * stepY}, dot, dot}, pen);
+                const D2D1_COLOR_F baseColor = pen->GetColor();
+                for (int j = 0; j < rows; j++) {
+                    const float level = j < fullSegments ? 1.0f : (j == fullSegments ? partialSegment : 0.0f);
+                    if (level <= 0.025f) continue;
+                    const float glow = 0.42f + 0.58f * (j + 1) / (float)rows;
+                    colore(baseColor.r, baseColor.g, baseColor.b, baseColor.a * level * glow);
+                    const float sx = x + (i + 0.5f) * stepX - segmentW / 2;
+                    const float sy = cy + totalH / 2 - segmentH - j * pitchY;
+                    rt->FillRoundedRectangle({{sx, sy, sx + segmentW, sy + segmentH}, segmentW / 2, segmentH / 2}, pen);
                 }
             }
             return;

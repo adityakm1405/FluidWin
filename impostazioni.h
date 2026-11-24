@@ -52,7 +52,7 @@ struct Valori {
     bool dockCapsulaSempre = false; // mantiene la capsula visibile anche senza sessioni media
     DWORD colorePulsantiMedia = 0, coloreVisualizzatore = 0, coloreVisualizzatoreFine = 0;
     bool visualizzatoreGradiente = false;
-    int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Dots, 3 Mirror
+    int visualizzatoreStile = 0;       // 0 Bars, 1 Wave, 2 Segmented Pill, 3 Mirror
     bool visualizzatoreReattivo = true; // reagisce al livello reale dell'uscita audio di Windows
     int visualizzatoreForza = 100;      // ampiezza delle barre, percento
     int visualizzatorePesoInizio = 40;  // intensita' al bordo sinistro del visualizzatore, percento
@@ -1510,7 +1510,7 @@ private:
                     testi::t(L"Ora e testo mostrati nel notch", L"Notch clock and displayed text"), valori().notchTesto, Z_NOTCH_TESTO);
             const wchar_t* stiliVisualizzatore[] = {
                 testi::t(L"Barre", L"Bars"), testi::t(L"Onda", L"Wave"),
-                testi::t(L"Punti", L"Dots"), testi::t(L"Specchio", L"Mirror")
+                testi::t(L"Segmenti", L"Segmented Pill"), testi::t(L"Specchio", L"Mirror")
             };
             selettore(testi::t(L"Stile visualizzatore", L"Visualizer style"),
                       testi::t(L"Notch e capsula multimediale del dock", L"Notch and dock media capsule"),

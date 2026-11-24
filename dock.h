@@ -1072,16 +1072,27 @@ public:
                 if (i) dc->DrawLine({px, py}, {xx, yy}, pennello, 1.35f * d);
                 px = xx; py = yy;
             }
-        } else if (stileVisualizzatore == 2) { // Stacked dots: central columns rise higher.
-            const int cols = 7, rows = 6; const float dx = 14.0f / cols * d, dy = 1.8f * d, dot = 0.65f * d;
+        } else if (stileVisualizzatore == 2) { // Segmented Pill: compact vertical LED-like segments.
+            const int cols = 7, rows = 6;
+            const float stepX = 14.0f * d / cols;
+            const float segmentW = 1.25f * d, segmentH = 1.15f * d, gapY = 0.45f * d;
+            const float pitchY = segmentH + gapY;
+            const float totalH = rows * segmentH + (rows - 1) * gapY;
             for (int i = 0; i < cols; ++i) {
-                const float amp = ampiezza(i, cols, i, cols);
-                const int lit = std::clamp((int)std::round(amp * rows), 0, rows);
+                const float amp = std::clamp(ampiezza(i, cols, i, cols), 0.0f, 1.0f);
+                const float activeSegments = amp * rows;
+                const int fullSegments = (int)std::floor(activeSegments);
+                const float partialSegment = activeSegments - fullSegments;
                 tinta(i, cols);
-                for (int j = 0; j < lit; ++j) {
-                    const D2D1_COLOR_F color = pennello->GetColor();
-                    pennello->SetColor(D2D1::ColorF(color.r, color.g, color.b, color.a * (0.35f + 0.65f * (j + 1) / (float)rows)));
-                    dc->FillEllipse({{x + (i + 0.5f) * dx, cy + (rows - 1) * dy / 2 - j * dy}, dot, dot}, pennello);
+                const D2D1_COLOR_F baseColor = pennello->GetColor();
+                for (int j = 0; j < rows; ++j) {
+                    const float level = j < fullSegments ? 1.0f : (j == fullSegments ? partialSegment : 0.0f);
+                    if (level <= 0.025f) continue;
+                    const float glow = 0.42f + 0.58f * (j + 1) / (float)rows;
+                    pennello->SetColor(D2D1::ColorF(baseColor.r, baseColor.g, baseColor.b, baseColor.a * level * glow));
+                    const float sx = x + (i + 0.5f) * stepX - segmentW / 2;
+                    const float sy = cy + totalH / 2 - segmentH - j * pitchY;
+                    dc->FillRoundedRectangle({{sx, sy, sx + segmentW, sy + segmentH}, segmentW / 2, segmentH / 2}, pennello);
                 }
             }
         } else { // Bars / Mirror: centre-weighted amplitude across the visual width.
