@@ -1563,10 +1563,7 @@ inline auto Motore::renderLauncher() -> bool {
                     pennello->SetColor(ink);
                     scrivi(tutteApp[appIndex].nome,fmtNome,{xx+25*dpi,yy,xx+cw-27*dpi,yy+24*dpi});
                     const D2D1_RECT_F removeBox={xx+cw-22*dpi,yy+3*dpi,xx+cw-4*dpi,yy+21*dpi};
-                    if(hoverRemove) {
-                        pennello->SetColor(scuro?D2D1::ColorF(0.96f,0.20f,0.24f,0.19f):D2D1::ColorF(0.88f,0.10f,0.14f,0.12f));
-                        dc->FillRoundedRectangle({removeBox,5*dpi,5*dpi},pennello);
-                    }
+                    // No hover container: only the × glyph changes to red.
                     pennello->SetColor(hoverRemove?D2D1::ColorF(0.96f,0.24f,0.28f,1.0f)
                                                    :D2D1::ColorF(ink.r,ink.g,ink.b,0.58f));
                     dc->DrawLine({removeBox.left+5*dpi,removeBox.top+5*dpi},{removeBox.right-5*dpi,removeBox.bottom-5*dpi},pennello,1.45f*dpi);
@@ -1602,24 +1599,45 @@ inline auto Motore::renderLauncher() -> bool {
                     }
                     precedente=lettera;
                 }
-                drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,i==lSopra);
+                // Draw the hovered tile after its neighbours so their paint cannot cover its scaled rounded corners.
+                if(i!=lSopra)
+                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,false);
+            }
+            if(lSopra>=0 && lSopra<(int)filtrate.size()) {
+                const D2D1_RECT_F riga=lCella(lSopra);
+                if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi)
+                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,true);
             }
         } else {
+            // Paint every non-hovered app first; render the scaled hovered app last to preserve all four rounded corners.
             for(int i=0;i<(int)filtrate.size();++i) {
+                if(i==lSopra) continue;
                 const D2D1_RECT_F riga=lCella(i);
                 if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
                 const int index=filtrate[i];
-                const bool hover=i==lSopra;
-                const float scala=hover?(float)lScalaAllHover:1.0f,cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
-                const D2D1_RECT_F tile=scaleRect({riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
-                                                  riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi},cx,cy,scala);
-                const D2D1_RECT_F area=scaleRect(riga,cx,cy,scala);
-                pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f))
-                                        :(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
-                dc->FillRoundedRectangle({area,10*dpi*scala,10*dpi*scala},pennello);
+                const float cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
+                const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                        riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.035f));
+                dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
                 drawAppIcon(index,tile);
                 pennello->SetColor(ink);
-                scrivi(tutteApp[index].nome,fmtNome,scaleRect({riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi},cx,cy,scala));
+                scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+            }
+            if(lSopra>=0 && lSopra<(int)filtrate.size()) {
+                const D2D1_RECT_F riga=lCella(lSopra);
+                if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi) {
+                    const int index=filtrate[lSopra];
+                    const float scala=(float)lScalaAllHover,cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
+                    const D2D1_RECT_F tile=scaleRect({riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                                      riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi},cx,cy,scala);
+                    const D2D1_RECT_F area=scaleRect(riga,cx,cy,scala);
+                    pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f));
+                    dc->FillRoundedRectangle({area,10*dpi*scala,10*dpi*scala},pennello);
+                    drawAppIcon(index,tile);
+                    pennello->SetColor(ink);
+                    scrivi(tutteApp[index].nome,fmtNome,scaleRect({riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi},cx,cy,scala));
+                }
             }
         }
         if(filtrate.empty()) {
