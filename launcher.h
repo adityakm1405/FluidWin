@@ -1058,12 +1058,19 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
     }
     it->Release();
     if (!cm) return;
-    const UINT ID_DOCK = 0x7F00;
+    const UINT ID_DOCK = 0x7F00, ID_PIN_START = 0x7F01;
+    const int indiceApp=tutteApp[filtrate[i]].avvio==a.avvio?filtrate[i]:-1;
+    const bool giaFissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),a.avvio)!=lPinnedManual.end();
     HMENU m = CreatePopupMenu();
     if (SUCCEEDED(cm->QueryContextMenu(m, 0, 1, ID_DOCK - 1, CMF_NORMAL))) {
         cm->QueryInterface(IID_PPV_ARGS(&menuShell2)); cm->QueryInterface(IID_PPV_ARGS(&menuShell3));
-        // le voci di Windows, disegnate da noi; in cima il nome dell'app e "Aggiungi al dock"
-        std::vector<menu::Voce> voci = {menu::titolo(a.nome), menu::voce(testi::t(L"Aggiungi al dock", L"Add to dock"), ID_DOCK)};
+        // Le azioni FluidWin vengono prima delle voci fornite dalla shell.
+        std::vector<menu::Voce> voci = {
+            menu::titolo(a.nome),
+            menu::voce(giaFissata?testi::t(L"Rimuovi da Start",L"Unpin from Start")
+                                :testi::t(L"Fissa a Start",L"Pin to Start"),ID_PIN_START),
+            menu::voce(testi::t(L"Aggiungi al dock", L"Add to dock"), ID_DOCK)
+        };
         // "Disinstalla" (la voce di Windows, per le app dello Store e per le altre) in cima, subito visibile
         UINT idDisinstalla = 0;
         for (int i = 0; i < GetMenuItemCount(m) && !idDisinstalla; i++) {
@@ -1083,7 +1090,9 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
         const UINT cmd = menu::mostra(voci, pt, launcher, false, prepara);
         if (menuShell3) { menuShell3->Release(); menuShell3 = nullptr; }
         if (menuShell2) { menuShell2->Release(); menuShell2 = nullptr; }
-        if (cmd == ID_DOCK) {
+        if (cmd == ID_PIN_START) {
+            if(indiceApp>=0) togglePinned(indiceApp);
+        } else if (cmd == ID_DOCK) {
             aggiungiAlDock(a.nome, exe, id, a.avvio);
         } else if (cmd > 0) {
             CMINVOKECOMMANDINFOEX ci{}; ci.cbSize = sizeof(ci); ci.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE;
