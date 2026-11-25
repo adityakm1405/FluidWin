@@ -1183,18 +1183,24 @@ inline auto Motore::renderLauncher() -> bool {
         scrivi(L"ESC",fmtNome,esc);
     }
 
-    if (lModalita == 0) {
-        const float dx = lDividerX(), footer = lFooterTop();
-        // Separatore verticale fra workspace e archivio applicazioni.
-        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
-        dc->DrawLine({dx,70*dpi},{dx,footer},pennello,1*dpi);
+    const D2D1_COLOR_F accenti[6]={
+        D2D1::ColorF(0.10f,0.72f,0.95f,1),D2D1::ColorF(0.72f,0.40f,0.98f,1),
+        D2D1::ColorF(1.00f,0.36f,0.48f,1),D2D1::ColorF(0.10f,0.78f,0.88f,1),
+        D2D1::ColorF(0.12f,0.82f,0.62f,1),D2D1::ColorF(0.91f,0.67f,0.22f,1)};
+    const wchar_t* iconeCartella[6]={L"⌘",L"♟",L"✿",L"◎",L"✓",L"⚙"};
+    const float dx=lDividerX(), leftR=dx-16*dpi, rx=dx+14*dpi, rr=LW-14*dpi;
 
-        // Workspace fissato: due colonne, card orizzontali e massimo sei preferiti.
+    // Le pagine Folders, All Apps, Manage Folder Apps e New Library Folder condividono la stessa colonna workspace.
+    if(lModalita!=4) {
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
+        dc->DrawLine({dx,70*dpi},{dx,lFooterTop()},pennello,1*dpi);
+
+        // Workspace fissato: le sei app preferite restano presenti in ogni pagina della libreria.
         pennello->SetColor(ink);
         scrivi(testi::t(L"★  WORKSPACE FISSATO",L"★  PINNED WORKSPACE"),fmtTitolo,{16*dpi,76*dpi,dx-94*dpi,108*dpi});
         pennello->SetColor(tenue);
         scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-104*dpi,76*dpi,dx-16*dpi,108*dpi});
-        for (int i=0;i<(int)lPinned.size() && i<6;++i) {
+        for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
             const bool sopra=i==lSopraPinned;
             pennello->SetColor(sopra?(scuro?D2D1::ColorF(1,1,1,0.13f):D2D1::ColorF(1,1,1,0.76f))
@@ -1208,13 +1214,12 @@ inline auto Motore::renderLauncher() -> bool {
             scrivi(app.nome,fmtNome,{r.left+43*dpi,r.top+3*dpi,r.right-7*dpi,r.bottom-3*dpi});
         }
 
-        // Azioni istantanee nella parte bassa della colonna sinistra.
         const float ay=LH-158*dpi;
         pennello->SetColor(tenue);
         scrivi(testi::t(L"AZIONI ISTANTANEE",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
         for(int k=0;k<2;++k) {
             const float top=ay+(k==0?28:68)*dpi;
-            const D2D1_RECT_F ar={16*dpi,top,dx-16*dpi,top+34*dpi};
+            const D2D1_RECT_F ar={16*dpi,top,leftR,top+34*dpi};
             pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
             dc->FillRoundedRectangle({ar,10*dpi,10*dpi},pennello);
             pennello->SetColor(blu);
@@ -1224,9 +1229,45 @@ inline auto Motore::renderLauncher() -> bool {
                        :testi::t(L"Cattura area dello schermo",L"Capture Screen Region"),
                    fmtNome,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
         }
+    }
 
-        // Archivio applicazioni: categorie ad accordion, una sola espansa alla volta.
-        const float rx=dx+14*dpi, rr=LW-14*dpi;
+    auto drawAppIcon=[&](int appIndex,const D2D1_RECT_F& box) {
+        if(appIndex<0 || appIndex>=(int)tutteApp.size()) return;
+        AppL& app=tutteApp[appIndex];
+        if(app.icona) dc->DrawBitmap(app.icona,box,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        else { pennello->SetColor(tenue); dc->FillRoundedRectangle({box,7*dpi,7*dpi},pennello); }
+    };
+    auto drawAppLibraryRow=[&](int appIndex,const D2D1_RECT_F& r,bool managed,bool pinnedControls) {
+        const AppL& app=tutteApp[appIndex];
+        const D2D1_RECT_F tile={r.left+7*dpi,r.top+6*dpi,r.left+36*dpi,r.top+35*dpi};
+        const int cat=lCategoriaApp(app);
+        const D2D1_COLOR_F tone=cat>=0?accenti[lCartelle[cat].colore%6]:tenue;
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f));
+        dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
+        drawAppIcon(appIndex,tile);
+        pennello->SetColor(ink);
+        scrivi(app.nome,fmtNome,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?76:10)*dpi,r.top+25*dpi});
+        pennello->SetColor(tenue);
+        scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtNome,
+               {r.left+44*dpi,r.top+23*dpi,r.right-(pinnedControls?76:10)*dpi,r.bottom-2*dpi});
+        if(managed) {
+            const bool selected=cat==lCartellaGestita;
+            const D2D1_RECT_F chk={r.left+7*dpi,r.top+14*dpi,r.left+18*dpi,r.top+25*dpi};
+            pennello->SetColor(selected?blu:tenue);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+        }
+        if(pinnedControls) {
+            const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
+            pennello->SetColor(fissata?blu:tenue);
+            scrivi(fissata?L"★":L"☆",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
+            pennello->SetColor(tenue);
+            scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
+        }
+    };
+
+    if(lModalita==0) {
+        // Libreria app a fisarmonica, con cartelle personalizzate persistenti.
         pennello->SetColor(tenue);
         scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,76*dpi,rr-174*dpi,108*dpi});
         const D2D1_RECT_F add={rr-166*dpi,79*dpi,rr-91*dpi,109*dpi};
@@ -1238,18 +1279,14 @@ inline auto Motore::renderLauncher() -> bool {
         scrivi(L"+",fmtTitolo,{add.left+5*dpi,add.top,add.left+23*dpi,add.bottom});
         pennello->SetColor(ink);
         scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+23*dpi,add.top,add.right-3*dpi,add.bottom});
-        scrivi(testi::t(L"Tutte",L"All Apps"),fmtNome,{all.left+5*dpi,all.top,all.right-4*dpi,all.bottom});
+        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+5*dpi,all.top,all.right-4*dpi,all.bottom});
 
-        const wchar_t* nomi[6]={L"Development",L"Gaming",L"Creative",L"Web & Comms",L"Productivity",L"System"};
-        const wchar_t* simboli[6]={L"⌘",L"◆",L"✦",L"◎",L"▣",L"⚙"};
-        const D2D1_COLOR_F colori[6]={
-            D2D1::ColorF(0.10f,0.72f,0.95f,1),D2D1::ColorF(0.72f,0.40f,0.98f,1),
-            D2D1::ColorF(1.00f,0.36f,0.48f,1),D2D1::ColorF(0.10f,0.78f,0.88f,1),
-            D2D1::ColorF(0.12f,0.82f,0.62f,1),D2D1::ColorF(0.91f,0.67f,0.22f,1)};
-        float fy=122*dpi;
-        for(int k=0;k<6;++k) {
+        dc->PushAxisAlignedClip({rx,116*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        for(int k=0;k<(int)lCartelle.size();++k) {
+            const float fy=lCartellaY(k);
             const bool aperta=k==lCartellaAperta;
             const float h=aperta?114*dpi:36*dpi;
+            if(fy+h<116*dpi || fy>lFooterTop()-8*dpi) continue;
             const D2D1_RECT_F fr={rx,fy,rr,fy+h};
             pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
                                        :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
@@ -1258,139 +1295,253 @@ inline auto Motore::renderLauncher() -> bool {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
                 dc->DrawLine({fr.left,fy+36*dpi},{fr.right,fy+36*dpi},pennello,1*dpi);
             }
-            pennello->SetColor(colori[k]);
-            scrivi(simboli[k],fmtNome,{fr.left+10*dpi,fy+1*dpi,fr.left+35*dpi,fy+35*dpi});
+            const int icon=lCartelle[k].icona%6;
+            pennello->SetColor(accenti[lCartelle[k].colore%6]);
+            scrivi(iconeCartella[icon],fmtNome,{fr.left+10*dpi,fy+1*dpi,fr.left+35*dpi,fy+35*dpi});
             pennello->SetColor(ink);
-            scrivi(nomi[k],fmtNome,{fr.left+40*dpi,fy+1*dpi,fr.left+170*dpi,fy+35*dpi});
+            scrivi(lCartelle[k].nome,fmtNome,{fr.left+40*dpi,fy+1*dpi,fr.right-110*dpi,fy+35*dpi});
             const auto apps=lAppCategoria(k);
             pennello->SetColor(tenue);
             scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-69*dpi,fy+1*dpi,fr.right-48*dpi,fy+35*dpi});
             pennello->SetColor(ink);
-            scrivi(L"+",fmtTitolo,{fr.right-44*dpi,fy+1*dpi,fr.right-25*dpi,fy+35*dpi});
-            const float cx=fr.right-15*dpi, cy=fy+18*dpi;
+            scrivi(L"+",fmtTitolo,{fr.right-45*dpi,fy+1*dpi,fr.right-25*dpi,fy+35*dpi});
+            const float cx=fr.right-15*dpi,cy=fy+18*dpi;
             if(aperta) { linea(-3,-1,0,2,cx-2*dpi,cy-1*dpi,1.3f); linea(0,2,3,-1,cx+1*dpi,cy-1*dpi,1.3f); }
             else { linea(-3,-1,0,2,cx-2*dpi,cy+1*dpi,1.3f); linea(0,2,3,-1,cx+1*dpi,cy+1*dpi,1.3f); }
-
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2;
                     const float cw=(rr-rx-22*dpi)*0.5f;
-                    const float xx=rx+10*dpi+col*cw, yy=fy+39*dpi+row*25*dpi;
+                    const float xx=rx+10*dpi+col*cw,yy=fy+39*dpi+row*25*dpi;
                     const D2D1_RECT_F ir={xx+2*dpi,yy+4*dpi,xx+18*dpi,yy+20*dpi};
-                    AppL& app=tutteApp[apps[j]];
-                    if(app.icona) dc->DrawBitmap(app.icona,ir,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-                    else { pennello->SetColor(colori[k]); dc->FillRoundedRectangle({ir,3*dpi,3*dpi},pennello); }
+                    drawAppIcon(apps[j],ir);
                     pennello->SetColor(ink);
-                    scrivi(app.nome,fmtNome,{xx+25*dpi,yy,xx+cw-4*dpi,yy+24*dpi});
+                    scrivi(tutteApp[apps[j]].nome,fmtNome,{xx+25*dpi,yy,xx+cw-4*dpi,yy+24*dpi});
                 }
             }
-            fy += h+7*dpi;
         }
-    } else {
-        // Elenco completo e risultati di ricerca: mantiene le viste lista/griglia gia' supportate.
-        const float ay=lAllTop();
-        const D2D1_RECT_F rf={LW-94*dpi,ay+3*dpi,LW-16*dpi,ay+32*dpi};
-        const D2D1_RECT_F rb={LW-252*dpi,ay+3*dpi,LW-102*dpi,ay+32*dpi};
-        pennello->SetColor(ink);
-        scrivi(query.empty()?testi::t(L"Tutte le app",L"All Apps"):testi::t(L"Risultati",L"Search results"),
-               fmtTitolo,{16*dpi,ay,LW-260*dpi,ay+34*dpi});
-        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
-        dc->FillRoundedRectangle({rf,8*dpi,8*dpi},pennello);
-        scrivi(testi::t(L"Cartelle",L"Folders"),fmtNome,{rf.left+5*dpi,rf.top,rf.right-5*dpi,rf.bottom});
-        const D2D1_COLOR_F sfondoVista=lSopraVista
-            ?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.06f))
-            :(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(1,1,1,0.62f));
-        pennello->SetColor(sfondoVista);
-        dc->FillRoundedRectangle({rb,8*dpi,8*dpi},pennello);
-        pennello->SetColor(tenue);
-        scrivi(testi::t(L"Vista:",L"View:"),fmtNome,{rb.left+8*dpi,rb.top,rb.left+46*dpi,rb.bottom});
-        pennello->SetColor(ink);
-        scrivi(lVistaLista?testi::t(L"Elenco",L"List"):testi::t(L"Griglia",L"Grid"),
-               fmtNome,{rb.left+48*dpi,rb.top,rb.right-22*dpi,rb.bottom});
-        const float vx=rb.right-12*dpi,vy=(rb.top+rb.bottom)/2;
-        linea(-3,-1,0,2,vx-2*dpi,vy-1*dpi,1.35f);
-        linea(0,2,3,-1,vx+1*dpi,vy-1*dpi,1.35f);
+        dc->PopAxisAlignedClip();
     }
+    else if(lModalita==1) {
+        pennello->SetColor(ink);
+        scrivi(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS")+L" ("+std::to_wstring(tutteApp.size())+L")",
+               fmtTitolo,{rx,76*dpi,rr-96*dpi,108*dpi});
+        const D2D1_RECT_F folders={rr-84*dpi,79*dpi,rr,109*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        dc->FillRoundedRectangle({folders,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{folders.left+5*dpi,folders.top,folders.right-4*dpi,folders.bottom});
 
-    if (lModalita == 1) {
-    dc->PushAxisAlignedClip({0,lGrigliaTop()-3*dpi,LW,lGrigliaBottom()},D2D1_ANTIALIAS_MODE_ALIASED);
-    if (lVistaLista) {
-        wchar_t precedente=0;
-        for(int i=0;i<(int)filtrate.size();++i) {
-            const auto r=lCella(i);
-            if(r.bottom<lGrigliaTop()-60*dpi || r.top>lGrigliaBottom()+48*dpi) continue;
-            const AppL& a=tutteApp[filtrate[i]];
-            const wchar_t lettera=a.nome.empty()?L'#':(wchar_t)towupper(a.nome[0]);
-            if(i==0 || lettera!=precedente) {
-                const float hy=r.top-26*dpi;
-                if(hy+24*dpi>=lGrigliaTop()-3*dpi && hy<lGrigliaBottom()) {
-                    pennello->SetColor(tenue);
-                    scrivi(std::wstring(1,lettera),fmtNome,{22*dpi,hy,LW-24*dpi,hy+20*dpi});
-                    pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.055f));
-                    dc->DrawLine({42*dpi,hy+12*dpi},{LW-20*dpi,hy+12*dpi},pennello,1.0f*dpi);
+        dc->PushAxisAlignedClip({rx,136*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        if(lVistaLista) {
+            wchar_t precedente=0;
+            for(int i=0;i<(int)filtrate.size();++i) {
+                const D2D1_RECT_F riga=lCella(i);
+                if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
+                const AppL& app=tutteApp[filtrate[i]];
+                const wchar_t lettera=app.nome.empty()?L'#':(wchar_t)towupper(app.nome[0]);
+                if(i==0 || lettera!=precedente) {
+                    const float hy=riga.top-22*dpi;
+                    if(hy+19*dpi>=136*dpi) {
+                        pennello->SetColor(tenue);
+                        scrivi(std::wstring(1,lettera),fmtNome,{rx+4*dpi,hy,rr-4*dpi,hy+18*dpi});
+                    }
+                    precedente=lettera;
                 }
-                precedente=lettera;
+                drawAppLibraryRow(filtrate[i],{riga.left+1*dpi,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
             }
-            const bool sopra=i==lSopra, scelta=i==lSel && (!query.empty() || lSelTastiera) && lSelFile<0;
-            if(sopra || scelta) {
-                const D2D1_RECT_F h={r.left+2*dpi,r.top+1*dpi,r.right-2*dpi,r.bottom-1*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.12f:0.08f):D2D1::ColorF(1,1,1,sopra?0.72f:0.52f));
-                dc->FillRoundedRectangle({h,8*dpi,8*dpi},pennello);
-                if(scelta) { pennello->SetColor({blu.r,blu.g,blu.b,0.55f}); dc->DrawRoundedRectangle({h,8*dpi,8*dpi},pennello,1.2f*dpi); }
+        } else {
+            for(int i=0;i<(int)filtrate.size();++i) {
+                const D2D1_RECT_F riga=lCella(i);
+                if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
+                const int index=filtrate[i];
+                const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                        riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
+                dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
+                drawAppIcon(index,tile);
+                pennello->SetColor(ink);
+                scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
             }
-            const D2D1_RECT_F ri={r.left+8*dpi,r.top+7*dpi,r.left+38*dpi,r.top+37*dpi};
-            if(a.icona) dc->DrawBitmap(a.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            else {
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.055f));
-                dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello);
-            }
-            pennello->SetColor(ink);
-            scrivi(a.nome,fmtNome,{r.left+50*dpi,r.top+3*dpi,r.right-44*dpi,r.bottom-3*dpi});
-            const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),a.avvio)!=lPinnedManual.end();
-            pennello->SetColor(fissata?blu:tenue);
-            scrivi(fissata?L"★":L"☆",fmtNome,{r.right-38*dpi,r.top+3*dpi,r.right-8*dpi,r.bottom-3*dpi});
         }
-    } else {
-        const float lato = 50*dpi;
-        for(int i=0;i<(int)filtrate.size();++i) {
-            const auto r=lCella(i);
-            if(r.bottom<lGrigliaTop()-lCellaH() || r.top>lGrigliaBottom()+lCellaH()) continue;
-            AppL& a=tutteApp[filtrate[i]];
-            const bool sopra=i==lSopra, scelta=i==lSel && (!query.empty() || lSelTastiera) && lSelFile<0;
-            if(sopra || scelta) {
-                const D2D1_RECT_F h={r.left+3*dpi,r.top+2*dpi,r.right-3*dpi,r.bottom-2*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.12f:0.08f):D2D1::ColorF(1,1,1,sopra?0.72f:0.52f));
-                dc->FillRoundedRectangle({h,8*dpi,8*dpi},pennello);
-            }
-            const float cx=(r.left+r.right)/2;
-            const D2D1_RECT_F ri={cx-lato/2,r.top+8*dpi,cx+lato/2,r.top+8*dpi+lato};
-            if(a.icona) dc->DrawBitmap(a.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,10*dpi,10*dpi},pennello); }
-            pennello->SetColor(ink);
-            scrivi(a.nome,fmtNome,{r.left+5*dpi,ri.bottom+4*dpi,r.right-5*dpi,ri.bottom+26*dpi});
+        if(filtrate.empty()) {
+            pennello->SetColor(tenue);
+            scrivi(testi::t(L"Nessuna app disponibile",L"No installed apps found"),fmtNome,{rx+8*dpi,150*dpi,rr-8*dpi,184*dpi});
         }
+        dc->PopAxisAlignedClip();
     }
-    if(filtrate.empty()) {
+    else if(lModalita==2 && lCartellaGestita>=0 && lCartellaGestita<(int)lCartelle.size()) {
+        const float top=122*dpi,bottom=lFooterTop()-16*dpi;
+        const D2D1_RECT_F pane={rx,top,rr,bottom};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.66f));
+        dc->FillRoundedRectangle({pane,16*dpi,16*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
+        const int count=(int)lAppCategoria(lCartellaGestita).size();
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"Nessuna app trovata",L"No apps found"),fmtNome,
-               {16*dpi,lGrigliaTop()+20*dpi,LW-16*dpi,lGrigliaTop()+52*dpi});
-        if(!query.empty()) {
-            const D2D1_RECT_F web={16*dpi,lGrigliaTop()+62*dpi,LW-16*dpi,lGrigliaTop()+104*dpi};
+        scrivi(testi::t(L"GESTISCI APP CARTELLA",L"MANAGE FOLDER APPS"),fmtTitolo,{rx,76*dpi,rr-92*dpi,108*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,79*dpi,rr,109*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        const int cat=lCartelle[lCartellaGestita].colore%6;
+        pennello->SetColor(accenti[cat]);
+        scrivi(iconeCartella[lCartelle[lCartellaGestita].icona%6],fmtNome,{pane.left+14*dpi,pane.top+5*dpi,pane.left+36*dpi,pane.top+36*dpi});
+        pennello->SetColor(ink);
+        scrivi(lCartelle[lCartellaGestita].nome,fmtNome,{pane.left+42*dpi,pane.top+5*dpi,pane.right-100*dpi,pane.top+36*dpi});
+        pennello->SetColor(tenue);
+        scrivi(std::to_wstring(count)+testi::t(L" selezionate",L" selected"),fmtNome,{pane.right-92*dpi,pane.top+5*dpi,pane.right-14*dpi,pane.top+36*dpi});
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.065f));
+        dc->DrawLine({pane.left+12*dpi,pane.top+42*dpi},{pane.right-12*dpi,pane.top+42*dpi},pennello,1*dpi);
+
+        dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+48*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
+        for(int i=0;i<(int)tutteApp.size();++i) {
+            const int col=i%2,row=i/2;
+            const float x=listLeft+col*(cw+10*dpi),y=180*dpi+row*rowH-(float)lScrollEditor;
+            const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
+            if(item.bottom< pane.top+48*dpi || item.top>bottom-57*dpi) continue;
+            const int catApp=lCategoriaApp(tutteApp[i]);
+            const bool selected=catApp==lCartellaGestita;
+            pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
+                                      :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
+            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+            const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
+            pennello->SetColor(selected?blu:tenue);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+            pennello->SetColor(ink);
+            scrivi(tutteApp[i].nome,fmtNome,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+        }
+        dc->PopAxisAlignedClip();
+        const float by=bottom-48*dpi;
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f));
+        dc->FillRoundedRectangle({{pane.left+12*dpi,by,pane.right-12*dpi,bottom-10*dpi},10*dpi,10*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(testi::t(L"Fatto",L"Done"),fmtTitolo,{pane.right-86*dpi,by,pane.right-14*dpi,bottom-10*dpi});
+    }
+    else if(lModalita==3) {
+        const float top=122*dpi,bottom=lFooterTop()-16*dpi;
+        const D2D1_RECT_F pane={rx,top,rr,bottom};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.66f));
+        dc->FillRoundedRectangle({pane,16*dpi,16*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),fmtTitolo,{rx,76*dpi,rr-92*dpi,108*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,79*dpi,rr,109*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtNome,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
+        const D2D1_RECT_F nameBox={pane.left+12*dpi,pane.top+30*dpi,pane.right-12*dpi,pane.top+62*dpi};
+        pennello->SetColor(lNomeNuovoAttivo?(scuro?D2D1::ColorF(0.10f,0.34f,0.52f,0.30f):D2D1::ColorF(0.10f,0.48f,0.82f,0.10f))
+                                               :(scuro?D2D1::ColorF(0.01f,0.02f,0.04f,0.44f):D2D1::ColorF(0,0,0,0.035f)));
+        dc->FillRoundedRectangle({nameBox,9*dpi,9*dpi},pennello);
+        pennello->SetColor(tenue);
+        scrivi(lNomeNuovaCartella.empty()?testi::t(L"es. AI & ML, Modding, Media...",L"e.g., AI & ML, Modding, Media..."):lNomeNuovaCartella,
+               fmtNome,{nameBox.left+11*dpi,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
+        if(lNomeNuovoAttivo) {
+            const float tw=larghezzaTesto(lNomeNuovaCartella,fmtNome);
+            pennello->SetColor(blu);
+            dc->DrawLine({nameBox.left+11*dpi+tw+2*dpi,nameBox.top+8*dpi},{nameBox.left+11*dpi+tw+2*dpi,nameBox.bottom-8*dpi},pennello,1.4f*dpi);
+        }
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"ICONA CARTELLA E COLORE",L"FOLDER ICON & ACCENT"),fmtNome,{pane.left+12*dpi,pane.top+69*dpi,pane.right-12*dpi,pane.top+88*dpi});
+        const wchar_t* glifi[6]={L"▱",L"▦",L"⚒",L"➤",L"✦",L">_"};
+        for(int i=0;i<6;++i) {
+            const float x=pane.left+12*dpi+i*38*dpi;
+            const D2D1_RECT_F item={x,pane.top+91*dpi,x+31*dpi,pane.top+122*dpi};
+            pennello->SetColor(i==lIconaNuovaCartella?D2D1::ColorF(0.08f,0.30f,0.47f,0.50f):(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
+            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+            if(i==lIconaNuovaCartella) { pennello->SetColor(blu); dc->DrawRoundedRectangle({item,8*dpi,8*dpi},pennello,1*dpi); }
+            pennello->SetColor(accenti[i]);
+            scrivi(glifi[i],fmtNome,item);
+        }
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"SELEZIONA APP",L"SELECT APPS")+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
+               fmtNome,{pane.left+12*dpi,pane.top+129*dpi,pane.right-12*dpi,pane.top+150*dpi});
+
+        dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+158*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
+        for(int i=0;i<(int)tutteApp.size();++i) {
+            const int col=i%2,row=i/2;
+            const float x=listLeft+col*(cw+10*dpi),y=292*dpi+row*rowH-(float)lScrollEditor;
+            const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
+            if(item.bottom<pane.top+158*dpi || item.top>bottom-57*dpi) continue;
+            const bool selected=std::find(lAppNuovaCartella.begin(),lAppNuovaCartella.end(),tutteApp[i].avvio)!=lAppNuovaCartella.end();
+            pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
+                                      :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
+            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+            const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
+            pennello->SetColor(selected?blu:tenue);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+            pennello->SetColor(ink);
+            scrivi(tutteApp[i].nome,fmtNome,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+        }
+        dc->PopAxisAlignedClip();
+        const float by=bottom-48*dpi;
+        const D2D1_RECT_F cancel={pane.left+12*dpi,by,pane.right-104*dpi,bottom-10*dpi};
+        const D2D1_RECT_F create={pane.right-98*dpi,by,pane.right-12*dpi,bottom-10*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f));
+        dc->FillRoundedRectangle({cancel,9*dpi,9*dpi},pennello);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"Annulla",L"Cancel"),fmtNome,cancel);
+        pennello->SetColor(blu);
+        dc->FillRoundedRectangle({create,9*dpi,9*dpi},pennello);
+        pennello->SetColor(D2D1::ColorF(0.02f,0.04f,0.08f,1));
+        scrivi(testi::t(L"Crea cartella",L"Create Folder"),fmtNome,create);
+    }
+    else {
+        // Vista Spotlight: risultati a schede, come nello screenshot di ricerca.
+        pennello->SetColor(blu);
+        scrivi(testi::t(L"TOP MATCHES",L"TOP MATCHES")+L" ("+std::to_wstring(filtrate.size())+L")",
+               fmtTitolo,{16*dpi,78*dpi,LW-16*dpi,108*dpi});
+        if(filtrate.empty()) {
+            pennello->SetColor(tenue);
+            scrivi(testi::t(L"Nessuna app trovata",L"No apps found"),fmtNome,{16*dpi,128*dpi,LW-16*dpi,162*dpi});
+            const D2D1_RECT_F web={16*dpi,170*dpi,std::min(LW-16*dpi,460*dpi),212*dpi};
             pennello->SetColor(scuro?D2D1::ColorF(0.18f,0.34f,0.54f,0.22f):D2D1::ColorF(0.15f,0.42f,0.82f,0.10f));
             dc->FillRoundedRectangle({web,10*dpi,10*dpi},pennello);
             pennello->SetColor(blu);
             scrivi(testi::t(L"Cerca sul Web: ",L"Search the Web for: ")+query,fmtNome,
                    {web.left+12*dpi,web.top,web.right-12*dpi,web.bottom});
+        } else {
+            for(int i=0;i<(int)filtrate.size() && i<8;++i) {
+                const D2D1_RECT_F riga=lCella(i);
+                const int index=filtrate[i],cat=lCategoriaApp(tutteApp[index]);
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.05f):D2D1::ColorF(1,1,1,0.62f));
+                dc->FillRoundedRectangle({riga,11*dpi,11*dpi},pennello);
+                const D2D1_RECT_F icon={riga.left+11*dpi,riga.top+9*dpi,riga.left+48*dpi,riga.top+46*dpi};
+                drawAppIcon(index,icon);
+                pennello->SetColor(ink);
+                scrivi(tutteApp[index].nome,fmtNome,{riga.left+60*dpi,riga.top+7*dpi,riga.right-104*dpi,riga.top+31*dpi});
+                pennello->SetColor(tenue);
+                scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtNome,
+                       {riga.left+60*dpi,riga.top+30*dpi,riga.right-104*dpi,riga.bottom-4*dpi});
+                const D2D1_RECT_F launch={riga.right-96*dpi,riga.top+15*dpi,riga.right-10*dpi,riga.bottom-15*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.06f):D2D1::ColorF(0,0,0,0.035f));
+                dc->FillRoundedRectangle({launch,7*dpi,7*dpi},pennello);
+                pennello->SetColor(tenue);
+                scrivi(testi::t(L"Avvia  ↵",L"Launch  ↵"),fmtNome,launch);
+            }
         }
     }
-    dc->PopAxisAlignedClip();
-    if(disegnaFileLauncher(scuro,ink)) anim=true;
-    }
+
     // Barra inferiore, separata dal contenuto: profilo, file, impostazioni e alimentazione.
     {
         const float top=lFooterTop();
-        pennello->SetColor(scuro?D2D1::ColorF(0.015f,0.025f,0.045f,0.72f):D2D1::ColorF(0.92f,0.94f,0.97f,0.82f));
-        dc->FillRectangle({0,top,LW,LH},pennello);
+        const D2D1_COLOR_F footerColor=scuro?D2D1::ColorF(0.015f,0.025f,0.045f,0.72f):D2D1::ColorF(0.92f,0.94f,0.97f,0.82f);
+        pennello->SetColor(footerColor);
+        // Il rettangolo pieno copriva gli angoli arrotondati del pannello. Si arrotonda il bordo inferiore
+        // e si riempie solo la parte alta in modo rettangolare: gli angoli inferiori restano trasparenti.
+        dc->FillRoundedRectangle({{0,top,LW,LH},22*dpi,22*dpi},pennello);
+        dc->FillRectangle({0,top,LW,LH-22*dpi},pennello);
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
         dc->DrawLine({0,top},{LW,top},pennello,1*dpi);
         const D2D1_RECT_F rp=rettProfilo(),re=rettEnergia();
