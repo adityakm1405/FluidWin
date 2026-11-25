@@ -123,8 +123,8 @@ public:
     // Mostra il menu con l'angolo in alto a sinistra in pt (o sopra pt, se versoAlto); restituisce l'id scelto.
     // prepara(sottomenu) viene chiamata prima di aprire un sottomenu preso da un HMENU (la shell li riempie li').
     static UINT mostra(const std::vector<Voce>& voci, POINT pt, HWND proprietario, bool versoAlto = false,
-                       std::function<void(HMENU)> prepara = nullptr) {
-        Menu m(voci, proprietario, prepara);
+                       std::function<void(HMENU)> prepara = nullptr, int temaOverride = -1) {
+        Menu m(voci, proprietario, prepara, temaOverride);
         return m.esegui(pt, versoAlto, nullptr);
     }
 
@@ -138,6 +138,7 @@ private:
     int sopra = -1, W = 0, H = 0;
     float dpi = 1;
     bool scuro = false, fine = false;
+    int temaOverride = -1; // -1 uses Windows theme; 0/1 follows the invoking FluidWin surface
     UINT scelta = 0;
     BYTE alfa = 0;
     Menu* padre = nullptr;
@@ -178,7 +179,8 @@ private:
     // diagnostica (registro): movimenti del mouse ricevuti e loro ritardo, ridisegni e loro durata
     int nMosse = 0, nDisegni = 0; DWORD ritardoTot = 0, ritardoMax = 0; double tDisegni = 0;
 
-    Menu(const std::vector<Voce>& v, HWND p, std::function<void(HMENU)> pr) : voci(v), proprietario(p), prepara(pr) {}
+    Menu(const std::vector<Voce>& v, HWND p, std::function<void(HMENU)> pr, int tema = -1)
+        : voci(v), proprietario(p), prepara(pr), temaOverride(tema) {}
     ~Menu() {
         for (ID2D1Bitmap* b : immagini) if (b) b->Release();
         for (IUnknown* o : std::initializer_list<IUnknown*>{pen, rt, fmt, fmtTitolo}) if (o) o->Release();
@@ -245,7 +247,7 @@ private:
             typedef HRESULT (WINAPI *Fn)(HMONITOR, int, UINT*, UINT*);
             if (auto f = (Fn)GetProcAddress(sh, "GetDpiForMonitor")) if (SUCCEEDED(f(mon, 0, &dx, &dy))) dpi = dx / 96.0f;
         }
-        scuro = temaScuro();
+        scuro = temaOverride < 0 ? temaScuro() : temaOverride != 0;
         fdw = fabbricaTesto();
         if (!fdw) return;
         static const wchar_t* fam = famiglia(fdw);   // (il font scelto non cambia: si cerca una volta sola)
@@ -610,7 +612,7 @@ private:
         auto sv = daHmenu(hs);
         if (sv.empty()) return;
         aperto = i; disegna();
-        Menu s(sv, fin, prepara);
+        Menu s(sv, fin, prepara, temaOverride);
         s.padre = this;
         RECT r; GetWindowRect(fin, &r);
         inSotto = true;   // il sottomenu prende il mouse: per questo menu non e' un motivo per chiudersi
@@ -820,8 +822,8 @@ private:
 };
 
 static UINT mostra(const std::vector<Voce>& voci, POINT pt, HWND proprietario, bool versoAlto = false,
-                   std::function<void(HMENU)> prepara = nullptr) {
-    return Menu::mostra(voci, pt, proprietario, versoAlto, prepara);
+                   std::function<void(HMENU)> prepara = nullptr, int temaOverride = -1) {
+    return Menu::mostra(voci,pt,proprietario,versoAlto,prepara,temaOverride);
 }
 
 } // namespace menu

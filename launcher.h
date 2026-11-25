@@ -1036,9 +1036,10 @@ inline auto Motore::rettProfilo() const -> D2D1_RECT_F { return {16*dpi, lFooter
 inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW-72*dpi, lFooterTop()+6*dpi, LW-16*dpi, lFooterTop()+46*dpi}; }
 
 // Menu di Windows per l'app (lo stesso dello Start), con in cima "Aggiungi al dock"
-inline auto Motore::menuApp(int i, POINT pt) -> void {
-    if (i < 0 || i >= (int)filtrate.size()) return;
-    const AppL a = tutteApp[filtrate[i]];
+inline auto Motore::menuApp(int indiceApp, POINT pt) -> void {
+    // menuApp riceve sempre l'indice reale in tutteApp, anche dal Workspace fissato.
+    if (indiceApp < 0 || indiceApp >= (int)tutteApp.size()) return;
+    const AppL a = tutteApp[indiceApp];
     IShellItem* it = nullptr;
     if (FAILED(SHCreateItemFromParsingName(a.avvio.c_str(), nullptr, IID_PPV_ARGS(&it)))) return;
     IContextMenu* cm = nullptr;
@@ -1056,17 +1057,18 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
     it->Release();
     if (!cm) return;
     const UINT ID_DOCK = 0x7F00, ID_PIN_START = 0x7F01;
-    const int indiceApp=tutteApp[filtrate[i]].avvio==a.avvio?filtrate[i]:-1;
     const bool giaFissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),a.avvio)!=lPinnedManual.end();
     HMENU m = CreatePopupMenu();
     if (SUCCEEDED(cm->QueryContextMenu(m, 0, 1, ID_DOCK - 1, CMF_NORMAL))) {
         cm->QueryInterface(IID_PPV_ARGS(&menuShell2)); cm->QueryInterface(IID_PPV_ARGS(&menuShell3));
-        // Le azioni FluidWin vengono prima delle voci fornite dalla shell.
+        // Le azioni FluidWin vengono prima delle voci shell.
+        auto pinVoce=menu::voce(giaFissata?testi::t(L"Rimuovi da Start Menu",L"Unpin from Start Menu")
+                                          :testi::t(L"Fissa a Start",L"Pin to Start"),ID_PIN_START);
+        pinVoce.simbolo=menu::I_BARRA;
         std::vector<menu::Voce> voci = {
             menu::titolo(a.nome),
-            menu::voce(giaFissata?testi::t(L"Rimuovi da Start",L"Unpin from Start")
-                                :testi::t(L"Fissa a Start",L"Pin to Start"),ID_PIN_START),
-            menu::voce(testi::t(L"Aggiungi al dock", L"Add to dock"), ID_DOCK)
+            pinVoce,
+            menu::voce(testi::t(L"Aggiungi al dock",L"Add to dock"),ID_DOCK)
         };
         // "Disinstalla" (la voce di Windows, per le app dello Store e per le altre) in cima, subito visibile
         UINT idDisinstalla = 0;
@@ -1078,17 +1080,35 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
         }
         if (idDisinstalla) voci.push_back(menu::voce(testi::t(L"Disinstalla…", L"Uninstall…"), idDisinstalla));
         voci.push_back(menu::separatore());
-        for (auto& v : menu::daHmenu(m)) if (v.id != idDisinstalla || v.separatore) voci.push_back(v);
+        // Windows contributes a separate "Unpin from Start menu" command which only edits
+        // the native Start list. Hide it here: FluidWin's own entry above updates Workspace.ini.
+        for (auto& v : menu::daHmenu(m)) {
+            std::wstring testo=v.testo, verbo;
+            std::transform(testo.begin(),testo.end(),testo.begin(),[](wchar_t ch){return (wchar_t)towlower(ch);});
+            bool unpinShell=testo.find(L"unpin from start")!=std::wstring::npos ||
+                             testo.find(L"rimuovi da start")!=std::wstring::npos;
+            if(v.id && v.id!=(UINT)-1) {
+                wchar_t nomeVerbo[128]=L"";
+                if(SUCCEEDED(cm->GetCommandString(v.id-1,GCS_VERBW,nullptr,(LPSTR)nomeVerbo,128))) {
+                    verbo=nomeVerbo;
+                    std::transform(verbo.begin(),verbo.end(),verbo.begin(),[](wchar_t ch){return (wchar_t)towlower(ch);});
+                    if(verbo.find(L"unpinfromstart")!=std::wstring::npos) unpinShell=true;
+                }
+            }
+            if(unpinShell) continue;
+            if(v.id!=idDisinstalla || v.separatore) voci.push_back(v);
+        }
         // i sottomenu ("Invia a", "Apri con"...) la shell li riempie solo quando stanno per aprirsi
         auto prepara = [this](HMENU s) {
             if (menuShell3) { LRESULT r = 0; menuShell3->HandleMenuMsg2(WM_INITMENUPOPUP, (WPARAM)s, 0, &r); }
             else if (menuShell2) menuShell2->HandleMenuMsg(WM_INITMENUPOPUP, (WPARAM)s, 0);
         };
-        const UINT cmd = menu::mostra(voci, pt, launcher, false, prepara);
+        const int temaMenu=coloreAuto?(temaScuro()?1:0):(fondoScuro?1:0);
+        const UINT cmd = menu::mostra(voci,pt,launcher,false,prepara,temaMenu);
         if (menuShell3) { menuShell3->Release(); menuShell3 = nullptr; }
         if (menuShell2) { menuShell2->Release(); menuShell2 = nullptr; }
         if (cmd == ID_PIN_START) {
-            if(indiceApp>=0) togglePinned(indiceApp);
+            togglePinned(indiceApp);
         } else if (cmd == ID_DOCK) {
             aggiungiAlDock(a.nome, exe, id, a.avvio);
         } else if (cmd > 0) {
@@ -1337,9 +1357,10 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
         dc->DrawLine({dx,70*dpi},{dx,lFooterTop()},pennello,1*dpi);
 
-        // Sei app fissate: due colonne e tre righe, con spazio stabile per le azioni rapide.
-        pennello->SetColor(ink);
-        scrivi(testi::t(L"PINNED WORKSPACE",L"PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-16*dpi,122*dpi});
+        // Workspace heading shares the typography and muted color of App Library Folders.
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-104*dpi,122*dpi});
+        scrivi(std::to_wstring(lPinned.size())+L" / 6",fmtNome,{dx-96*dpi,90*dpi,dx-16*dpi,122*dpi});
         for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
             const bool sopra=i==lSopraPinned;
@@ -1402,12 +1423,11 @@ inline auto Motore::renderLauncher() -> bool {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
             pennello->SetColor(fissata?blu:tenue);
             const float px=r.right-54*dpi, py=r.top+16*dpi;
-            const D2D1_ELLIPSE testa={{px,py-3*dpi},3.6f*dpi,3.6f*dpi};
+            const D2D1_ELLIPSE testa={{px+1.5f*dpi,py-3.0f*dpi},3.5f*dpi,3.5f*dpi};
             if(fissata) dc->FillEllipse(testa,pennello);
             else dc->DrawEllipse(testa,pennello,1.45f*dpi);
-            dc->DrawLine({px-2.4f*dpi,py},{px,py+4.5f*dpi},pennello,1.5f*dpi);
-            dc->DrawLine({px+2.4f*dpi,py},{px,py+4.5f*dpi},pennello,1.5f*dpi);
-            dc->DrawLine({px,py+4.5f*dpi},{px,py+8*dpi},pennello,1.5f*dpi);
+            dc->DrawLine({px-2.0f*dpi,py-6.0f*dpi},{px+5.0f*dpi,py+1.0f*dpi},pennello,1.8f*dpi);
+            dc->DrawLine({px+0.7f*dpi,py-0.6f*dpi},{px-6.5f*dpi,py+6.5f*dpi},pennello,1.8f*dpi);
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
@@ -2021,15 +2041,18 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 const int folder=d->lCartellaIn(x,y);
                 if(folder>=0) { POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt); d->apriMenuCartella(folder,pt); d->lDirty=true; return 0; }
             }
-            int indice=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
-            const int pin=d->lPinnedIn(x,y);
-            if(pin>=0 && pin<(int)d->lPinned.size()) {
-                const int appIndex=d->lPinned[pin];
-                auto it=std::find(d->filtrate.begin(),d->filtrate.end(),appIndex);
-                if(it!=d->filtrate.end()) indice=(int)std::distance(d->filtrate.begin(),it);
+            int indiceApp=-1;
+            if(d->lModalita==0) {
+                const int pin=d->lPinnedIn(x,y);
+                if(pin>=0 && pin<(int)d->lPinned.size()) indiceApp=d->lPinned[pin];
+            } else if(d->lModalita==1 || d->lModalita==4) {
+                const int cella=d->lCellaIn(x,y);
+                if(cella>=0 && cella<(int)d->filtrate.size()) indiceApp=d->filtrate[cella];
             }
-            if(indice>=0) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuApp(indice,p); }
-            else {
+            if(indiceApp>=0) {
+                POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p);
+                d->menuApp(indiceApp,p);
+            } else {
                 const int k=d->lModalita==1?d->lFileIn(x,y):-1;
                 if(k>=0) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuFile(k,p); }
             }
