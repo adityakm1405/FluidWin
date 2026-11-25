@@ -1576,7 +1576,7 @@ inline auto Motore::renderLauncher() -> bool {
     }
 
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
-    if (lModalita == 1 && lScrollMax() > 0) {
+    if ((lModalita == 1 || lModalita == 4) && lScrollMax() > 0) {
         const D2D1_RECT_F b = lCursoreBarra();
         const bool larga = lSopraBarra || lTrascinoBarra;
         const float w = (larga ? 7.0f : 3.0f) * dpi, x1 = LW - 6 * dpi;
@@ -1597,7 +1597,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
         case WM_LBUTTONDOWN: {
             // barra di scorrimento: preso il cursore lo si trascina; un clic sul binario salta di una pagina
             const D2D1_RECT_F b = d->lRettBarra();
-            if (d->lModalita == 1 && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+            if ((d->lModalita == 1 || d->lModalita == 4) && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
                 const D2D1_RECT_F c = d->lCursoreBarra();
                 if (y < c.top || y >= c.bottom) {
                     const double pagina = (b.bottom - b.top) * 0.9;
@@ -1818,47 +1818,101 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             if (d->menuShell3) { LRESULT r = 0; if (SUCCEEDED(d->menuShell3->HandleMenuMsg2(m, w, l, &r))) return r; }
             else if (d->menuShell2) { if (SUCCEEDED(d->menuShell2->HandleMenuMsg(m, w, l))) return m == WM_INITMENUPOPUP ? 0 : TRUE; }
             break;
-        case WM_MOUSEWHEEL:
-            d->lSelTastiera = false;   // (la rotella ha la precedenza sulla scelta da tastiera)
-            if (d->lModalita == 1) d->lScrollObj = std::clamp(d->lScrollObj - GET_WHEEL_DELTA_WPARAM(w) / (double)WHEEL_DELTA * d->lCellaH() * 0.9, 0.0, d->lScrollMax());
-            d->lDirty = true; return 0;
-        case WM_CHAR:
-            if (w == 27) {
-                if (!d->query.empty()) { d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1; d->lScroll=d->lScrollObj=0; d->lDirty=true; }
-                else d->chiudiLauncher();
+        case WM_MOUSEWHEEL: {
+            d->lSelTastiera=false;
+            const double passo=GET_WHEEL_DELTA_WPARAM(w)/(double)WHEEL_DELTA;
+            if(d->lModalita==0 && x>=d->lDividerX()) {
+                double totale=0;
+                for(int i=0;i<(int)d->lCartelle.size();++i) totale+=(i==d->lCartellaAperta?114:36)*d->dpi+7*d->dpi;
+                const double max=std::max(0.0,totale-(d->lFooterTop()-8*d->dpi-122*d->dpi));
+                d->lScrollCartelle=std::clamp(d->lScrollCartelle-passo*42*d->dpi,0.0,max);
+            } else if(d->lModalita==2 || d->lModalita==3) {
+                const double top=d->lModalita==2?180*d->dpi:292*d->dpi;
+                const double bottom=d->lModalita==2?d->lFooterTop()-78*d->dpi:d->lFooterTop()-82*d->dpi;
+                const double visible=std::max(0.0,bottom-top);
+                const double total=std::ceil(tutteApp.size()/2.0)*35*d->dpi;
+                const double max=std::max(0.0,total-visible);
+                d->lScrollEditor=std::clamp(d->lScrollEditor-passo*42*d->dpi,0.0,max);
+            } else if(d->lModalita==1 || d->lModalita==4) {
+                d->lScrollObj=std::clamp(d->lScrollObj-passo*d->lCellaH()*0.9,0.0,d->lScrollMax());
             }
-            // Invio: con una ricerca la prima trovata (o quella scelta con le frecce); senza, quella scelta. Una riga dei
-            // file scelta con le frecce: quella. Nessuna app trovata: il primo file, se i risultati sono del testo
-            // scritto (altrimenti la ricerca completa in Esplora file, non un file di un testo vecchio)
-            else if (w == 13) {
-                if (d->lSelFile >= 0) d->apriFile(d->lSelFile);
-                else if (d->filtrate.empty() && !d->query.empty()) {
-                    const int r = d->lFileRighe();
-                    d->apriFile(r > 0 && d->lFileTesto == d->query ? 0 : r);
+            d->lDirty=true; return 0;
+        }
+        case WM_CHAR: {
+            if(d->lModalita==3 && d->lNomeNuovoAttivo) {
+                if(w==27) { d->lNomeNuovoAttivo=false; d->lDirty=true; return 0; }
+                if(w==13) { d->creaCartella(); return 0; }
+                if(w==8) { if(!d->lNomeNuovaCartella.empty()) d->lNomeNuovaCartella.pop_back(); d->lDirty=true; return 0; }
+                if(w>=32 && d->lNomeNuovaCartella.size()<48) {
+                    const wchar_t ch=(wchar_t)w;
+                    if(ch!=L'|' && ch!=L'/' && ch!=L'\\' && ch!=L':' && ch!=L'*' && ch!=L'?' &&
+                       ch!=L'"' && ch!=L'<' && ch!=L'>') d->lNomeNuovaCartella.push_back(ch);
+                    d->lDirty=true; return 0;
                 }
-                else d->avviaApp(!d->query.empty() || d->lSopra == d->lSel ? d->lSel : -1);
+                if(w==22 && OpenClipboard(h)) {
+                    if(HANDLE g=GetClipboardData(CF_UNICODETEXT)) {
+                        if(const wchar_t* t=(const wchar_t*)GlobalLock(g)) {
+                            for(const wchar_t* p=t;*p && *p!=L'\\r' && *p!=L'\\n' && d->lNomeNuovaCartella.size()<48;++p)
+                                if(*p>=32 && *p!=L'|' && *p!=L'/' && *p!=L'\\' && *p!=L':' && *p!=L'*' &&
+                                   *p!=L'?' && *p!=L'"' && *p!=L'<' && *p!=L'>') d->lNomeNuovaCartella.push_back(*p);
+                            GlobalUnlock(g);
+                        }
+                    }
+                    CloseClipboard(); d->lDirty=true; return 0;
+                }
+                return 0;
             }
-            else if (w == 8) { if (!d->query.empty()) { d->query.pop_back(); d->filtra(); if(d->query.empty()) d->lModalita=0; } }
-            else if (w == 127 || (w == 8 && (GetKeyState(VK_CONTROL) & 0x8000))) {   // Ctrl+Backspace: via l'ultima parola
-                while (!d->query.empty() && d->query.back() == L' ') d->query.pop_back();
-                while (!d->query.empty() && d->query.back() != L' ') d->query.pop_back();
-                d->filtra();
+            if(w==27) {
+                if(!d->query.empty()) {
+                    d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1;
+                    d->lScroll=d->lScrollObj=0; d->lDirty=true;
+                } else if(d->lModalita==1 || d->lModalita==2 || d->lModalita==3) {
+                    d->lModalita=0; d->lNomeNuovoAttivo=false; d->lScrollEditor=0; d->lDirty=true;
+                } else d->chiudiLauncher();
+                return 0;
             }
-            else if (w == 22) {   // Ctrl+V: incolla (solo la prima riga)
-                if (OpenClipboard(h)) {
-                    if (HANDLE g = GetClipboardData(CF_UNICODETEXT)) {
-                        if (const wchar_t* t = (const wchar_t*)GlobalLock(g)) {
-                            for (const wchar_t* c = t; *c && *c != L'\r' && *c != L'\n' && d->query.size() < 100; c++) if (*c >= 32) d->query += *c;
+            if(w==13) {
+                if(d->lSelFile>=0) d->apriFile(d->lSelFile);
+                else if(d->filtrate.empty() && !d->query.empty()) {
+                    const int rows=d->lFileRighe();
+                    d->apriFile(rows>0 && d->lFileTesto==d->query?0:rows);
+                } else if(!d->filtrate.empty() && (d->lModalita==1 || d->lModalita==4))
+                    d->avviaApp(d->lSel);
+                return 0;
+            }
+            if(w==127 || (w==8 && (GetKeyState(VK_CONTROL)&0x8000))) {
+                while(!d->query.empty() && d->query.back()==L' ') d->query.pop_back();
+                while(!d->query.empty() && d->query.back()!=L' ') d->query.pop_back();
+                d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0; return 0;
+            }
+            if(w==8) {
+                if(!d->query.empty()) {
+                    d->query.pop_back(); d->filtra(); d->lModalita=d->query.empty()?0:4;
+                }
+                d->lDirty=true; return 0;
+            }
+            if(w==22) {
+                if(OpenClipboard(h)) {
+                    if(HANDLE g=GetClipboardData(CF_UNICODETEXT)) {
+                        if(const wchar_t* t=(const wchar_t*)GlobalLock(g)) {
+                            for(const wchar_t* p=t;*p && *p!=L'\\r' && *p!=L'\\n' && d->query.size()<100;++p)
+                                if(*p>=32) d->query+=*p;
                             GlobalUnlock(g);
                         }
                     }
                     CloseClipboard();
-                    d->filtra(); d->lModalita=1;
+                    d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0;
                 }
+                return 0;
             }
-            else if (w >= 32) { d->query += (wchar_t)w; d->lModalita=1; d->filtra(); }
+            if(w>=32) {
+                d->query+=(wchar_t)w; d->lModalita=4; d->filtra();
+                d->lScroll=d->lScrollObj=0; d->lSelFile=-1; return 0;
+            }
             return 0;
+        }
         case WM_KEYDOWN: {
+            if(d->lModalita==2 || (d->lModalita==3 && d->lNomeNuovoAttivo)) return 0;
             // Frecce su e giu' fra griglia e file: dall'ultima riga di app (o senza app) la freccia giu' entra nei file;
             // nei file su e giu' scorrono le righe, fino a "Cerca in Esplora file"; su dalla prima torna alla griglia.
             // Gli altri tasti di spostamento riportano nella griglia
