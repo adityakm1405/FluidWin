@@ -799,7 +799,7 @@ inline auto Motore::lCellaW() const -> float {
     const float sx=lModalita==1?lDividerX()+14*dpi:16*dpi;
     return lVistaLista ? LW-sx-16*dpi : (LW-sx-32*dpi)/lColonne();
 }
-inline auto Motore::lCellaH() const -> float { return lVistaLista ? 52*dpi : 104*dpi; }
+inline auto Motore::lCellaH() const -> float { return lVistaLista ? 56*dpi : 104*dpi; }
 inline auto Motore::lAllTop() const -> float { return 78*dpi; }
 
 inline auto Motore::lListaY(int i) const -> float {
@@ -1320,7 +1320,7 @@ inline auto Motore::renderLauncher() -> bool {
         if(prossima!=lScalaPinnedHover[i]) { lScalaPinnedHover[i]=prossima; anim=true; }
     }
     {
-        const double obiettivo=(lModalita==1 && lSopra>=0)?1.025:1.0;
+        const double obiettivo=(lModalita==1 && lSopra>=0)?1.015:1.0;
         const double prossima=verso(lScalaAllHover,obiettivo,0.075);
         if(prossima!=lScalaAllHover) { lScalaAllHover=prossima; anim=true; }
     }
@@ -1479,8 +1479,8 @@ inline auto Motore::renderLauncher() -> bool {
         const D2D1_RECT_F tile=rct({iconCx-iconSide*0.5f,iconCy-iconSide*0.5f,
                                     iconCx+iconSide*0.5f,iconCy+iconSide*0.5f});
         const int cat=lCategoriaApp(app);
-        const float radius=9*dpi*scala;
-        pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f))
+        const float radius=12*dpi*scala;
+        pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.105f))
                                 :(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({r,radius,radius},pennello);
         drawAppIcon(appIndex,tile);
@@ -1580,9 +1580,10 @@ inline auto Motore::renderLauncher() -> bool {
         dc->PopAxisAlignedClip();
     }
     else if(lModalita==1) {
-        pennello->SetColor(ink);
+        // Match the muted Workspace / App Library Folders heading and align to the Folders button.
+        pennello->SetColor(tenue);
         scrivi(std::wstring(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS"))+L" ("+std::to_wstring(tutteApp.size())+L")",
-               fmtTitolo,{rx,90*dpi,rr-96*dpi,122*dpi});
+               fmtTitolo,{rx,84*dpi,rr-96*dpi,116*dpi});
         const D2D1_RECT_F folders={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({folders,8*dpi,8*dpi},pennello);
@@ -1607,12 +1608,12 @@ inline auto Motore::renderLauncher() -> bool {
                 }
                 // Draw the hovered tile after its neighbours so their paint cannot cover its scaled rounded corners.
                 if(i!=lSopra)
-                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+2*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,false);
+                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+4*dpi,riga.right-1*dpi,riga.bottom-4*dpi},false,true,false);
             }
             if(lSopra>=0 && lSopra<(int)filtrate.size()) {
                 const D2D1_RECT_F riga=lCella(lSopra);
                 if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi)
-                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+2*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,true);
+                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+4*dpi,riga.right-1*dpi,riga.bottom-4*dpi},false,true,true);
             }
         } else {
             // Paint every non-hovered app first; render the scaled hovered app last to preserve all four rounded corners.
