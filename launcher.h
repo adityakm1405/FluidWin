@@ -1324,13 +1324,13 @@ inline auto Motore::renderLauncher() -> bool {
     }
     else if(lModalita==1) {
         pennello->SetColor(ink);
-        scrivi(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS")+L" ("+std::to_wstring(tutteApp.size())+L")",
+        scrivi(std::wstring(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS"))+L" ("+std::to_wstring(tutteApp.size())+L")",
                fmtTitolo,{rx,76*dpi,rr-96*dpi,108*dpi});
         const D2D1_RECT_F folders={rr-84*dpi,79*dpi,rr,109*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({folders,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
-        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{folders.left+5*dpi,folders.top,folders.right-4*dpi,folders.bottom});
+        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{folders.left+5*dpi,folders.top,folders.right-4*dpi,folders.bottom});
 
         dc->PushAxisAlignedClip({rx,136*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
         if(lVistaLista) {
@@ -1463,7 +1463,7 @@ inline auto Motore::renderLauncher() -> bool {
             scrivi(glifi[i],fmtNome,item);
         }
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"SELEZIONA APP",L"SELECT APPS")+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
+        scrivi(std::wstring(testi::t(L"SELEZIONA APP",L"SELECT APPS"))+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
                fmtNome,{pane.left+12*dpi,pane.top+129*dpi,pane.right-12*dpi,pane.top+150*dpi});
 
         dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+158*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
@@ -1500,7 +1500,7 @@ inline auto Motore::renderLauncher() -> bool {
     else {
         // Vista Spotlight: risultati a schede, come nello screenshot di ricerca.
         pennello->SetColor(blu);
-        scrivi(testi::t(L"TOP MATCHES",L"TOP MATCHES")+L" ("+std::to_wstring(filtrate.size())+L")",
+        scrivi(std::wstring(testi::t(L"TOP MATCHES",L"TOP MATCHES"))+L" ("+std::to_wstring(filtrate.size())+L")",
                fmtTitolo,{16*dpi,78*dpi,LW-16*dpi,108*dpi});
         if(filtrate.empty()) {
             pennello->SetColor(tenue);
