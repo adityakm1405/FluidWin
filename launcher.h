@@ -619,10 +619,10 @@ inline auto Motore::creaCartella() -> void {
     std::wstring nome=lNomeNuovaCartella;
     while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
     while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
-    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
-    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder.").,L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders.").,L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
     for(const auto& f:lCartelle) if(!_wcsicmp(f.nome.c_str(),nome.c_str())) {
-        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists.").,L"FluidWin",MB_OK|MB_ICONINFORMATION);
         return;
     }
     CartellaL nuova; nuova.nome=nome; nuova.icona=lIconaNuovaCartella; nuova.colore=lIconaNuovaCartella; nuova.personalizzata=true;
@@ -1384,7 +1384,7 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
-        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
         const int cat=lCartelle[lCartellaGestita].colore%6;
         pennello->SetColor(accenti[cat]);
         scrivi(iconeCartella[lCartelle[lCartellaGestita].icona%6],fmtNome,{pane.left+14*dpi,pane.top+5*dpi,pane.left+36*dpi,pane.top+36*dpi});
@@ -1434,7 +1434,7 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
-        scrivi(L"▱  "+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
 
         pennello->SetColor(tenue);
         scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtNome,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
