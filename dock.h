@@ -3556,13 +3556,14 @@ private:
     std::wstring query;
     bool lVistaLista = true;               // elenco alfabetico come vista predefinita
     int lModalita = 0;                      // 0 workspace, 1 All Apps, 2 manage folder, 3 new folder, 4 search
-    int lCartellaAperta = 0;                // una sola cartella dell'archivio aperta alla volta
+    int lCartellaAperta = -1;                // una sola cartella dell'archivio aperta alla volta
     int lCartellaGestita = -1;
     int lCartellaRinomina = -1;
     std::wstring lNomeNuovaCartella;
     std::vector<double> lAngoliCartella;
     bool lPinnedEspanso = true, lAzioniEspanse = true;
     double lPinnedReveal = 1.0, lAzioniReveal = 1.0;
+    double lPinnedChevronAngle = 3.141592653589793, lAzioniChevronAngle = 3.141592653589793;
     ID2D1Bitmap1* lFotoProfilo = nullptr;
     bool lFotoProfiloTentata = false;
     std::vector<std::wstring> lAppNuovaCartella;
