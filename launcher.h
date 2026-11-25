@@ -145,7 +145,7 @@ inline auto Motore::raccogliIcone() -> bool {
 inline auto Motore::launcherDaDisegnare() const -> bool { return lAperto && (lDirty || lAnim); }
 
 inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
-    LW = std::ceil(740 * dpi); LH = LHMAX = std::ceil(520 * dpi); LEXTRA = std::ceil(160 * dpi);
+    LW = std::ceil(740 * dpi); LH = LHMAX = std::ceil(574 * dpi); LEXTRA = std::ceil(160 * dpi);
     WNDCLASSW wl{}; wl.lpfnWndProc = procLauncher; wl.hInstance = inst; wl.lpszClassName = L"FluidWin.Launcher";
     wl.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClassW(&wl);
@@ -724,7 +724,7 @@ inline auto Motore::lListaAlto() const -> float {
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
     const float w=(lDividerX()-40*dpi)/2.0f;
     const float x=16*dpi+(i%2)*(w+8*dpi);
-    const float y=122*dpi+(i/2)*56*dpi;
+    const float y=112*dpi+(i/2)*56*dpi;
     return {x,y,x+w,y+50*dpi};
 }
 inline auto Motore::lPinnedIn(float x,float y) const -> int {
@@ -1197,9 +1197,9 @@ inline auto Motore::renderLauncher() -> bool {
 
         // Workspace fissato: le sei app preferite restano presenti in ogni pagina della libreria.
         pennello->SetColor(ink);
-        scrivi(testi::t(L"★  WORKSPACE FISSATO",L"★  PINNED WORKSPACE"),fmtTitolo,{16*dpi,76*dpi,dx-94*dpi,108*dpi});
+        scrivi(testi::t(L"★  WORKSPACE FISSATO",L"★  PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-94*dpi,122*dpi});
         pennello->SetColor(tenue);
-        scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-104*dpi,76*dpi,dx-16*dpi,108*dpi});
+        scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-104*dpi,90*dpi,dx-16*dpi,122*dpi});
         for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
             const bool sopra=i==lSopraPinned;
@@ -1215,10 +1215,12 @@ inline auto Motore::renderLauncher() -> bool {
         }
 
         const float ay=LH-158*dpi;
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.07f));
+        dc->DrawLine({16*dpi,ay-18*dpi},{dx-16*dpi,ay-18*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
         scrivi(testi::t(L"AZIONI ISTANTANEE",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
         for(int k=0;k<2;++k) {
-            const float top=ay+(k==0?28:68)*dpi;
+            const float top=ay+(k==0?20:58)*dpi;
             const D2D1_RECT_F ar={16*dpi,top,leftR,top+34*dpi};
             pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
             dc->FillRoundedRectangle({ar,10*dpi,10*dpi},pennello);
@@ -1269,9 +1271,9 @@ inline auto Motore::renderLauncher() -> bool {
     if(lModalita==0) {
         // Libreria app a fisarmonica, con cartelle personalizzate persistenti.
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,76*dpi,rr-174*dpi,108*dpi});
-        const D2D1_RECT_F add={rr-166*dpi,79*dpi,rr-91*dpi,109*dpi};
-        const D2D1_RECT_F all={rr-84*dpi,79*dpi,rr,109*dpi};
+        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,90*dpi,rr-174*dpi,122*dpi});
+        const D2D1_RECT_F add={rr-166*dpi,85*dpi,rr-91*dpi,115*dpi};
+        const D2D1_RECT_F all={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
         dc->FillRoundedRectangle({add,8*dpi,8*dpi},pennello);
         dc->FillRoundedRectangle({all,8*dpi,8*dpi},pennello);
@@ -1325,8 +1327,8 @@ inline auto Motore::renderLauncher() -> bool {
     else if(lModalita==1) {
         pennello->SetColor(ink);
         scrivi(std::wstring(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS"))+L" ("+std::to_wstring(tutteApp.size())+L")",
-               fmtTitolo,{rx,76*dpi,rr-96*dpi,108*dpi});
-        const D2D1_RECT_F folders={rr-84*dpi,79*dpi,rr,109*dpi};
+               fmtTitolo,{rx,90*dpi,rr-96*dpi,122*dpi});
+        const D2D1_RECT_F folders={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({folders,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
@@ -1379,8 +1381,8 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
         const int count=(int)lAppCategoria(lCartellaGestita).size();
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"GESTISCI APP CARTELLA",L"MANAGE FOLDER APPS"),fmtTitolo,{rx,76*dpi,rr-92*dpi,108*dpi});
-        const D2D1_RECT_F back={rr-84*dpi,79*dpi,rr,109*dpi};
+        scrivi(testi::t(L"GESTISCI APP CARTELLA",L"MANAGE FOLDER APPS"),fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
@@ -1429,8 +1431,8 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
         dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),fmtTitolo,{rx,76*dpi,rr-92*dpi,108*dpi});
-        const D2D1_RECT_F back={rr-84*dpi,79*dpi,rr,109*dpi};
+        scrivi(testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
