@@ -961,6 +961,7 @@ static bool giocoASchermoIntero() {
 // SetWindowPos: niente iniezione. All'uscita di FluidWin le finestre tornano normali.
 static std::unordered_set<HWND> gInPrimoPiano;
 static const int TASTO_PRIMO_PIANO = 1;
+static const int TASTO_LAUNCHER = 2;
 
 static void primoPiano() {
     HWND h = GetForegroundWindow();
@@ -4260,7 +4261,10 @@ static LRESULT CALLBACK procMessaggi(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             return 0;
         case WM_APRI_LAUNCHER: if (gDockOk) gDock.apriLauncher(); return 0;
-        case WM_HOTKEY: if (w == TASTO_PRIMO_PIANO) primoPiano(); return 0;
+        case WM_HOTKEY:
+            if (w == TASTO_PRIMO_PIANO) primoPiano();
+            else if (w == TASTO_LAUNCHER && gDockOk) gDock.apriLauncher();
+            return 0;
         case WM_CLIPBOARDUPDATE: appunti::Cronologia::io().cambiato(); return 0;   // cronologia degli appunti
         case WM_APP + 14: {
             const POINT pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)}; HWND h = WindowFromPoint(pt);
@@ -4769,6 +4773,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     gMessaggi = CreateWindowExW(0, wm.lpszClassName, L"FluidWin", 0, 0, 0, 0, 0, nullptr, nullptr, inst, nullptr);
     SetTimer(gMessaggi, 1, 500, nullptr);
     appunti::Cronologia::io().avvia(gMessaggi);   // cronologia degli appunti (solo in memoria)
+    // Alt+Spazio apre il nuovo workspace launcher; se l'hotkey e' gia' occupata, resta disponibile l'icona del dock.
+    if (!RegisterHotKey(gMessaggi, TASTO_LAUNCHER, MOD_ALT | MOD_NOREPEAT, VK_SPACE))
+        logf("Alt+Spazio usata da un altro programma (errore %lu): aprire il launcher dal dock", GetLastError());
     // Ctrl+Win+T: sempre in primo piano (se un altro programma la usa gia', resta a lui)
     if (!RegisterHotKey(gMessaggi, TASTO_PRIMO_PIANO, MOD_CONTROL | MOD_WIN | MOD_NOREPEAT, 'T'))
         logf("Ctrl+Win+T usata da un altro programma (errore %lu): niente sempre in primo piano", GetLastError());
