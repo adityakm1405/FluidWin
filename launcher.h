@@ -1401,7 +1401,13 @@ inline auto Motore::renderLauncher() -> bool {
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
             pennello->SetColor(fissata?blu:tenue);
-            scrivi(fissata?L"📌":L"📍",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
+            const float px=r.right-54*dpi, py=r.top+16*dpi;
+            const D2D1_ELLIPSE testa={{px,py-3*dpi},3.6f*dpi,3.6f*dpi};
+            if(fissata) dc->FillEllipse(testa,pennello);
+            else dc->DrawEllipse(testa,pennello,1.45f*dpi);
+            dc->DrawLine({px-2.4f*dpi,py},{px,py+4.5f*dpi},pennello,1.5f*dpi);
+            dc->DrawLine({px+2.4f*dpi,py},{px,py+4.5f*dpi},pennello,1.5f*dpi);
+            dc->DrawLine({px,py+4.5f*dpi},{px,py+8*dpi},pennello,1.5f*dpi);
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
@@ -1733,6 +1739,38 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawLine({px,py-11*dpi},{px,py+1*dpi},pennello,2.0f*dpi);
     }
 
+    // Native-looking FluidWin folder menu: matching dark/light surface, rounded edge and restrained hover.
+    if(lCartellaMenuAperto && lCartellaMenuIndice>=0 && lCartellaMenuIndice<(int)lCartelle.size()) {
+        const float mx=lCartellaMenuX,my=lCartellaMenuY,mw=184*dpi,mh=132*dpi;
+        const D2D1_RECT_F panel={mx,my,mx+mw,my+mh};
+        pennello->SetColor(scuro?D2D1::ColorF(0.055f,0.065f,0.085f,0.985f):D2D1::ColorF(0.96f,0.97f,0.985f,0.985f));
+        dc->FillRoundedRectangle({panel,12*dpi,12*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.13f):D2D1::ColorF(0.10f,0.14f,0.20f,0.12f));
+        dc->DrawRoundedRectangle({panel,12*dpi,12*dpi},pennello,1*dpi);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"CARTELLA",L"FOLDER"),fmtSotto,{mx+12*dpi,my+4*dpi,mx+mw-12*dpi,my+28*dpi});
+        pennello->SetColor(ink);
+        scrivi(lCartelle[lCartellaMenuIndice].nome,fmtVoce,{mx+12*dpi,my+20*dpi,mx+mw-12*dpi,my+42*dpi});
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawLine({mx+10*dpi,my+44*dpi},{mx+mw-10*dpi,my+44*dpi},pennello,1*dpi);
+        const wchar_t* etichette[3]={
+            testi::t(L"Rinomina",L"Rename"),
+            testi::t(L"Gestisci app",L"Manage apps"),
+            testi::t(L"Rimuovi",L"Remove")
+        };
+        const wchar_t* simboli[3]={L"✎",L"☷",L"−"};
+        for(int k=0;k<3;++k) {
+            const D2D1_RECT_F row={mx+7*dpi,my+(48+k*27)*dpi,mx+mw-7*dpi,my+(74+k*27)*dpi};
+            if(lCartellaMenuHover==k) {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0.05f,0.20f,0.38f,0.08f));
+                dc->FillRoundedRectangle({row,7*dpi,7*dpi},pennello);
+            }
+            pennello->SetColor(k==2?D2D1::ColorF(0.92f,0.30f,0.34f,1.0f):ink);
+            scrivi(simboli[k],fmtVoce,{row.left+8*dpi,row.top,row.left+30*dpi,row.bottom});
+            scrivi(etichette[k],fmtVoce,{row.left+36*dpi,row.top,row.right-7*dpi,row.bottom});
+        }
+    }
+
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
     if ((lModalita == 1 || lModalita == 4) && lScrollMax() > 0) {
         const D2D1_RECT_F b = lCursoreBarra();
@@ -1770,6 +1808,14 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         case WM_MOUSEMOVE: {
             if(!d->lMouseDentro) { TRACKMOUSEEVENT tm{sizeof(tm),TME_LEAVE,h,0}; TrackMouseEvent(&tm); d->lMouseDentro=true; }
+            if(d->lCartellaMenuAperto) {
+                int hover=-1;
+                const float mx=d->lCartellaMenuX,my=d->lCartellaMenuY;
+                if(x>=mx+7*d->dpi && x<mx+177*d->dpi && y>=my+48*d->dpi && y<my+129*d->dpi)
+                    hover=(int)((y-(my+48*d->dpi))/(27*d->dpi));
+                if(hover!=d->lCartellaMenuHover) { d->lCartellaMenuHover=hover; d->lDirty=true; }
+                return 0;
+            }
             if(d->lTrascinoBarra) {
                 const double alt=d->lGrigliaBottom()-d->lGrigliaTop(),c=d->lCursoreBarra().bottom-d->lCursoreBarra().top;
                 const double corsa=std::max(1.0,alt-c);
@@ -1797,7 +1843,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lDirty=true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             break;
@@ -1826,30 +1872,6 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 if(d->impostazioni) d->impostazioni(nullptr);
                 else ShellExecuteW(nullptr,L"open",L"ms-settings:",nullptr,nullptr,SW_SHOWNORMAL);
                 return 0;
-            }
-
-            // I due header del workspace possono alternarsi senza sovrapporre i contenuti.
-            if(d->lModalita!=4 && y>=90*d->dpi && y<122*d->dpi &&
-               x>=d->lDividerX()-48*d->dpi && x<d->lDividerX()-10*d->dpi) {
-                if(d->lPinnedEspanso) {
-                    d->lPinnedEspanso=false;
-                    if(d->lPinned.size()>6) d->lAzioniEspanse=true;
-                } else {
-                    d->lPinnedEspanso=true;
-                    if(d->lPinned.size()>6) d->lAzioniEspanse=false;
-                }
-                d->lDirty=true; return 0;
-            }
-            const bool azioniSoloTitolo=d->lPinned.size()>6 && d->lPinnedEspanso;
-            const float ay=d->LH-(azioniSoloTitolo?80.0f:158.0f)*d->dpi;
-            if(d->lModalita!=4 && y>=ay && y<ay+24*d->dpi &&
-               x>=d->lDividerX()-48*d->dpi && x<d->lDividerX()-10*d->dpi) {
-                if(d->lAzioniEspanse) d->lAzioniEspanse=false;
-                else {
-                    d->lAzioniEspanse=true;
-                    if(d->lPinned.size()>6) d->lPinnedEspanso=false;
-                }
-                d->lDirty=true; return 0;
             }
 
             // Torna alla vista folders dalle pagine di libreria secondarie.
@@ -1917,30 +1939,31 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
 
             if(d->lModalita==0) {
-                const int plus=d->lCartellaPiuIn(x,y);
-                if(plus>=0) { d->apriGestisciCartella(plus); return 0; }
-                const int freccia=d->lCartellaFrecciaIn(x,y);
-                if(freccia>=0) {
-                    d->lCartellaAperta=(d->lCartellaAperta==freccia?-1:freccia);
-                    d->lDirty=true; return 0;
-                }
+                // Left click anywhere on a folder row expands/collapses it; context menu is right-click only.
                 const int folder=d->lCartellaIn(x,y);
                 if(folder>=0) {
-                    POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt);
-                    d->apriMenuCartella(folder,pt); d->lDirty=true; return 0;
+                    d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder);
+                    d->lDirty=true; return 0;
                 }
             }
 
-            // Instant actions.
+            // Four quick actions use the reserved area below the six pinned apps.
             if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
-                const float topAzioni=d->LH-(d->lPinned.size()>6 && d->lPinnedEspanso?80.0f:158.0f)*d->dpi;
-                if(d->lAzioniEspanse && y>=topAzioni+25*d->dpi && y<topAzioni+57*d->dpi) {
+                const float ay=d->LH-256*d->dpi;
+                const int action=(int)((y-(ay+28*d->dpi))/(36*d->dpi));
+                if(y>=ay+28*d->dpi && y<ay+28*d->dpi+4*36*d->dpi && action>=0 && action<4) {
                     d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                    ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
-                }
-                if(d->lAzioniEspanse && y>=topAzioni+63*d->dpi && y<topAzioni+95*d->dpi) {
-                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                    ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL); return 0;
+                    if(action==0) ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                    else if(action==1) ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL);
+                    else if(action==2) ShellExecuteW(nullptr,L"open",L"taskmgr.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                    else {
+                        PWSTR downloads=nullptr;
+                        if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads,0,nullptr,&downloads)) && downloads) {
+                            ShellExecuteW(nullptr,L"open",L"explorer.exe",downloads,nullptr,SW_SHOWNORMAL);
+                            CoTaskMemFree(downloads);
+                        } else ShellExecuteW(nullptr,L"open",L"shell:Downloads",nullptr,nullptr,SW_SHOWNORMAL);
+                    }
+                    return 0;
                 }
             }
 
