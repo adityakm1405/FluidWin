@@ -521,7 +521,7 @@ inline auto Motore::lCartellaIn(float x, float y) const -> int {
     float top = 122 * dpi;
     for (int i = 0; i < 6; ++i) {
         if (y >= top && y < top + 36 * dpi) return i;
-        top += (i == lCartellaAperta ? 119 : 36) * dpi + 7 * dpi;
+        top += (i == lCartellaAperta ? 114 : 36) * dpi + 7 * dpi;
     }
     return -1;
 }
@@ -540,7 +540,7 @@ inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
                 if (k >= 0 && k < (int)app.size() && k < 6) return app[k];
                 return -1;
             }
-            top += 119 * dpi + 7 * dpi;
+            top += 114 * dpi + 7 * dpi;
         } else top += 36 * dpi + 7 * dpi;
     }
     return -1;
@@ -1063,7 +1063,7 @@ inline auto Motore::renderLauncher() -> bool {
         }
 
         // Azioni istantanee nella parte bassa della colonna sinistra.
-        const float ay=LH-150*dpi;
+        const float ay=LH-158*dpi;
         pennello->SetColor(tenue);
         scrivi(testi::t(L"AZIONI ISTANTANEE",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
         for(int k=0;k<2;++k) {
@@ -1366,7 +1366,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                     d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
                 }
                 if (x >= d->LW-180*d->dpi && x < d->LW-105*d->dpi) {
-                    MessageBoxW(h, testi::t(L"Le cartelle di sistema vengono organizzate automaticamente in questa versione. La creazione di cartelle personalizzate e' ancora da implementare.", L"System app folders are automatically organized in this version. Custom folder creation is not implemented yet.").c_str(),
+                    MessageBoxW(h, testi::t(L"Le cartelle di sistema vengono organizzate automaticamente in questa versione. La creazione di cartelle personalizzate e' ancora da implementare.", L"System app folders are automatically organized in this version. Custom folder creation is not implemented yet."),
                                 L"FluidWin App Library", MB_OK|MB_ICONINFORMATION);
                     d->lDirty=true; return 0;
                 }
@@ -1376,7 +1376,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const int folderApp=d->lAppCartellaIn(x,y);
             if(folderApp>=0) { d->avviaAppDiretto(folderApp); return 0; }
             if(d->lModalita==0 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
-                const float ay=d->LH-150*d->dpi;
+                const float ay=d->LH-158*d->dpi;
                 if(y>=ay+28*d->dpi && y<ay+62*d->dpi) {
                     d->primaDelLauncher=nullptr; d->chiudiLauncher();
                     ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL);
