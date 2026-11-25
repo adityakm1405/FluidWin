@@ -743,7 +743,7 @@ inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
 }
 inline auto Motore::lNuovaAppIn(float x, float y) const -> int {
     if(lModalita!=3) return -1;
-    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=292*dpi;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=234*dpi;
     const float bottom=lFooterTop()-82*dpi;
     if(x<left || x>=right || y<top || y>=bottom) return -1;
     const float cw=(right-left-10*dpi)*0.5f, rowH=35*dpi;
