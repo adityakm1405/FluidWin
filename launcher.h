@@ -574,6 +574,7 @@ inline auto Motore::caricaCartelle() -> void {
             lCartelle.push_back(std::move(f));
         }
         salvaCartelle();
+        WritePrivateProfileStringW(L"Library",L"CustomFoldersResetV1",L"1",ini.c_str());
         return;
     }
     const int n=std::clamp(_wtoi(conteggio),0,32);
@@ -783,6 +784,66 @@ inline auto Motore::lListaAlto() const -> float {
     }
     return y;
 }
+inline auto Motore::caricaFotoProfilo() -> bool {
+    if(lFotoProfiloTentata) return lFotoProfilo!=nullptr;
+    lFotoProfiloTentata=true;
+    wchar_t appdata[MAX_PATH]=L"";
+    if(FAILED(SHGetFolderPathW(nullptr,CSIDL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,appdata))) return false;
+    const std::wstring cartella=std::wstring(appdata)+L"\\Microsoft\\Windows\\AccountPictures";
+    WIN32_FIND_DATAW fd{};
+    HANDLE h=FindFirstFileW((cartella+L"\\*").c_str(),&fd);
+    if(h==INVALID_HANDLE_VALUE) return false;
+    std::vector<std::wstring> candidati;
+    do {
+        if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) continue;
+        const std::wstring nome=fd.cFileName;
+        const size_t dot=nome.find_last_of(L'.');
+        if(dot==std::wstring::npos) continue;
+        std::wstring ext=nome.substr(dot);
+        for(auto& ch:ext) ch=(wchar_t)towlower(ch);
+        if(ext==L".png"||ext==L".jpg"||ext==L".jpeg"||ext==L".bmp"||ext==L".jfif")
+            candidati.push_back(cartella+L"\\"+nome);
+    } while(FindNextFileW(h,&fd));
+    FindClose(h);
+    std::sort(candidati.begin(),candidati.end(),[](const std::wstring& a,const std::wstring& b) {
+        WIN32_FILE_ATTRIBUTE_DATA da{},db{};
+        GetFileAttributesExW(a.c_str(),GetFileExInfoStandard,&da);
+        GetFileAttributesExW(b.c_str(),GetFileExInfoStandard,&db);
+        return CompareFileTime(&da.ftLastWriteTime,&db.ftLastWriteTime)>0;
+    });
+    for(const auto& percorso:candidati) {
+        IShellItemImageFactory* fab=nullptr;
+        if(FAILED(SHCreateItemFromParsingName(percorso.c_str(),nullptr,IID_PPV_ARGS(&fab)))||!fab) continue;
+        HBITMAP hb=nullptr;
+        const HRESULT hr=fab->GetImage({64,64},SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK,&hb);
+        fab->Release();
+        if(FAILED(hr)||!hb) continue;
+        BITMAP bm{}; GetObject(hb,sizeof(bm),&bm);
+        const int w=bm.bmWidth,hh=bm.bmHeight;
+        if(w<1||hh<1||w>512||hh>512) { DeleteObject(hb); continue; }
+        std::vector<UINT> px((size_t)w*hh);
+        BITMAPINFO bi{}; bi.bmiHeader={sizeof(BITMAPINFOHEADER),w,-hh,1,32,BI_RGB};
+        HDC scr=GetDC(nullptr);
+        const int letti=GetDIBits(scr,hb,0,hh,px.data(),&bi,DIB_RGB_COLORS);
+        ReleaseDC(nullptr,scr); DeleteObject(hb);
+        if(!letti) continue;
+        const float cx=(w-1)*0.5f,cy=(hh-1)*0.5f,rad=std::min(w,hh)*0.5f;
+        for(int yy=0;yy<hh;++yy) for(int xx=0;xx<w;++xx) {
+            UINT& p=px[(size_t)yy*w+xx];
+            const float dx=xx-cx,dy=yy-cy;
+            UINT a=p>>24;
+            if(dx*dx+dy*dy>rad*rad) a=0;
+            else if(a==0) a=255;
+            UINT rr=(p>>16)&255,gg=(p>>8)&255,bb=p&255;
+            rr=rr*a/255; gg=gg*a/255; bb=bb*a/255;
+            p=(a<<24)|(rr<<16)|(gg<<8)|bb;
+        }
+        lFotoProfilo=bitmapDaPixel(w,hh,px);
+        if(lFotoProfilo) return true;
+    }
+    return false;
+}
+
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
     const float w=(lDividerX()-40*dpi)/2.0f;
     const float x=16*dpi+(i%2)*(w+8*dpi);
