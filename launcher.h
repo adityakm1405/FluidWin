@@ -1320,7 +1320,7 @@ inline auto Motore::renderLauncher() -> bool {
         if(prossima!=lScalaPinnedHover[i]) { lScalaPinnedHover[i]=prossima; anim=true; }
     }
     {
-        const double obiettivo=(lModalita==1 && lSopra>=0)?1.035:1.0;
+        const double obiettivo=(lModalita==1 && lSopra>=0)?1.025:1.0;
         const double prossima=verso(lScalaAllHover,obiettivo,0.075);
         if(prossima!=lScalaAllHover) { lScalaAllHover=prossima; anim=true; }
     }
@@ -1475,30 +1475,23 @@ inline auto Motore::renderLauncher() -> bool {
         const float scala=hover?(float)lScalaAllHover:1.0f;
         auto rct=[&](const D2D1_RECT_F& box) { return scaleRect(box,cx,cy,scala); };
         const D2D1_RECT_F r=rct(base);
-        const float iconSide=29*dpi,iconCx=base.left+22*dpi,iconCy=(base.top+base.bottom)*0.5f;
+        const float iconSide=30*dpi,iconCx=base.left+22*dpi,iconCy=(base.top+base.bottom)*0.5f;
         const D2D1_RECT_F tile=rct({iconCx-iconSide*0.5f,iconCy-iconSide*0.5f,
                                     iconCx+iconSide*0.5f,iconCy+iconSide*0.5f});
         const int cat=lCategoriaApp(app);
-        const float radius=(hover?11.0f:9.0f)*dpi*scala;
+        const float radius=9*dpi*scala;
         pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f))
-                                :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f)));
+                                :(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({r,radius,radius},pennello);
-        if(hover) {
-            pennello->SetColor(scuro?D2D1::ColorF(0.72f,0.84f,1.0f,0.22f)
-                                    :D2D1::ColorF(0.12f,0.28f,0.46f,0.16f));
-            dc->DrawRoundedRectangle({r,radius,radius},pennello,1.1f*dpi);
-        }
         drawAppIcon(appIndex,tile);
 
-        // The app title is the only text in the All Apps row and is centered in the space
-        // beside its icon, both vertically and horizontally.
-        const DWRITE_TEXT_ALIGNMENT oldTextAlignment=fmtVoce->GetTextAlignment();
-        const DWRITE_PARAGRAPH_ALIGNMENT oldParagraphAlignment=fmtVoce->GetParagraphAlignment();
-        fmtVoce->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmtVoce->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        scrivi(app.nome,fmtVoce,rct({base.left+44*dpi,base.top,base.right-(pinnedControls?46:10)*dpi,base.bottom}));
-        fmtVoce->SetTextAlignment(oldTextAlignment);
-        fmtVoce->SetParagraphAlignment(oldParagraphAlignment);
+        // All Apps uses the exact centered composition from the reference:
+        // icon in the left gutter, title centered across the full row, pin at the far right.
+        if(pinnedControls) {
+            scrivi(app.nome,fmtNome,rct({base.left+48*dpi,base.top,base.right-48*dpi,base.bottom}));
+        } else {
+            scrivi(app.nome,fmtVoce,rct({base.left+44*dpi,base.top+3*dpi,base.right-10*dpi,base.top+25*dpi}));
+        }
 
         if(managed) {
             const bool selected=cat==lCartellaGestita;
@@ -1511,7 +1504,7 @@ inline auto Motore::renderLauncher() -> bool {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
             ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
             if(iconaPin) {
-                const float px=base.right-24*dpi, py=base.top+27*dpi, lato=14*dpi;
+                const float px=base.right-24*dpi, py=(base.top+base.bottom)*0.5f, lato=14*dpi;
                 const D2D1_RECT_F pinBox=rct({px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f});
                 dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
@@ -1649,10 +1642,7 @@ inline auto Motore::renderLauncher() -> bool {
                                                       riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi},cx,cy,scala);
                     const D2D1_RECT_F area=scaleRect(riga,cx,cy,scala);
                     pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f));
-                    dc->FillRoundedRectangle({area,11*dpi*scala,11*dpi*scala},pennello);
-                    pennello->SetColor(scuro?D2D1::ColorF(0.72f,0.84f,1.0f,0.22f)
-                                            :D2D1::ColorF(0.12f,0.28f,0.46f,0.16f));
-                    dc->DrawRoundedRectangle({area,11*dpi*scala,11*dpi*scala},pennello,1.1f*dpi);
+                    dc->FillRoundedRectangle({area,10*dpi*scala,10*dpi*scala},pennello);
                     drawAppIcon(index,tile);
                     pennello->SetColor(ink);
                     scrivi(tutteApp[index].nome,fmtNome,scaleRect({riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi},cx,cy,scala));
