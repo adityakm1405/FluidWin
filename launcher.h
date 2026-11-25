@@ -326,6 +326,7 @@ inline auto Motore::aggiornaPinned() -> void {
             if(tutteApp[i].avvio==percorso) { lPinned.push_back(i); break; }
         }
     }
+    if(lPinned.size()>6 && lPinnedEspanso) lAzioniEspanse=false;
 }
 inline auto Motore::salvaPinned() -> void {
     std::wstring elenco;
@@ -1421,7 +1422,7 @@ inline auto Motore::renderLauncher() -> bool {
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
             pennello->SetColor(fissata?blu:tenue);
-            scrivi(fissata?L"📌":L"",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
+            scrivi(fissata?L"📌":L"📍",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
@@ -1751,9 +1752,6 @@ inline auto Motore::renderLauncher() -> bool {
         // Power: cerchio aperto in alto con stelo verticale.
         const float px=(power.left+power.right)*0.5f, py=(power.top+power.bottom)*0.5f;
         dc->DrawEllipse({{px,py+1*dpi},9.5f*dpi,9.5f*dpi},pennello,1.8f*dpi);
-        pennello->SetColor(footerColor);
-        dc->FillRectangle({px-4*dpi,py-11*dpi,px+4*dpi,py-1*dpi},pennello);
-        pennello->SetColor(ink);
         dc->DrawLine({px,py-11*dpi},{px,py+1*dpi},pennello,2.0f*dpi);
     }
 
