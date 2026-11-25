@@ -1618,7 +1618,7 @@ inline auto Motore::renderLauncher() -> bool {
                 const float cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
                 const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
                                         riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.035f));
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
                 dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
                 drawAppIcon(index,tile);
                 pennello->SetColor(ink);
