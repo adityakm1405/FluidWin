@@ -3562,7 +3562,7 @@ private:
     int lCartellaRinomina = -1;
     std::wstring lNomeNuovaCartella;
     std::vector<double> lAngoliCartella;
-    bool lCartellaMenuAperto = false;
+    bool lCartellaMenuAperto = false; // custom D2D context menu
     int lCartellaMenuIndice = -1, lCartellaMenuHover = -1;
     float lCartellaMenuX = 0, lCartellaMenuY = 0;
     ID2D1Bitmap1* lFotoProfilo = nullptr;
