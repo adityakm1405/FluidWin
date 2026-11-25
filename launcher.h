@@ -4,6 +4,20 @@
 
 namespace dock {
 
+inline std::wstring codificaQueryWeb(const std::wstring& query) {
+    const int n=WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),nullptr,0,nullptr,nullptr);
+    if(n<=0) return L"";
+    std::string utf8(n,'\\0');
+    WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),utf8.data(),n,nullptr,nullptr);
+    const wchar_t* hex=L"0123456789ABCDEF";
+    std::wstring out;
+    for(unsigned char b:utf8) {
+        if((b>='a'&&b<='z')||(b>='A'&&b<='Z')||(b>='0'&&b<='9')||b=='-'||b=='_'||b=='.'||b=='~') out+=(wchar_t)b;
+        else { out+=L'%'; out+=hex[b>>4]; out+=hex[b&15]; }
+    }
+    return out;
+}
+
 // Preferiti del workspace salvati per utente; il file resta fuori dalla cartella del programma.
 inline std::wstring percorsoConfigLauncher() {
     wchar_t base[MAX_PATH] = L"";
@@ -1227,7 +1241,15 @@ inline auto Motore::renderLauncher() -> bool {
     if(filtrate.empty()) {
         pennello->SetColor(tenue);
         scrivi(testi::t(L"Nessuna app trovata",L"No apps found"),fmtNome,
-               {16*dpi,lGrigliaTop()+28*dpi,LW-16*dpi,lGrigliaTop()+60*dpi});
+               {16*dpi,lGrigliaTop()+20*dpi,LW-16*dpi,lGrigliaTop()+52*dpi});
+        if(!query.empty()) {
+            const D2D1_RECT_F web={16*dpi,lGrigliaTop()+62*dpi,LW-16*dpi,lGrigliaTop()+104*dpi};
+            pennello->SetColor(scuro?D2D1::ColorF(0.18f,0.34f,0.54f,0.22f):D2D1::ColorF(0.15f,0.42f,0.82f,0.10f));
+            dc->FillRoundedRectangle({web,10*dpi,10*dpi},pennello);
+            pennello->SetColor(blu);
+            scrivi(testi::t(L"Cerca sul Web: ",L"Search the Web for: ")+query,fmtNome,
+                   {web.left+12*dpi,web.top,web.right-12*dpi,web.bottom});
+        }
     }
     dc->PopAxisAlignedClip();
     if(disegnaFileLauncher(scuro,ink)) anim=true;
@@ -1363,6 +1385,14 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
             if (!d->query.empty() && x >= d->LW-107*d->dpi && x < d->LW-82*d->dpi && y >= 14*d->dpi && y < 54*d->dpi) {
                 d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1; d->lDirty=true; return 0;
+            }
+            if (d->lModalita == 1 && d->filtrate.empty() && !d->query.empty() &&
+                x >= 16*d->dpi && x < d->LW-16*d->dpi &&
+                y >= d->lGrigliaTop()+62*d->dpi && y < d->lGrigliaTop()+104*d->dpi) {
+                const std::wstring url=L"https://www.google.com/search?q="+codificaQueryWeb(d->query);
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
             }
             if (d->lModalita == 0 && y >= 79*d->dpi && y < 110*d->dpi) {
                 if (x >= d->LW-98*d->dpi && x < d->LW-14*d->dpi) {
