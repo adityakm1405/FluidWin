@@ -1425,8 +1425,8 @@ inline auto Motore::renderLauncher() -> bool {
         }
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
-            // Use the Microsoft Fluent Pin glyphs directly: Regular when unpinned,
-            // Filled when pinned. Both SVG resources are embedded and forced to white.
+            // Classic pushpin silhouette from the reference images in pics/: outline when
+            // unpinned and the exact same silhouette filled when pinned. Both are embedded white SVGs.
             ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
             if(iconaPin) {
                 const float px=r.right-54*dpi, py=r.top+16*dpi, lato=18*dpi;

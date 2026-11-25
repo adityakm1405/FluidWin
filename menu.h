@@ -556,8 +556,17 @@ private:
                 for (float x : {-6.5f, 0.8f}) for (float y : {-6.5f, 0.8f})
                     rt->FillRoundedRectangle({{cx + x * d, cy + y * d, cx + (x + 5.7f) * d, cy + (y + 5.7f) * d}, 1.2f * d, 1.2f * d}, pen);
                 break;
-            case I_BARRA:         // puntina
-                cerchio(1.5f, -3, 3.5f); l(-0.8f, -0.6f, -6.5f, 6.5f); l(-2, -6, 5, 1); break;
+            case I_BARRA:         // puntina classica inclinata
+                spezzata({
+                    {1.7f, -5.7f}, {3.0f, -5.8f}, {4.2f, -5.2f}, {5.5f, -3.9f},
+                    {6.3f, -2.8f}, {6.4f, -2.0f}, {5.5f, -1.1f}, {3.5f, -1.5f},
+                    {1.0f, 1.9f}, {0.1f, 3.0f}, {0.4f, 4.3f}, {1.0f, 5.4f},
+                    {0.5f, 6.4f}, {-0.4f, 6.5f}, {-1.3f, 5.6f}, {-3.1f, 3.8f},
+                    {-6.0f, 6.4f}, {-6.4f, 6.0f}, {-6.0f, 5.2f}, {-4.1f, 3.0f},
+                    {-6.2f, 0.9f}, {-6.1f, 0.0f}, {-5.1f, -0.4f}, {-3.5f, 0.3f},
+                    {-2.4f, 1.1f}, {1.5f, -1.8f}, {2.0f, -3.1f}, {1.2f, -4.8f}
+                }, true);
+                break;
             case I_PERCORSO:      // catena (percorso)
                 rt->SetTransform(D2D1::Matrix3x2F::Rotation(-40, {cx, cy}));
                 rr(-7, -2.5f, 0.5f, 2.5f, 2.5f); rr(-0.5f, -2.5f, 7, 2.5f, 2.5f);
