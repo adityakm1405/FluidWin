@@ -3532,6 +3532,13 @@ private:
 
     // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----
     struct AppL { std::wstring nome, avvio, minuscolo; ID2D1Bitmap1* icona = nullptr; bool provata = false; };
+    struct CartellaL {
+        std::wstring nome;
+        int icona = 0;
+        int colore = 0;
+        bool personalizzata = false;
+        std::vector<std::wstring> app;
+    };
     HWND launcher = nullptr, vetroLauncher = nullptr;
     IDXGISwapChain1* scL = nullptr; IDCompositionTarget* targetL = nullptr; IDCompositionVisual* visualL = nullptr;
     IDCompositionEffectGroup* effettoL = nullptr; ID2D1Bitmap1* bersaglioL = nullptr;
@@ -3545,10 +3552,17 @@ private:
     std::vector<int> filtrate;
     std::vector<int> lPinned;             // preferiti effettivamente installati
     std::vector<std::wstring> lPinnedManual; // percorsi fissati dall'utente, salvati in LocalAppData
+    std::vector<CartellaL> lCartelle;       // categorie predefinite e cartelle personalizzate
     std::wstring query;
-    bool lVistaLista = true;              // elenco alfabetico come vista predefinita
-    int lModalita = 0;                     // 0: workspace (preferiti + cartelle), 1: tutte le app/risultati
-    int lCartellaAperta = 0;               // una sola cartella dell'archivio aperta alla volta
+    bool lVistaLista = true;               // elenco alfabetico come vista predefinita
+    int lModalita = 0;                      // 0 workspace, 1 All Apps, 2 manage folder, 3 new folder, 4 search
+    int lCartellaAperta = 0;                // una sola cartella dell'archivio aperta alla volta
+    int lCartellaGestita = -1;
+    int lIconaNuovaCartella = 0;
+    std::wstring lNomeNuovaCartella;
+    std::vector<std::wstring> lAppNuovaCartella;
+    bool lNomeNuovoAttivo = false;
+    double lScrollCartelle = 0, lScrollEditor = 0;
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
     double lScroll = 0, lScrollObj = 0;
@@ -3635,12 +3649,24 @@ private:
     void aggiornaPinned();
     void salvaPinned();
     void togglePinned(int indiceApp);
+    void caricaCartelle();
+    void salvaCartelle();
+    void inizializzaCartelle();
+    void toggleAppCartella(int indiceApp, int cartella);
+    void creaCartella();
+    void apriGestisciCartella(int cartella);
+    int lCategoriaPredefinita(const AppL& app) const;
     int lCategoriaApp(const AppL& app) const;
+    int lIndiceCartella(const std::wstring& avvio) const;
+    std::wstring lNomeCategoria(const AppL& app) const;
     std::vector<int> lAppCategoria(int categoria) const;
     float lDividerX() const;
     float lFooterTop() const;
+    float lCartellaY(int cartella) const;
     int lCartellaIn(float x, float y) const;
     int lAppCartellaIn(float x, float y) const;
+    int lGestisciAppIn(float x, float y) const;
+    int lNuovaAppIn(float x, float y) const;
 
     float lColonne() const;
     float lCellaW() const;
