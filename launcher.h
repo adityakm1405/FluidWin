@@ -726,13 +726,9 @@ inline auto Motore::lCartellaIn(float x, float y) const -> int {
     return -1;
 }
 inline auto Motore::lCartellaNomeIn(float x, float y) const -> int {
-    if(lModalita!=0) return -1;
-    for(int i=0;i<(int)lCartelle.size();++i) {
-        const float top=lCartellaY(i);
-        const float left=lDividerX()+28*dpi, right=LW-140*dpi;
-        if(x>=left && x<right && y>=top+1*dpi && y<top+35*dpi) return i;
-    }
-    return -1;
+    // Hover the full folder header strip: name, app count and trailing arrow.
+    // The strip ends at the separator so the expanded app area has its own hover states.
+    return lCartellaIn(x,y);
 }
 inline auto Motore::lCartellaPiuIn(float x, float y) const -> int {
     const int k=lCartellaIn(x,y);
@@ -1534,9 +1530,11 @@ inline auto Motore::renderLauncher() -> bool {
                                        :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
             dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
             if(k==lSopraCartella) {
-                const D2D1_RECT_F headerName={fr.left+8*dpi,fy,fr.right-120*dpi,fy+36*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f));
-                dc->FillRoundedRectangle({headerName,9*dpi,9*dpi},pennello);
+                // Highlight the entire header row, from the folder name through the count and arrow.
+                // Keep the bottom edge above the divider; the expanded app area is not part of this hover.
+                const D2D1_RECT_F headerRow={fr.left+6*dpi,fy,fr.right-6*dpi,fy+35*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
+                dc->FillRoundedRectangle({headerRow,10*dpi,10*dpi},pennello);
             }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
