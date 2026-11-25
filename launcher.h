@@ -1542,11 +1542,8 @@ inline auto Motore::renderLauncher() -> bool {
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
         scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
-        const int cat=lCartelle[lCartellaGestita].colore%6;
-        pennello->SetColor(accenti[cat]);
-        scrivi(iconeCartella[lCartelle[lCartellaGestita].icona%6],fmtNome,{pane.left+14*dpi,pane.top+5*dpi,pane.left+36*dpi,pane.top+36*dpi});
         pennello->SetColor(ink);
-        scrivi(lCartelle[lCartellaGestita].nome,fmtNome,{pane.left+42*dpi,pane.top+5*dpi,pane.right-100*dpi,pane.top+36*dpi});
+        scrivi(lCartelle[lCartellaGestita].nome,fmtVoce,{pane.left+14*dpi,pane.top+5*dpi,pane.right-100*dpi,pane.top+36*dpi});
         pennello->SetColor(tenue);
         scrivi(std::to_wstring(count)+testi::t(L" selezionate",L" selected"),fmtNome,{pane.right-92*dpi,pane.top+5*dpi,pane.right-14*dpi,pane.top+36*dpi});
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.065f));
@@ -1684,46 +1681,80 @@ inline auto Motore::renderLauncher() -> bool {
         }
     }
 
-    // Barra inferiore, separata dal contenuto: profilo, file, impostazioni e alimentazione.
+    // Footer: profilo utente allineato a sinistra; i tre simboli non hanno piastrella finche' non sono in hover.
     {
         const float top=lFooterTop();
         const D2D1_COLOR_F footerColor=scuro?D2D1::ColorF(0.015f,0.025f,0.045f,0.72f):D2D1::ColorF(0.92f,0.94f,0.97f,0.82f);
         pennello->SetColor(footerColor);
-        // Il rettangolo pieno copriva gli angoli arrotondati del pannello. Si arrotonda il bordo inferiore
-        // e si riempie solo la parte alta in modo rettangolare: gli angoli inferiori restano trasparenti.
         dc->FillRoundedRectangle({{0,top,LW,LH},22*dpi,22*dpi},pennello);
         dc->FillRectangle({0,top,LW,LH-22*dpi},pennello);
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
         dc->DrawLine({0,top},{LW,top},pennello,1*dpi);
+
         const D2D1_RECT_F rp=rettProfilo(),re=rettEnergia();
-        const float ax=rp.left+20*dpi, ay=(rp.top+rp.bottom)*0.5f;
-        pennello->SetColor(D2D1::ColorF(0.18f,0.58f,0.98f,1));
-        dc->FillEllipse({{ax,ay},17*dpi,17*dpi},pennello);
+        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=17*dpi;
+        pennello->SetColor(D2D1::ColorF(0.16f,0.54f,0.96f,1));
+        dc->FillEllipse({{ax,ay},radius,radius},pennello);
+        if(lFotoProfilo) {
+            const D2D1_RECT_F avatar={ax-radius,ay-radius,ax+radius,ay+radius};
+            dc->DrawBitmap(lFotoProfilo,avatar,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.20f):D2D1::ColorF(0,0,0,0.10f));
+            dc->DrawEllipse({{ax,ay},radius,radius},pennello,0.8f*dpi);
+        } else {
+            wchar_t utente[128]=L""; DWORD nUtente=128;
+            if(GetUserNameW(utente,&nUtente)&&utente[0]) {
+                std::wstring iniziali(1,(wchar_t)towupper(utente[0]));
+                for(size_t i=1;i<wcslen(utente);++i) if(utente[i]==L' '&&utente[i+1]) { iniziali+=towupper(utente[i+1]); break; }
+                pennello->SetColor(D2D1::ColorF(1,1,1,1));
+                scrivi(iniziali,fmtNome,{ax-radius,ay-radius,ax+radius,ay+radius});
+            }
+        }
+
         wchar_t utente[128]=L""; DWORD nUtente=128;
         std::wstring nome=L"User";
         if(GetUserNameW(utente,&nUtente)&&utente[0]) nome=utente;
-        std::wstring iniziali(1,(wchar_t)towupper(nome[0]));
-        for(size_t i=1;i<nome.size();++i) if(nome[i]==L' '&&i+1<nome.size()){iniziali+=towupper(nome[i+1]);break;}
-        pennello->SetColor(D2D1::ColorF(1,1,1,1));
-        scrivi(iniziali,fmtNome,{rp.left+3*dpi,rp.top,rp.left+37*dpi,rp.bottom});
         pennello->SetColor(ink);
-        scrivi(nome,fmtNome,{rp.left+43*dpi,rp.top+2*dpi,rp.right-4*dpi,rp.top+23*dpi});
+        scrivi(nome,fmtVoce,{rp.left+48*dpi,rp.top+1*dpi,rp.right-4*dpi,rp.top+23*dpi});
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"Spazio di lavoro locale",L"Local Workspace"),fmtNome,{rp.left+43*dpi,rp.top+20*dpi,rp.right-4*dpi,rp.bottom});
+        scrivi(testi::t(L"Spazio di lavoro locale",L"Local Workspace"),fmtSotto,
+               {rp.left+48*dpi,rp.top+21*dpi,rp.right-4*dpi,rp.bottom});
 
         const D2D1_RECT_F files={LW-184*dpi,top+6*dpi,LW-140*dpi,top+46*dpi};
         const D2D1_RECT_F settings={LW-128*dpi,top+6*dpi,LW-84*dpi,top+46*dpi};
         const D2D1_RECT_F power=re;
-        for(const auto& q: {files,settings,power}) {
-            const bool sopra=(q.left==power.left&&lSopraEnergia)||(q.left==rp.left&&lSopraProfilo);
-            pennello->SetColor(sopra?(scuro?D2D1::ColorF(1,1,1,0.15f):D2D1::ColorF(0,0,0,0.08f))
-                                     :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f)));
-            dc->FillRoundedRectangle({q,9*dpi,9*dpi},pennello);
-        }
+        auto hoverTile=[&](const D2D1_RECT_F& r,bool hover) {
+            if(!hover) return;
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.075f));
+            dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
+        };
+        hoverTile(files,lSopraEsplora);
+        hoverTile(settings,lSopraImpostazioni);
+        hoverTile(power,lSopraEnergia);
+
+        // File Explorer: sagoma cartella, disegnata senza font-glyph dipendenti dal sistema.
+        const float fx=(files.left+files.right)*0.5f, fy=(files.top+files.bottom)*0.5f;
         pennello->SetColor(ink);
-        scrivi(L"▱",fmtTitolo,files);
-        scrivi(L"⚙",fmtTitolo,settings);
-        simboloEnergia((power.left+power.right)*0.5f,(power.top+power.bottom)*0.5f);
+        const D2D1_POINT_2F folderPts[]={{fx-12*dpi,fy-6*dpi},{fx-4*dpi,fy-6*dpi},{fx-1*dpi,fy-2*dpi},
+            {fx+12*dpi,fy-2*dpi},{fx+12*dpi,fy+8*dpi},{fx-12*dpi,fy+8*dpi},{fx-12*dpi,fy-6*dpi}};
+        for(int i=0;i<6;++i) dc->DrawLine(folderPts[i],folderPts[i+1],pennello,1.8f*dpi);
+        dc->DrawLine({fx-12*dpi,fy-2*dpi},{fx+12*dpi,fy-2*dpi},pennello,1.3f*dpi);
+
+        // Settings: gear con otto denti e anello centrale.
+        const float sx=(settings.left+settings.right)*0.5f, sy=(settings.top+settings.bottom)*0.5f;
+        dc->DrawEllipse({{sx,sy},7.5f*dpi,7.5f*dpi},pennello,2.1f*dpi);
+        dc->DrawEllipse({{sx,sy},2.7f*dpi,2.7f*dpi},pennello,1.8f*dpi);
+        for(int i=0;i<8;++i) {
+            const float a=i*0.785398163f, co=std::cos(a),si=std::sin(a);
+            dc->DrawLine({sx+co*8.2f*dpi,sy+si*8.2f*dpi},{sx+co*11.0f*dpi,sy+si*11.0f*dpi},pennello,2.1f*dpi);
+        }
+
+        // Power: cerchio aperto in alto con stelo verticale.
+        const float px=(power.left+power.right)*0.5f, py=(power.top+power.bottom)*0.5f;
+        dc->DrawEllipse({{px,py+1*dpi},9.5f*dpi,9.5f*dpi},pennello,1.8f*dpi);
+        pennello->SetColor(footerColor);
+        dc->FillRectangle({px-4*dpi,py-11*dpi,px+4*dpi,py-1*dpi},pennello);
+        pennello->SetColor(ink);
+        dc->DrawLine({px,py-11*dpi},{px,py+1*dpi},pennello,2.0f*dpi);
     }
 
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
