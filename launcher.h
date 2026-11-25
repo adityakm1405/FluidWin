@@ -684,18 +684,15 @@ inline auto Motore::rimuoviCartella(int cartella) -> void {
 }
 inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
     if(cartella<0 || cartella>=(int)lCartelle.size()) return;
-    HMENU menu=CreatePopupMenu();
-    if(!menu) return;
-    AppendMenuW(menu,MF_STRING,1,testi::t(L"Rinomina",L"Rename"));
-    AppendMenuW(menu,MF_STRING,2,testi::t(L"Rimuovi",L"Remove"));
-    AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
-    AppendMenuW(menu,MF_STRING,3,testi::t(L"Gestisci app",L"Manage apps"));
-    SetForegroundWindow(launcher);
-    const UINT scelta=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,pt.x,pt.y,0,launcher,nullptr);
-    DestroyMenu(menu);
-    if(scelta==1) apriRinominaCartella(cartella);
-    else if(scelta==2) rimuoviCartella(cartella);
-    else if(scelta==3) apriGestisciCartella(cartella);
+    // Keep the context menu inside the rounded launcher surface.
+    ScreenToClient(launcher,&pt);
+    const float w=184*dpi,h=132*dpi;
+    lCartellaMenuX=std::clamp((float)pt.x,10*dpi,std::max(10*dpi,LW-w-10*dpi));
+    lCartellaMenuY=std::clamp((float)pt.y,64*dpi,std::max(64*dpi,LH-h-10*dpi));
+    lCartellaMenuIndice=cartella;
+    lCartellaMenuHover=-1;
+    lCartellaMenuAperto=true;
+    lDirty=true;
 }
 inline auto Motore::lCartellaY(int cartella) const -> float {
     float y=122*dpi-lScrollCartelle;
@@ -1473,10 +1470,9 @@ inline auto Motore::renderLauncher() -> bool {
             scrivi(lCartelle[k].nome,fmtVoce,{fr.left+14*dpi,fy+1*dpi,fr.right-126*dpi,fy+35*dpi});
             const auto apps=lAppCategoria(k);
             pennello->SetColor(tenue);
-            scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-106*dpi,fy+1*dpi,fr.right-82*dpi,fy+35*dpi});
+            scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-52*dpi,fy+1*dpi,fr.right-32*dpi,fy+35*dpi});
             pennello->SetColor(ink);
-            scrivi(L"+",fmtTitolo,{fr.right-78*dpi,fy+1*dpi,fr.right-48*dpi,fy+35*dpi});
-            disegnaFreccia(fr.right-18*dpi,fy+18*dpi,lAngoliCartella[k],13*dpi);
+            disegnaFreccia(fr.right-16*dpi,fy+18*dpi,aperta?3.141592653589793:0.0,9*dpi);
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2;
