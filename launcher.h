@@ -208,6 +208,7 @@ inline auto Motore::applicaTutteApp(std::vector<AppL> nuove) -> void {
     for (auto& v : tutteApp) if (v.icona) v.icona->Release();
     tutteApp = std::move(nuove);
     aggiornaPinned();
+    inizializzaCartelle();
     // launcher aperto (l'elenco nuovo arriva mentre si guarda): la scelta e lo scorrimento restano dove sono
     const int sel = lSel; const double scr = lScrollObj;
     filtra();
@@ -510,54 +511,190 @@ inline auto Motore::disegnaFileLauncher(bool scuro, D2D1_COLOR_F ink) -> bool {
 inline auto Motore::lDividerX() const -> float { return LW * 0.48f; }
 inline auto Motore::lFooterTop() const -> float { return LH - 52 * dpi; }
 
-inline auto Motore::lCategoriaApp(const AppL& app) const -> int {
+inline auto Motore::lCategoriaPredefinita(const AppL& app) const -> int {
     const std::wstring& n = app.minuscolo;
     auto contiene = [&](std::initializer_list<const wchar_t*> parole) {
         for (const wchar_t* p : parole) if (n.find(p) != std::wstring::npos) return true;
         return false;
     };
-    if (contiene({L"steam", L"epic games", L"ubisoft", L"ea app", L"battle.net", L"gog galaxy", L"xbox", L"riot client", L"minecraft", L"playnite", L"game"})) return 1;
-    if (contiene({L"figma", L"blender", L"photoshop", L"illustrator", L"premiere", L"after effects", L"gimp", L"krita", L"paint.net", L"affinity", L"obs studio", L"davinci"})) return 2;
-    if (contiene({L"chrome", L"firefox", L"edge", L"brave", L"opera", L"discord", L"slack", L"zoom", L"teams", L"telegram", L"whatsapp", L"thunderbird"})) return 3;
-    if (contiene({L"word", L"excel", L"powerpoint", L"onenote", L"notion", L"linear", L"obsidian", L"libreoffice", L"outlook", L"office", L"todo", L"calendar"})) return 4;
-    if (contiene({L"visual studio", L"vs code", L"code", L"unity", L"docker", L"git", L"postman", L"tableplus", L"neovim", L"pycharm", L"intellij", L"android studio", L"node", L"python", L"raycast", L"terminal"})) return 0;
-    if (contiene({L"settings", L"control panel", L"task manager", L"powershell", L"command prompt", L"windows tools", L"file explorer", L"security", L"defender", L"system"})) return 5;
+    if (contiene({L"visual studio",L"vs code",L"code",L"unity",L"docker",L"git",L"postman",L"tableplus",L"neovim",L"pycharm",L"intellij",L"android studio",L"node",L"python",L"raycast",L"terminal"})) return 0;
+    if (contiene({L"steam",L"epic games",L"ubisoft",L"ea app",L"battle.net",L"gog galaxy",L"xbox",L"riot client",L"minecraft",L"playnite",L"game",L"discord",L"lutris",L"moonlight",L"retroarch",L"mangohud"})) return 1;
+    if (contiene({L"figma",L"blender",L"photoshop",L"illustrator",L"premiere",L"after effects",L"gimp",L"krita",L"paint.net",L"affinity",L"obs studio",L"davinci",L"audacity",L"darktable"})) return 2;
+    if (contiene({L"chrome",L"firefox",L"edge",L"brave",L"opera",L"slack",L"zoom",L"teams",L"telegram",L"whatsapp",L"thunderbird",L"arc browser"})) return 3;
+    if (contiene({L"word",L"excel",L"powerpoint",L"onenote",L"notion",L"linear",L"obsidian",L"libreoffice",L"outlook",L"office",L"todo",L"calendar",L"calculator"})) return 4;
+    if (contiene({L"settings",L"control panel",L"task manager",L"powershell",L"command prompt",L"windows tools",L"file explorer",L"security",L"defender",L"system"})) return 5;
     return 4;
+}
+
+inline auto Motore::lIndiceCartella(const std::wstring& avvio) const -> int {
+    for (int k=0;k<(int)lCartelle.size();++k)
+        if (std::find(lCartelle[k].app.begin(),lCartelle[k].app.end(),avvio)!=lCartelle[k].app.end()) return k;
+    return -1;
+}
+inline auto Motore::lCategoriaApp(const AppL& app) const -> int { return lIndiceCartella(app.avvio); }
+inline auto Motore::lNomeCategoria(const AppL& app) const -> std::wstring {
+    const int k=lCategoriaApp(app);
+    return k>=0 && k<(int)lCartelle.size() ? lCartelle[k].nome : testi::t(L"Non assegnata",L"Unassigned");
 }
 inline auto Motore::lAppCategoria(int categoria) const -> std::vector<int> {
     std::vector<int> app;
-    for (int i = 0; i < (int)tutteApp.size(); ++i)
-        if (lCategoriaApp(tutteApp[i]) == categoria) app.push_back(i);
+    if(categoria<0 || categoria>=(int)lCartelle.size()) return app;
+    for(int i=0;i<(int)tutteApp.size();++i)
+        if(std::find(lCartelle[categoria].app.begin(),lCartelle[categoria].app.end(),tutteApp[i].avvio)!=lCartelle[categoria].app.end())
+            app.push_back(i);
     return app;
 }
+
+inline auto Motore::salvaCartelle() -> void {
+    const std::wstring ini=percorsoConfigLauncher();
+    WritePrivateProfileStringW(L"Library",L"FolderCount",std::to_wstring(lCartelle.size()).c_str(),ini.c_str());
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const std::wstring sezione=L"Folder"+std::to_wstring(i);
+        const CartellaL& f=lCartelle[i];
+        WritePrivateProfileStringW(sezione.c_str(),L"Name",f.nome.c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Icon",std::to_wstring(f.icona).c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Color",std::to_wstring(f.colore).c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Custom",f.personalizzata?L"1":L"0",ini.c_str());
+        std::wstring elenco;
+        for(const auto& p:f.app) { if(!elenco.empty()) elenco+=L"|"; elenco+=p; }
+        WritePrivateProfileStringW(sezione.c_str(),L"Apps",elenco.c_str(),ini.c_str());
+    }
+    WritePrivateProfileStringW(nullptr,nullptr,nullptr,ini.c_str());
+}
+inline auto Motore::caricaCartelle() -> void {
+    lCartelle.clear();
+    const std::wstring ini=percorsoConfigLauncher();
+    wchar_t conteggio[32]=L"";
+    GetPrivateProfileStringW(L"Library",L"FolderCount",L"",conteggio,(DWORD)std::size(conteggio),ini.c_str());
+    if(!conteggio[0]) {
+        const wchar_t* nomi[6]={L"Development",L"Gaming",L"Creative",L"Web & Comms",L"Productivity",L"System"};
+        for(int k=0;k<6;++k) {
+            CartellaL f; f.nome=nomi[k]; f.icona=k; f.colore=k; f.personalizzata=false;
+            for(const auto& app:tutteApp) if(lCategoriaPredefinita(app)==k) f.app.push_back(app.avvio);
+            lCartelle.push_back(std::move(f));
+        }
+        salvaCartelle();
+        return;
+    }
+    const int n=std::clamp(_wtoi(conteggio),0,32);
+    for(int i=0;i<n;++i) {
+        const std::wstring sezione=L"Folder"+std::to_wstring(i);
+        wchar_t nome[128]=L"",apps[32768]=L"";
+        GetPrivateProfileStringW(sezione.c_str(),L"Name",L"",nome,(DWORD)std::size(nome),ini.c_str());
+        if(!nome[0]) continue;
+        GetPrivateProfileStringW(sezione.c_str(),L"Apps",L"",apps,(DWORD)std::size(apps),ini.c_str());
+        CartellaL f; f.nome=nome;
+        f.icona=std::clamp((int)GetPrivateProfileIntW(sezione.c_str(),L"Icon",i%6,ini.c_str()),0,5);
+        f.colore=std::clamp((int)GetPrivateProfileIntW(sezione.c_str(),L"Color",f.icona,ini.c_str()),0,5);
+        f.personalizzata=GetPrivateProfileIntW(sezione.c_str(),L"Custom",0,ini.c_str())!=0;
+        std::wstring elenco=apps; size_t inizio=0;
+        while(inizio<elenco.size()) {
+            const size_t fine=elenco.find(L'|',inizio);
+            std::wstring p=elenco.substr(inizio,fine==std::wstring::npos?std::wstring::npos:fine-inizio);
+            if(!p.empty()) f.app.push_back(std::move(p));
+            if(fine==std::wstring::npos) break;
+            inizio=fine+1;
+        }
+        lCartelle.push_back(std::move(f));
+    }
+}
+inline auto Motore::inizializzaCartelle() -> void {
+    caricaCartelle();
+    if(lCartellaAperta>=(int)lCartelle.size()) lCartellaAperta=lCartelle.empty()?-1:0;
+}
+inline auto Motore::toggleAppCartella(int indiceApp, int cartella) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size() || cartella<0 || cartella>=(int)lCartelle.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    const bool eraInQuesta=std::find(lCartelle[cartella].app.begin(),lCartelle[cartella].app.end(),percorso)!=lCartelle[cartella].app.end();
+    for(auto& f:lCartelle) f.app.erase(std::remove(f.app.begin(),f.app.end(),percorso),f.app.end());
+    if(!eraInQuesta) lCartelle[cartella].app.push_back(percorso);
+    salvaCartelle();
+    lDirty=true;
+}
+inline auto Motore::apriGestisciCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartellaGestita=cartella; lModalita=2; lScrollEditor=0; lNomeNuovoAttivo=false; lDirty=true;
+}
+inline auto Motore::creaCartella() -> void {
+    std::wstring nome=lNomeNuovaCartella;
+    while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
+    while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
+    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    for(const auto& f:lCartelle) if(!_wcsicmp(f.nome.c_str(),nome.c_str())) {
+        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists.").c_str(),L"FluidWin",MB_OK|MB_ICONINFORMATION);
+        return;
+    }
+    CartellaL nuova; nuova.nome=nome; nuova.icona=lIconaNuovaCartella; nuova.colore=lIconaNuovaCartella; nuova.personalizzata=true;
+    nuova.app=lAppNuovaCartella;
+    for(auto& f:lCartelle) for(const auto& p:nuova.app)
+        f.app.erase(std::remove(f.app.begin(),f.app.end(),p),f.app.end());
+    lCartelle.push_back(std::move(nuova));
+    lCartellaAperta=(int)lCartelle.size()-1;
+    salvaCartelle();
+    lModalita=0; lNomeNuovaCartella.clear(); lAppNuovaCartella.clear(); lScrollEditor=0;
+    lNomeNuovoAttivo=false; lDirty=true;
+}
+
+inline auto Motore::lCartellaY(int cartella) const -> float {
+    float y=122*dpi-lScrollCartelle;
+    for(int i=0;i<cartella && i<(int)lCartelle.size();++i)
+        y+=(i==lCartellaAperta?114:36)*dpi+7*dpi;
+    return y;
+}
 inline auto Motore::lCartellaIn(float x, float y) const -> int {
-    if (lModalita != 0 || x < lDividerX() + 10 * dpi || x > LW - 10 * dpi) return -1;
-    float top = 122 * dpi;
-    for (int i = 0; i < 6; ++i) {
-        if (y >= top && y < top + 36 * dpi) return i;
-        top += (i == lCartellaAperta ? 114 : 36) * dpi + 7 * dpi;
+    if(lModalita!=0 || x<lDividerX()+10*dpi || x>LW-10*dpi) return -1;
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const float top=lCartellaY(i);
+        if(y>=top && y<top+36*dpi) return i;
     }
     return -1;
 }
+inline auto Motore::lCartellaPiuIn(float x, float y) const -> int {
+    const int k=lCartellaIn(x,y);
+    if(k<0) return -1;
+    const float rx=lDividerX()+14*dpi, rr=LW-14*dpi, top=lCartellaY(k);
+    return x>=rr-48*dpi && x<rr-25*dpi && y>=top && y<top+36*dpi ? k : -1;
+}
 inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
-    if (lModalita != 0) return -1;
-    float top = 122 * dpi;
-    for (int i = 0; i < 6; ++i) {
-        if (i == lCartellaAperta) {
-            const float left = lDividerX() + 10 * dpi, right = LW - 10 * dpi;
-            const float bodyTop = top + 36 * dpi;
-            if (x >= left && x < right && y >= bodyTop && y < bodyTop + 78 * dpi) {
-                const int col = x < (left + right) * 0.5f ? 0 : 1;
-                const int row = std::clamp((int)((y - bodyTop) / (26 * dpi)), 0, 2);
-                const auto app = lAppCategoria(i);
-                const int k = row * 2 + col;
-                if (k >= 0 && k < (int)app.size() && k < 6) return app[k];
-                return -1;
-            }
-            top += 114 * dpi + 7 * dpi;
-        } else top += 36 * dpi + 7 * dpi;
-    }
-    return -1;
+    if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
+    const int k=lCartellaAperta;
+    const float top=lCartellaY(k), left=lDividerX()+24*dpi, right=LW-24*dpi;
+    const float bodyTop=top+39*dpi;
+    if(x<left || x>=right || y<bodyTop || y>=bodyTop+78*dpi) return -1;
+    const int col=x<(left+right)*0.5f?0:1;
+    const int row=(int)((y-bodyTop)/(26*dpi)), slot=row*2+col;
+    const auto app=lAppCategoria(k);
+    return slot>=0 && slot<(int)app.size() && slot<6 ? app[slot] : -1;
+}
+inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
+    if(lModalita!=2 || lCartellaGestita<0 || lCartellaGestita>=(int)lCartelle.size()) return -1;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=180*dpi;
+    const float cardBottom=lFooterTop()-78*dpi;
+    if(x<left || x>=right || y<top || y>=cardBottom) return -1;
+    const float cw=(right-left-10*dpi)*0.5f, rowH=35*dpi;
+    const int col=std::clamp((int)((x-left)/(cw+10*dpi)),0,1);
+    const int row=(int)std::floor((y-top+lScrollEditor)/rowH);
+    const int k=row*2+col;
+    return k>=0 && k<(int)tutteApp.size() ? k : -1;
+}
+inline auto Motore::lNuovaAppIn(float x, float y) const -> int {
+    if(lModalita!=3) return -1;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=292*dpi;
+    const float bottom=lFooterTop()-82*dpi;
+    if(x<left || x>=right || y<top || y>=bottom) return -1;
+    const float cw=(right-left-10*dpi)*0.5f, rowH=35*dpi;
+    const int col=std::clamp((int)((x-left)/(cw+10*dpi)),0,1);
+    const int row=(int)std::floor((y-top+lScrollEditor)/rowH);
+    const int k=row*2+col;
+    return k>=0 && k<(int)tutteApp.size() ? k : -1;
+}
+inline auto Motore::lAppElencoIn(float x, float y) const -> int {
+    if(lModalita!=1 || !lVistaLista) return -1;
+    const float left=lDividerX()+14*dpi, right=LW-14*dpi, top=146*dpi, bottom=lFooterTop()-8*dpi;
+    if(x<left || x>=right || y<top || y>=bottom) return -1;
+    const int k=(int)((y-top+lScroll)/52*dpi);
+    return k>=0 && k<(int)filtrate.size()?k:-1;
 }
 
 // Misure e coordinate dell'elenco alfabetico, mostrato nella modalita' All Apps.
