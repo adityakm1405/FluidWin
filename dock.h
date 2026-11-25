@@ -3562,9 +3562,9 @@ private:
     int lCartellaRinomina = -1;
     std::wstring lNomeNuovaCartella;
     std::vector<double> lAngoliCartella;
-    bool lPinnedEspanso = true, lAzioniEspanse = true;
-    double lPinnedReveal = 1.0, lAzioniReveal = 1.0;
-    double lPinnedChevronAngle = 3.141592653589793, lAzioniChevronAngle = 3.141592653589793;
+    bool lCartellaMenuAperto = false;
+    int lCartellaMenuIndice = -1, lCartellaMenuHover = -1;
+    float lCartellaMenuX = 0, lCartellaMenuY = 0;
     ID2D1Bitmap1* lFotoProfilo = nullptr;
     bool lFotoProfiloTentata = false;
     std::vector<std::wstring> lAppNuovaCartella;
