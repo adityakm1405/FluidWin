@@ -1485,13 +1485,10 @@ inline auto Motore::renderLauncher() -> bool {
         dc->FillRoundedRectangle({r,radius,radius},pennello);
         drawAppIcon(appIndex,tile);
 
-        // All Apps uses the exact centered composition from the reference:
-        // icon in the left gutter, title centered across the full row, pin at the far right.
-        if(pinnedControls) {
-            scrivi(app.nome,fmtNome,rct({base.left+48*dpi,base.top,base.right-48*dpi,base.bottom}));
-        } else {
-            scrivi(app.nome,fmtVoce,rct({base.left+44*dpi,base.top+3*dpi,base.right-10*dpi,base.top+25*dpi}));
-        }
+        // App name sits immediately beside the icon and is vertically centered in the row.
+        // Keep the title bright white for clear contrast in both launcher themes.
+        pennello->SetColor(D2D1::ColorF(1,1,1,1));
+        scrivi(app.nome,fmtVoce,rct({base.left+48*dpi,base.top,base.right-(pinnedControls?48:10)*dpi,base.bottom}));
 
         if(managed) {
             const bool selected=cat==lCartellaGestita;
@@ -1610,12 +1607,12 @@ inline auto Motore::renderLauncher() -> bool {
                 }
                 // Draw the hovered tile after its neighbours so their paint cannot cover its scaled rounded corners.
                 if(i!=lSopra)
-                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,false);
+                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+2*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,false);
             }
             if(lSopra>=0 && lSopra<(int)filtrate.size()) {
                 const D2D1_RECT_F riga=lCella(lSopra);
                 if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi)
-                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,true);
+                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+2*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,true);
             }
         } else {
             // Paint every non-hovered app first; render the scaled hovered app last to preserve all four rounded corners.
