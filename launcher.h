@@ -689,100 +689,95 @@ inline auto Motore::lNuovaAppIn(float x, float y) const -> int {
     const int k=row*2+col;
     return k>=0 && k<(int)tutteApp.size() ? k : -1;
 }
-inline auto Motore::lAppElencoIn(float x, float y) const -> int {
-    if(lModalita!=1 || !lVistaLista) return -1;
-    const float left=lDividerX()+14*dpi, right=LW-14*dpi, top=146*dpi, bottom=lFooterTop()-8*dpi;
-    if(x<left || x>=right || y<top || y>=bottom) return -1;
-    const int k=(int)((y-top+lScroll)/52*dpi);
-    return k>=0 && k<(int)filtrate.size()?k:-1;
-}
+inline auto Motore::lAppElencoIn(float x, float y) const -> int { return lModalita==1 ? lCellaIn(x,y) : -1; }
 
 // Misure e coordinate dell'elenco alfabetico, mostrato nella modalita' All Apps.
-inline auto Motore::lColonne() const -> float { return lVistaLista ? 1.0f : 4.0f; }
-inline auto Motore::lCellaW() const -> float { return lVistaLista ? LW - 32 * dpi : (LW - 48 * dpi) / lColonne(); }
-inline auto Motore::lCellaH() const -> float { return lVistaLista ? 44 * dpi : 104 * dpi; }
-
-inline auto Motore::lAllTop() const -> float { return 78 * dpi; }
+inline auto Motore::lColonne() const -> float { return lVistaLista ? 1.0f : 2.0f; }
+inline auto Motore::lCellaW() const -> float {
+    const float sx=lModalita==1?lDividerX()+14*dpi:16*dpi;
+    return lVistaLista ? LW-sx-16*dpi : (LW-sx-32*dpi)/lColonne();
+}
+inline auto Motore::lCellaH() const -> float { return lVistaLista ? 52*dpi : 104*dpi; }
+inline auto Motore::lAllTop() const -> float { return 78*dpi; }
 
 inline auto Motore::lListaY(int i) const -> float {
-    float y = 0;
-    wchar_t precedente = 0;
-    for (int k = 0; k <= i && k < (int)filtrate.size(); ++k) {
-        const std::wstring& nome = tutteApp[filtrate[k]].nome;
-        const wchar_t lettera = nome.empty() ? L'#' : (wchar_t)towupper(nome[0]);
-        if (k == 0 || lettera != precedente) { y += 27 * dpi; precedente = lettera; }
-        if (k == i) return y;
-        y += lCellaH();
+    float y=0; wchar_t precedente=0;
+    for(int k=0;k<=i && k<(int)filtrate.size();++k) {
+        const std::wstring& nome=tutteApp[filtrate[k]].nome;
+        const wchar_t lettera=nome.empty()?L'#':(wchar_t)towupper(nome[0]);
+        if(k==0 || lettera!=precedente) { y+=22*dpi; precedente=lettera; }
+        if(k==i) return y;
+        y+=lCellaH();
     }
     return y;
 }
-
 inline auto Motore::lListaAlto() const -> float {
-    float y = 0;
-    wchar_t precedente = 0;
-    for (int k = 0; k < (int)filtrate.size(); ++k) {
-        const std::wstring& nome = tutteApp[filtrate[k]].nome;
-        const wchar_t lettera = nome.empty() ? L'#' : (wchar_t)towupper(nome[0]);
-        if (k == 0 || lettera != precedente) { y += 27 * dpi; precedente = lettera; }
-        y += lCellaH();
+    float y=0; wchar_t precedente=0;
+    for(int k=0;k<(int)filtrate.size();++k) {
+        const std::wstring& nome=tutteApp[filtrate[k]].nome;
+        const wchar_t lettera=nome.empty()?L'#':(wchar_t)towupper(nome[0]);
+        if(k==0 || lettera!=precedente) { y+=22*dpi; precedente=lettera; }
+        y+=lCellaH();
     }
     return y;
 }
-
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
-    const float w = (lDividerX() - 40 * dpi) / 2.0f;
-    const float x = 16 * dpi + (i % 2) * (w + 8 * dpi);
-    const float y = 122 * dpi + (i / 2) * 56 * dpi;
-    return {x, y, x + w, y + 50 * dpi};
+    const float w=(lDividerX()-40*dpi)/2.0f;
+    const float x=16*dpi+(i%2)*(w+8*dpi);
+    const float y=122*dpi+(i/2)*56*dpi;
+    return {x,y,x+w,y+50*dpi};
 }
-
-inline auto Motore::lPinnedIn(float x, float y) const -> int {
-    if (lModalita != 0 || !query.empty()) return -1;
-    for (int i = 0; i < (int)lPinned.size() && i < 6; ++i) {
-        const D2D1_RECT_F r = lPinnedCella(i);
-        if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
+inline auto Motore::lPinnedIn(float x,float y) const -> int {
+    if(lModalita==4 || !query.empty()) return -1;
+    for(int i=0;i<(int)lPinned.size() && i<6;++i) {
+        const D2D1_RECT_F r=lPinnedCella(i);
+        if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
     }
     return -1;
 }
-
-inline auto Motore::lRettBarra() const -> D2D1_RECT_F { return {LW - 18 * dpi, lGrigliaTop(), LW, lGrigliaBottom()}; }
-
+inline auto Motore::lRettBarra() const -> D2D1_RECT_F { return {LW-18*dpi,lGrigliaTop(),LW,lGrigliaBottom()}; }
 inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
-    const double mx = lScrollMax();
-    const float alt = lGrigliaBottom() - lGrigliaTop(), tot = alt + (float)mx;
-    const float h = std::max(30 * dpi, alt * alt / tot), y = lGrigliaTop() + (mx > 0 ? (alt - h) * (float)(lScroll / mx) : 0);
-    return {LW - 18 * dpi, y, LW, y + h};
+    const double mx=lScrollMax();
+    const float alt=lGrigliaBottom()-lGrigliaTop(),tot=alt+(float)mx;
+    const float h=std::max(30*dpi,alt*alt/tot),y=lGrigliaTop()+(mx>0?(alt-h)*(float)(lScroll/mx):0);
+    return {LW-18*dpi,y,LW-18*dpi+1*dpi,y+h};
 }
-
-inline auto Motore::lGrigliaTop() const -> float { return lAllTop() + 42 * dpi; }
-inline auto Motore::lGrigliaBottom() const -> float { return lFooterTop() - 12 * dpi - (float)lFileH; }
-
+inline auto Motore::lGrigliaTop() const -> float {
+    if(lModalita==1) return 146*dpi;
+    if(lModalita==4) return 112*dpi;
+    return lAllTop()+42*dpi;
+}
+inline auto Motore::lGrigliaBottom() const -> float { return lFooterTop()-12*dpi-(float)lFileH; }
 inline auto Motore::lScrollMax() const -> double {
-    const double contenuto = lVistaLista
-        ? (double)lListaAlto()
-        : (double)(((int)filtrate.size() + 3) / 4 * lCellaH());
-    return std::max(0.0, contenuto - (lGrigliaBottom() - lGrigliaTop()));
+    const double contenuto=lVistaLista?(double)lListaAlto()
+        :(double)(((int)filtrate.size()+1)/2*lCellaH());
+    return std::max(0.0,contenuto-(lGrigliaBottom()-lGrigliaTop()));
 }
-
 inline auto Motore::lCella(int i) const -> D2D1_RECT_F {
-    if (lVistaLista) {
-        const float y = lGrigliaTop() + lListaY(i) - (float)lScroll;
-        return {16 * dpi, y, LW - 16 * dpi, y + lCellaH()};
+    if(lModalita==4) {
+        const float y=lGrigliaTop()+i*68*dpi-(float)lScroll;
+        return {16*dpi,y,std::min(LW*0.5f,LW-16*dpi),y+58*dpi};
     }
-    const float x = 24 * dpi + (i % 4) * lCellaW();
-    const float y = lGrigliaTop() + (i / 4) * lCellaH() - (float)lScroll;
-    return {x, y, x + lCellaW(), y + lCellaH()};
+    if(lVistaLista) {
+        const float sx=lModalita==1?lDividerX()+14*dpi:16*dpi;
+        const float y=lGrigliaTop()+lListaY(i)-(float)lScroll;
+        return {sx,y,LW-16*dpi,y+lCellaH()};
+    }
+    const float sx=lModalita==1?lDividerX()+14*dpi:24*dpi;
+    const float sw=LW-sx-16*dpi;
+    const float cw=(sw-8*dpi)/2.0f;
+    const float x=sx+(i%2)*(cw+8*dpi);
+    const float y=lGrigliaTop()+(i/2)*lCellaH()-(float)lScroll;
+    return {x,y,x+cw,y+lCellaH()};
 }
-
-inline auto Motore::lCellaIn(float x, float y) const -> int {
-    if (y < lGrigliaTop() || y > lGrigliaBottom()) return -1;
-    for (int i = 0; i < (int)filtrate.size(); i++) {
-        const auto r = lCella(i);
-        if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
+inline auto Motore::lCellaIn(float x,float y) const -> int {
+    if((lModalita!=1 && lModalita!=4) || y<lGrigliaTop() || y>lGrigliaBottom()) return -1;
+    for(int i=0;i<(int)filtrate.size();++i) {
+        const auto r=lCella(i);
+        if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
     }
     return -1;
 }
-
 // prende il primo piano anche quando lo apre il tasto Win (nessun clic arrivato al nostro processo)
 inline auto Motore::prendiFuoco(HWND w) -> void {
     SetForegroundWindow(w);
