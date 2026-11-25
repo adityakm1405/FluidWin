@@ -3544,6 +3544,7 @@ private:
     std::vector<AppL> tutteApp;
     std::vector<int> filtrate;
     std::vector<int> lPinned;             // preferiti effettivamente installati
+    std::vector<std::wstring> lPinnedManual; // percorsi fissati dall'utente, salvati in LocalAppData
     std::wstring query;
     bool lVistaLista = true;              // elenco alfabetico come vista predefinita
     int lModalita = 0;                     // 0: workspace (preferiti + cartelle), 1: tutte le app/risultati
@@ -3632,6 +3633,8 @@ private:
     static bool sottosequenza(const std::wstring& nome, const std::wstring& q);
     void filtra();
     void aggiornaPinned();
+    void salvaPinned();
+    void togglePinned(int indiceApp);
     int lCategoriaApp(const AppL& app) const;
     std::vector<int> lAppCategoria(int categoria) const;
     float lDividerX() const;
