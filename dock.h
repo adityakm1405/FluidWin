@@ -494,6 +494,7 @@ public:
     void chiudi() {
         fermaIcone();
         fermaNotifiche();
+        if(lFotoProfilo) { lFotoProfilo->Release(); lFotoProfilo=nullptr; }
         if (!attivo) return;
         attivo = false;
         aggiornaAppbar();   // lo spazio riservato si libera (le finestre ingrandite tornano fino in fondo)
