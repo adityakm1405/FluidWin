@@ -1412,10 +1412,10 @@ inline auto Motore::renderLauncher() -> bool {
         dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
         drawAppIcon(appIndex,tile);
         pennello->SetColor(ink);
-        scrivi(app.nome,fmtVoce,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?76:10)*dpi,r.top+25*dpi});
+        scrivi(app.nome,fmtVoce,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?46:10)*dpi,r.top+25*dpi});
         pennello->SetColor(tenue);
         scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtSotto,
-               {r.left+44*dpi,r.top+23*dpi,r.right-(pinnedControls?76:10)*dpi,r.bottom-2*dpi});
+               {r.left+44*dpi,r.top+23*dpi,r.right-(pinnedControls?46:10)*dpi,r.bottom-2*dpi});
         if(managed) {
             const bool selected=cat==lCartellaGestita;
             const D2D1_RECT_F chk={r.left+7*dpi,r.top+14*dpi,r.left+18*dpi,r.top+25*dpi};
@@ -1429,12 +1429,10 @@ inline auto Motore::renderLauncher() -> bool {
             // unpinned and the exact same silhouette filled when pinned. Both are embedded white SVGs.
             ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
             if(iconaPin) {
-                const float px=r.right-54*dpi, py=r.top+27*dpi, lato=14*dpi;
+                const float px=r.right-24*dpi, py=r.top+27*dpi, lato=14*dpi;
                 const D2D1_RECT_F pinBox={px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f};
                 dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
-            pennello->SetColor(tenue);
-            scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
     };
 
@@ -2026,15 +2024,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             if(i>=0) {
                 const D2D1_RECT_F riga=d->lCella(i);
                 const int appIndex=d->filtrate[i];
-                if(d->lModalita==1 && d->lVistaLista && x>=riga.right-42*d->dpi) {
-                    const int cat=d->lCategoriaApp(d->tutteApp[appIndex]);
-                    if(cat>=0) d->apriGestisciCartella(cat);
-                    else {
-                        d->lModalita=3; d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella={d->tutteApp[appIndex].avvio};
-                        d->lScrollEditor=0; d->lNomeNuovoAttivo=false; d->lDirty=true;
-                    }
-                }
-                else if(d->lModalita==1 && d->lVistaLista && x>=riga.right-70*d->dpi)
+                if(d->lModalita==1 && d->lVistaLista && x>=riga.right-42*d->dpi)
                     d->togglePinned(appIndex);
                 else d->avviaApp(i);
                 return 0;
