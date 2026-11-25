@@ -607,7 +607,8 @@ inline auto Motore::apriLauncher() -> void {
     // centro di controllo aperto: prima si chiude lui, poi (TIMER_DOPO) si apre il launcher; mai uno sopra l'altro
     if (!nessunaScheda()) { if (dopo != 1) { chiudiTutte(); apriDopo(1, 0); } return; }
     primaDelLauncher = GetForegroundWindow();
-    query.clear(); filtra(); lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
+    query.clear(); filtra(); lModalita = 0; lCartellaAperta = 0;
+    lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
     lScroll = lScrollObj = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
     lAperto = true; lChiusura = false; lScala = 0.12; lVel = 0; lAlfa = 0; lT0 = adesso(); lRegione = false; lRipreso = false;
     // sopra il dock, al centro; la finestra scende fino all'icona "App". Col dock in alto: sotto, al centro; ai lati:
@@ -619,7 +620,7 @@ inline auto Motore::apriLauncher() -> void {
     const POINT o = origine();
     const D2D1_POINT_2F bi = fis(0, yBaseRiposo() - S - PAD);   // bordo interno del dock (nella finestra del dock)
     const int stacco = (int)std::round(18 * dpi);
-    int x0 = (int)schermo.left + (int)std::round(14 * dpi), y0 = 0;
+    int x0 = (int)schermo.left + (int)std::round((schermo.right - schermo.left - LW) * 0.5f), y0 = 0;
     if (lato == 0) {
         x0 = std::clamp(x0, (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         const int y1 = o.y + (int)std::round(bi.y) - stacco;
@@ -627,7 +628,7 @@ inline auto Motore::apriLauncher() -> void {
         LH = std::clamp((float)(y1 - schermo.top) - 12 * dpi, 300 * dpi, LHMAX);
         y0 = y1 - (int)LH;
     } else if (lato == 1) {
-        x0 = std::clamp((int)schermo.left + (int)std::round(14 * dpi), (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
+        x0 = std::clamp((int)schermo.left + (int)std::round((schermo.right - schermo.left - LW) * 0.5f), (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         y0 = o.y + (int)std::round(bi.y) + stacco;
         LH = std::clamp((float)(schermo.bottom - y0) - 12 * dpi, 300 * dpi, LHMAX);
     } else {
@@ -704,8 +705,8 @@ inline auto Motore::avviaAppDiretto(int indiceApp) -> void {
     ShellExecuteW(nullptr, L"open", avvio.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-inline auto Motore::rettProfilo() const -> D2D1_RECT_F { return {LW - 102 * dpi, 14 * dpi, LW - 62 * dpi, 54 * dpi}; }
-inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW - 54 * dpi, 14 * dpi, LW - 14 * dpi, 54 * dpi}; }
+inline auto Motore::rettProfilo() const -> D2D1_RECT_F { return {16*dpi, lFooterTop()+6*dpi, 270*dpi, lFooterTop()+46*dpi}; }
+inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW-72*dpi, lFooterTop()+6*dpi, LW-16*dpi, lFooterTop()+46*dpi}; }
 
 // Menu di Windows per l'app (lo stesso dello Start), con in cima "Aggiungi al dock"
 inline auto Motore::menuApp(int i, POINT pt) -> void {
