@@ -1211,7 +1211,7 @@ inline auto Motore::renderLauncher() -> bool {
     }
 
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
-    if (lScrollMax() > 0) {
+    if (lModalita == 1 && lScrollMax() > 0) {
         const D2D1_RECT_F b = lCursoreBarra();
         const bool larga = lSopraBarra || lTrascinoBarra;
         const float w = (larga ? 7.0f : 3.0f) * dpi, x1 = LW - 6 * dpi;
@@ -1232,7 +1232,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
         case WM_LBUTTONDOWN: {
             // barra di scorrimento: preso il cursore lo si trascina; un clic sul binario salta di una pagina
             const D2D1_RECT_F b = d->lRettBarra();
-            if (d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+            if (d->lModalita == 1 && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
                 const D2D1_RECT_F c = d->lCursoreBarra();
                 if (y < c.top || y >= c.bottom) {
                     const double pagina = (b.bottom - b.top) * 0.9;
@@ -1257,19 +1257,19 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
             {
                 const D2D1_RECT_F b = d->lRettBarra();
-                const bool sb = d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom;
+                const bool sb = d->lModalita == 1 && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom;
                 if (sb != d->lSopraBarra) { d->lSopraBarra = sb; d->lDirty = true; }
             }
-            const int s = d->lCellaIn(x, y);
+            const int s = d->lModalita == 1 ? d->lCellaIn(x, y) : -1;
             const int pin = d->lPinnedIn(x, y);
-            const bool vista = x >= d->LW - 154*d->dpi && x < d->LW - 16*d->dpi &&
+            const bool vista = d->lModalita == 1 && x >= d->LW - 252*d->dpi && x < d->LW - 102*d->dpi &&
                                y >= d->lAllTop() + 3*d->dpi && y < d->lAllTop() + 32*d->dpi;
             const D2D1_RECT_F rp = d->rettProfilo();
             const bool profilo = x >= rp.left && x < rp.right && y >= rp.top && y < rp.bottom;
             if (s != d->lSopra || pin != d->lSopraPinned || vista != d->lSopraVista || profilo != d->lSopraProfilo) {
                 d->lSopra = s; d->lSopraPinned = pin; d->lSopraVista = vista; d->lSopraProfilo = profilo; d->lDirty = true;
             }
-            const int sf = d->lFileIn(x, y);
+            const int sf = d->lModalita == 1 ? d->lFileIn(x, y) : -1;
             if (sf != d->lSopraFile) { d->lSopraFile = sf; d->lDirty = true; }
             const D2D1_RECT_F re = d->rettEnergia();
             const bool e = x >= re.left && x < re.right && y >= re.top && y < re.bottom;
@@ -1282,7 +1282,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             break;
         case WM_LBUTTONUP: {
             if (d->lTrascinoBarra) { d->lTrascinoBarra = false; ReleaseCapture(); d->lDirty = true; return 0; }
-            { const D2D1_RECT_F b = d->lRettBarra(); if (d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) return 0; }
+            { const D2D1_RECT_F b = d->lRettBarra(); if (d->lModalita == 1 && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) return 0; }
             if (y > d->LH) { d->chiudiLauncher(); return 0; }   // clic sotto (durante l'animazione): chiude
             if (d->lSopraEnergia) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuEnergia(p); return 0; }
             if (d->lSopraProfilo) {
@@ -1290,28 +1290,81 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 ShellExecuteW(nullptr, L"open", L"ms-settings:yourinfo", nullptr, nullptr, SW_SHOWNORMAL);
                 return 0;
             }
+            // Pulsante "Cartelle" nella vista All Apps.
+            if (d->lModalita == 1 && x >= d->LW-94*d->dpi && x < d->LW-16*d->dpi &&
+                y >= d->lAllTop()+3*d->dpi && y < d->lAllTop()+32*d->dpi) {
+                d->lModalita=0; d->query.clear(); d->filtra(); d->lScroll=d->lScrollObj=0;
+                d->lSelFile=-1; d->lDirty=true; return 0;
+            }
             if (d->lSopraVista) {
                 d->lVistaLista = !d->lVistaLista; d->lScroll = d->lScrollObj = 0;
                 d->lSel = 0; d->lSopra = -1; d->lSelTastiera = false; d->lDirty = true;
                 return 0;
             }
+            if (!d->query.empty() && x >= d->LW-107*d->dpi && x < d->LW-82*d->dpi && y >= 14*d->dpi && y < 54*d->dpi) {
+                d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1; d->lDirty=true; return 0;
+            }
+            if (d->lModalita == 0 && y >= 79*d->dpi && y < 110*d->dpi) {
+                if (x >= d->LW-98*d->dpi && x < d->LW-14*d->dpi) {
+                    d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
+                }
+                if (x >= d->LW-180*d->dpi && x < d->LW-105*d->dpi) {
+                    MessageBoxW(h, testi::t(L"Le cartelle di sistema vengono organizzate automaticamente in questa versione. La creazione di cartelle personalizzate e' ancora da implementare.", L"System app folders are automatically organized in this version. Custom folder creation is not implemented yet.").c_str(),
+                                L"FluidWin App Library", MB_OK|MB_ICONINFORMATION);
+                    d->lDirty=true; return 0;
+                }
+            }
+            const int folder=d->lCartellaIn(x,y);
+            if(folder>=0) { d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder); d->lDirty=true; return 0; }
+            const int folderApp=d->lAppCartellaIn(x,y);
+            if(folderApp>=0) { d->avviaAppDiretto(folderApp); return 0; }
+            if(d->lModalita==0 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
+                const float ay=d->LH-150*d->dpi;
+                if(y>=ay+28*d->dpi && y<ay+62*d->dpi) {
+                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                    ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                    return 0;
+                }
+                if(y>=ay+68*d->dpi && y<ay+102*d->dpi) {
+                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                    ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL);
+                    return 0;
+                }
+            }
+            const float footer=d->lFooterTop();
+            if(x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=footer+6*d->dpi && y<footer+46*d->dpi) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",L"explorer.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
+            }
+            if(x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=footer+6*d->dpi && y<footer+46*d->dpi) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                if(d->impostazioni) d->impostazioni(nullptr);
+                else ShellExecuteW(nullptr,L"open",L"ms-settings:",nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
+            }
             const int pin = d->lPinnedIn(x, y);
             if (pin >= 0 && pin < (int)d->lPinned.size()) { d->avviaAppDiretto(d->lPinned[pin]); return 0; }
-            const int i = d->lCellaIn(x, y);
+            const int i = d->lModalita == 1 ? d->lCellaIn(x, y) : -1;
             if (i >= 0) d->avviaApp(i);
-            else { const int k = d->lFileIn(x, y); if (k >= 0) d->apriFile(k); }
+            else { const int k = d->lModalita == 1 ? d->lFileIn(x, y) : -1; if (k >= 0) d->apriFile(k); }
             return 0;
         }
         case WM_RBUTTONUP: {
-            int indice = d->lCellaIn(x, y);
+            int indice = d->lModalita == 1 ? d->lCellaIn(x, y) : -1;
             const int pin = d->lPinnedIn(x, y);
+            const int appCartella = d->lAppCartellaIn(x, y);
+            if (appCartella >= 0) {
+                auto it = std::find(d->filtrate.begin(), d->filtrate.end(), appCartella);
+                if (it != d->filtrate.end()) indice = (int)std::distance(d->filtrate.begin(), it);
+            }
             if (pin >= 0 && pin < (int)d->lPinned.size()) {
                 const int indiceApp = d->lPinned[pin];
                 auto it = std::find(d->filtrate.begin(), d->filtrate.end(), indiceApp);
                 if (it != d->filtrate.end()) indice = (int)std::distance(d->filtrate.begin(), it);
             }
             if (indice >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuApp(indice, p); }
-            else { const int k = d->lFileIn(x, y); if (k >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuFile(k, p); } }
+            else { const int k = d->lModalita == 1 ? d->lFileIn(x, y) : -1; if (k >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuFile(k, p); } }
             return 0;
         }
         // sottomenu del menu di Windows ("Invia a", "Apri con"...): li disegna lui
@@ -1321,10 +1374,13 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             break;
         case WM_MOUSEWHEEL:
             d->lSelTastiera = false;   // (la rotella ha la precedenza sulla scelta da tastiera)
-            d->lScrollObj = std::clamp(d->lScrollObj - GET_WHEEL_DELTA_WPARAM(w) / (double)WHEEL_DELTA * d->lCellaH() * 0.9, 0.0, d->lScrollMax());
+            if (d->lModalita == 1) d->lScrollObj = std::clamp(d->lScrollObj - GET_WHEEL_DELTA_WPARAM(w) / (double)WHEEL_DELTA * d->lCellaH() * 0.9, 0.0, d->lScrollMax());
             d->lDirty = true; return 0;
         case WM_CHAR:
-            if (w == 27) d->chiudiLauncher();
+            if (w == 27) {
+                if (!d->query.empty()) { d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1; d->lScroll=d->lScrollObj=0; d->lDirty=true; }
+                else d->chiudiLauncher();
+            }
             // Invio: con una ricerca la prima trovata (o quella scelta con le frecce); senza, quella scelta. Una riga dei
             // file scelta con le frecce: quella. Nessuna app trovata: il primo file, se i risultati sono del testo
             // scritto (altrimenti la ricerca completa in Esplora file, non un file di un testo vecchio)
@@ -1336,7 +1392,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 }
                 else d->avviaApp(!d->query.empty() || d->lSopra == d->lSel ? d->lSel : -1);
             }
-            else if (w == 8) { if (!d->query.empty()) { d->query.pop_back(); d->filtra(); } }
+            else if (w == 8) { if (!d->query.empty()) { d->query.pop_back(); d->filtra(); if(d->query.empty()) d->lModalita=0; } }
             else if (w == 127 || (w == 8 && (GetKeyState(VK_CONTROL) & 0x8000))) {   // Ctrl+Backspace: via l'ultima parola
                 while (!d->query.empty() && d->query.back() == L' ') d->query.pop_back();
                 while (!d->query.empty() && d->query.back() != L' ') d->query.pop_back();
@@ -1351,10 +1407,10 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                         }
                     }
                     CloseClipboard();
-                    d->filtra();
+                    d->filtra(); d->lModalita=1;
                 }
             }
-            else if (w >= 32) { d->query += (wchar_t)w; d->filtra(); }
+            else if (w >= 32) { d->query += (wchar_t)w; d->lModalita=1; d->filtra(); }
             return 0;
         case WM_KEYDOWN: {
             // Frecce su e giu' fra griglia e file: dall'ultima riga di app (o senza app) la freccia giu' entra nei file;
