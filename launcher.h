@@ -1270,6 +1270,22 @@ inline auto Motore::renderLauncher() -> bool {
     const double sc = verso(lScroll, lScrollObj, 0.06);
     if (sc != lScroll) { lScroll = sc; anim = true; }
     raccogliIcone();
+    caricaFotoProfilo();
+    if(lAngoliCartella.size()!=lCartelle.size()) lAngoliCartella.resize(lCartelle.size(),0.0);
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const double target=i==lCartellaAperta?3.141592653589793:0.0;
+        const double prima=lAngoliCartella[i];
+        lAngoliCartella[i]=verso(lAngoliCartella[i],target,0.20);
+        if(std::abs(prima-lAngoliCartella[i])>0.001) anim=true;
+    }
+    const double pinTarget=lPinnedEspanso?1.0:0.0;
+    const double actionTarget=lAzioniEspanse?1.0:0.0;
+    if(std::abs(verso(lPinnedReveal,pinTarget,0.18)-pinTarget)>0.001) anim=true;
+    if(std::abs(verso(lAzioniReveal,actionTarget,0.18)-actionTarget)>0.001) anim=true;
+    lPinnedChevronAngle=verso(lPinnedChevronAngle,lPinnedEspanso?3.141592653589793:0.0,0.20);
+    lAzioniChevronAngle=verso(lAzioniChevronAngle,lAzioniEspanse?3.141592653589793:0.0,0.20);
+    if(std::abs(lPinnedChevronAngle-(lPinnedEspanso?3.141592653589793:0.0))>0.002 ||
+       std::abs(lAzioniChevronAngle-(lAzioniEspanse?3.141592653589793:0.0))>0.002) anim=true;
 
     const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
     const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
@@ -1283,7 +1299,7 @@ inline auto Motore::renderLauncher() -> bool {
     // Barra di ricerca universale: la digitazione in qualunque punto della finestra filtra le app.
     {
         const D2D1_RECT_F rc = {16 * dpi, 14 * dpi, LW - 16 * dpi, 54 * dpi};
-        pennello->SetColor(scuro ? D2D1::ColorF(0.13f,0.17f,0.25f,0.96f) : D2D1::ColorF(1,1,1,0.82f));
+        pennello->SetColor(scuro ? D2D1::ColorF(0.105f,0.108f,0.12f,0.96f) : D2D1::ColorF(0.94f,0.945f,0.955f,0.90f));
         dc->FillRoundedRectangle({rc, 13 * dpi, 13 * dpi}, pennello);
         pennello->SetColor(tenue);
         const float lx = rc.left + 19 * dpi, ly = (rc.top + rc.bottom) * 0.5f;
@@ -1313,47 +1329,65 @@ inline auto Motore::renderLauncher() -> bool {
         D2D1::ColorF(0.12f,0.82f,0.62f,1),D2D1::ColorF(0.91f,0.67f,0.22f,1)};
     const wchar_t* iconeCartella[6]={L"⌘",L"♟",L"✿",L"◎",L"✓",L"⚙"};
     const float dx=lDividerX(), leftR=dx-16*dpi, rx=dx+14*dpi, rr=LW-14*dpi;
+    auto disegnaFreccia=[&](float cx,float cy,double angolo,float lato) {
+        const float co=(float)std::cos(angolo),si=(float)std::sin(angolo);
+        auto ruota=[&](float x,float y) { return D2D1::Point2F(cx+x*co-y*si,cy+x*si+y*co); };
+        const auto a=ruota(-lato*0.5f,-lato*0.22f), b=ruota(0,lato*0.28f), d=ruota(lato*0.5f,-lato*0.22f);
+        dc->DrawLine(a,b,pennello,1.65f*dpi);
+        dc->DrawLine(b,d,pennello,1.65f*dpi);
+    };
 
     // Le pagine Folders, All Apps, Manage Folder Apps e New Library Folder condividono la stessa colonna workspace.
     if(lModalita!=4) {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
         dc->DrawLine({dx,70*dpi},{dx,lFooterTop()},pennello,1*dpi);
 
-        // Workspace fissato: le sei app preferite restano presenti in ogni pagina della libreria.
+        // Workspace fissato: card piu' grandi, 2 colonne e fino a 12 app.
         pennello->SetColor(ink);
-        scrivi(testi::t(L"★  WORKSPACE FISSATO",L"★  PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-94*dpi,122*dpi});
+        scrivi(testi::t(L"PINNED WORKSPACE",L"PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-96*dpi,122*dpi});
         pennello->SetColor(tenue);
-        scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-104*dpi,90*dpi,dx-16*dpi,122*dpi});
-        for(int i=0;i<(int)lPinned.size() && i<6;++i) {
+        scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-102*dpi,90*dpi,dx-58*dpi,122*dpi});
+        pennello->SetColor(ink);
+        disegnaFreccia(dx-28*dpi,106*dpi,lPinnedChevronAngle,10*dpi);
+        const int pinVisibili=lPinnedEspanso?12:6;
+        for(int i=0;i<(int)lPinned.size() && i<pinVisibili;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
+            const float alfa=i>=6?(float)lPinnedReveal:1.0f;
+            if(alfa<0.015f) continue;
             const bool sopra=i==lSopraPinned;
-            pennello->SetColor(sopra?(scuro?D2D1::ColorF(1,1,1,0.13f):D2D1::ColorF(1,1,1,0.76f))
-                                     :(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.56f)));
-            dc->FillRoundedRectangle({r,12*dpi,12*dpi},pennello);
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.13f:0.055f*alfa)
+                                     :D2D1::ColorF(1,1,1,sopra?0.82f:0.66f*alfa));
+            dc->FillRoundedRectangle({r,11*dpi,11*dpi},pennello);
             AppL& app=tutteApp[lPinned[i]];
-            const D2D1_RECT_F ri={r.left+10*dpi,r.top+12*dpi,r.left+34*dpi,r.top+36*dpi};
-            if(app.icona) dc->DrawBitmap(app.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,6*dpi,6*dpi},pennello); }
-            pennello->SetColor(ink);
-            scrivi(app.nome,fmtNome,{r.left+43*dpi,r.top+3*dpi,r.right-7*dpi,r.bottom-3*dpi});
+            const D2D1_RECT_F ri={r.left+7*dpi,r.top+6*dpi,r.left+43*dpi,r.top+42*dpi};
+            if(app.icona) dc->DrawBitmap(app.icona,ri,alfa,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else { pennello->SetColor({tenue.r,tenue.g,tenue.b,tenue.a*alfa}); dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello); }
+            pennello->SetColor({ink.r,ink.g,ink.b,ink.a*alfa});
+            scrivi(app.nome,fmtVoce,{r.left+52*dpi,r.top+3*dpi,r.right-7*dpi,r.bottom-3*dpi});
         }
 
-        const float ay=LH-158*dpi;
+        const bool azioniSoloTitolo=lPinned.size()>6 && lPinnedEspanso;
+        const float ay=LH-(azioniSoloTitolo?80.0f:158.0f)*dpi;
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.07f));
         dc->DrawLine({16*dpi,ay-18*dpi},{dx-16*dpi,ay-18*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"AZIONI ISTANTANEE",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
-        for(int k=0;k<2;++k) {
-            const float top=ay+(k==0?20:58)*dpi;
-            const D2D1_RECT_F ar={16*dpi,top,leftR,top+34*dpi};
-            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
-            dc->FillRoundedRectangle({ar,10*dpi,10*dpi},pennello);
-            pennello->SetColor(blu);
-            scrivi(k==0?L">_":L"⌗",fmtNome,{ar.left+12*dpi,ar.top,ar.left+38*dpi,ar.bottom});
-            pennello->SetColor(ink);
-            scrivi(k==0?testi::t(L"Nuova sessione Terminale",L"New Terminal Session")
-                       :testi::t(L"Cattura area dello schermo",L"Capture Screen Region"),
-                   fmtNome,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
+        scrivi(testi::t(L"INSTANT ACTIONS",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-58*dpi,ay+24*dpi});
+        pennello->SetColor(ink);
+        disegnaFreccia(dx-28*dpi,ay+12*dpi,lAzioniChevronAngle,10*dpi);
+        if(lAzioniEspanse && !azioniSoloTitolo) {
+            const float reveal=(float)lAzioniReveal;
+            for(int k=0;k<2;++k) {
+                const float top=ay+(k==0?25:63)*dpi+(1.0f-reveal)*12*dpi;
+                const D2D1_RECT_F ar={16*dpi,top,leftR,top+32*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f*reveal):D2D1::ColorF(0,0,0,0.035f*reveal));
+                dc->FillRoundedRectangle({ar,9*dpi,9*dpi},pennello);
+                pennello->SetColor({blu.r,blu.g,blu.b,reveal});
+                scrivi(k==0?L">_":L"⌗",fmtVoce,{ar.left+12*dpi,ar.top,ar.left+38*dpi,ar.bottom});
+                pennello->SetColor({ink.r,ink.g,ink.b,reveal});
+                scrivi(k==0?testi::t(L"New Terminal Session",L"New Terminal Session")
+                           :testi::t(L"Capture Screen Region",L"Capture Screen Region"),
+                       fmtVoce,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
+            }
         }
     }
 
