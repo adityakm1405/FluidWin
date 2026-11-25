@@ -1657,7 +1657,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const float paneRight=d->LW-14*d->dpi;
             // Pulsante "Folders" usato da All Apps, Manage e New Folder.
             if((d->lModalita==1 || d->lModalita==2 || d->lModalita==3) &&
-               x>=paneRight-84*d->dpi && x<paneRight && y>=79*d->dpi && y<110*d->dpi) {
+               x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
                 d->lModalita=0; d->lNomeNuovoAttivo=false; d->lScrollEditor=0; d->lDirty=true; return 0;
             }
 
@@ -1708,7 +1708,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
 
             // Pulsante Folders nella pagina All Apps.
-            if(d->lModalita==1 && x>=paneRight-84*d->dpi && x<paneRight && y>=79*d->dpi && y<110*d->dpi) {
+            if(d->lModalita==1 && x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
                 d->lModalita=0; d->lScroll=d->lScrollObj=0; d->lDirty=true; return 0;
             }
 
@@ -1727,7 +1727,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
 
             if(d->lModalita==0) {
-                if(y>=79*d->dpi && y<110*d->dpi) {
+                if(y>=85*d->dpi && y<115*d->dpi) {
                     if(x>=paneRight-84*d->dpi && x<paneRight) {
                         d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
                     }
@@ -1751,11 +1751,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             // Instant Actions sono sempre disponibili nella colonna sinistra.
             if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
                 const float ay=d->LH-158*d->dpi;
-                if(y>=ay+28*d->dpi && y<ay+62*d->dpi) {
+                if(y>=ay+20*d->dpi && y<ay+54*d->dpi) {
                     d->primaDelLauncher=nullptr; d->chiudiLauncher();
                     ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
                 }
-                if(y>=ay+68*d->dpi && y<ay+102*d->dpi) {
+                if(y>=ay+58*d->dpi && y<ay+92*d->dpi) {
                     d->primaDelLauncher=nullptr; d->chiudiLauncher();
                     ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL); return 0;
                 }
