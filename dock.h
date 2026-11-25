@@ -3546,6 +3546,8 @@ private:
     std::vector<int> lPinned;             // preferiti effettivamente installati
     std::wstring query;
     bool lVistaLista = true;              // elenco alfabetico come vista predefinita
+    int lModalita = 0;                     // 0: workspace (preferiti + cartelle), 1: tutte le app/risultati
+    int lCartellaAperta = 0;               // una sola cartella dell'archivio aperta alla volta
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
     double lScroll = 0, lScrollObj = 0;
@@ -3630,6 +3632,12 @@ private:
     static bool sottosequenza(const std::wstring& nome, const std::wstring& q);
     void filtra();
     void aggiornaPinned();
+    int lCategoriaApp(const AppL& app) const;
+    std::vector<int> lAppCategoria(int categoria) const;
+    float lDividerX() const;
+    float lFooterTop() const;
+    int lCartellaIn(float x, float y) const;
+    int lAppCartellaIn(float x, float y) const;
 
     float lColonne() const;
     float lCellaW() const;
