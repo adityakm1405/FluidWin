@@ -517,7 +517,7 @@ inline auto Motore::lCategoriaApp(const AppL& app) const -> int {
         return false;
     };
     if (contiene({L"steam", L"epic games", L"ubisoft", L"ea app", L"battle.net", L"gog galaxy", L"xbox", L"riot client", L"minecraft", L"playnite", L"game"})) return 1;
-    if (contiene({L"figma", L"blender", L"photoshop", L"illustrator", L"premiere", L"after effects", L"gimp", L"krita", L"paint.net", L"affinity", L"obs studio", L" davinci"})) return 2;
+    if (contiene({L"figma", L"blender", L"photoshop", L"illustrator", L"premiere", L"after effects", L"gimp", L"krita", L"paint.net", L"affinity", L"obs studio", L"davinci"})) return 2;
     if (contiene({L"chrome", L"firefox", L"edge", L"brave", L"opera", L"discord", L"slack", L"zoom", L"teams", L"telegram", L"whatsapp", L"thunderbird"})) return 3;
     if (contiene({L"word", L"excel", L"powerpoint", L"onenote", L"notion", L"linear", L"obsidian", L"libreoffice", L"outlook", L"office", L"todo", L"calendar"})) return 4;
     if (contiene({L"visual studio", L"vs code", L"code", L"unity", L"docker", L"git", L"postman", L"tableplus", L"neovim", L"pycharm", L"intellij", L"android studio", L"node", L"python", L"raycast", L"terminal"})) return 0;
