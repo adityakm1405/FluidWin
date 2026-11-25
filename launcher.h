@@ -627,6 +627,19 @@ inline auto Motore::toggleAppCartella(int indiceApp, int cartella) -> void {
     salvaCartelle();
     lDirty=true;
 }
+inline auto Motore::rimuoviAppDaCartella(int indiceApp, int cartella) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size() || cartella<0 || cartella>=(int)lCartelle.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    auto& elenco=lCartelle[cartella].app;
+    const size_t prima=elenco.size();
+    elenco.erase(std::remove(elenco.begin(),elenco.end(),percorso),elenco.end());
+    if(elenco.size()!=prima) {
+        salvaCartelle();
+        lSopraAppCartella=-1;
+        lSopraRimuoviAppCartella=-1;
+        lDirty=true;
+    }
+}
 inline auto Motore::apriGestisciCartella(int cartella) -> void {
     if(cartella<0 || cartella>=(int)lCartelle.size()) return;
     lCartellaGestita=cartella; lModalita=2; lScrollEditor=0; lNomeNuovoAttivo=false; lDirty=true;
@@ -712,6 +725,15 @@ inline auto Motore::lCartellaIn(float x, float y) const -> int {
     }
     return -1;
 }
+inline auto Motore::lCartellaNomeIn(float x, float y) const -> int {
+    if(lModalita!=0) return -1;
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const float top=lCartellaY(i);
+        const float left=lDividerX()+28*dpi, right=LW-140*dpi;
+        if(x>=left && x<right && y>=top+1*dpi && y<top+35*dpi) return i;
+    }
+    return -1;
+}
 inline auto Motore::lCartellaPiuIn(float x, float y) const -> int {
     const int k=lCartellaIn(x,y);
     if(k<0) return -1;
@@ -729,11 +751,23 @@ inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     const int k=lCartellaAperta;
     const float top=lCartellaY(k), left=lDividerX()+24*dpi, right=LW-24*dpi;
     const float bodyTop=top+39*dpi;
-    if(x<left || x>=right || y<bodyTop || y>=bodyTop+78*dpi) return -1;
+    if(x<left || x>=right || y<bodyTop || y>=bodyTop+75*dpi) return -1;
     const int col=x<(left+right)*0.5f?0:1;
-    const int row=(int)((y-bodyTop)/(26*dpi)), slot=row*2+col;
+    const int row=(int)((y-bodyTop)/(25*dpi)), slot=row*2+col;
     const auto app=lAppCategoria(k);
     return slot>=0 && slot<(int)app.size() && slot<6 ? app[slot] : -1;
+}
+inline auto Motore::lAppCartellaRimuoviIn(float x, float y) const -> int {
+    const int appIndex=lAppCartellaIn(x,y);
+    if(appIndex<0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
+    const auto apps=lAppCategoria(lCartellaAperta);
+    const auto it=std::find(apps.begin(),apps.end(),appIndex);
+    if(it==apps.end()) return -1;
+    const int slot=(int)(it-apps.begin()), col=slot%2, row=slot/2;
+    const float rx=lDividerX()+14*dpi, rr=LW-14*dpi;
+    const float cw=(rr-rx-22*dpi)*0.5f;
+    const float xx=rx+10*dpi+col*cw, yy=lCartellaY(lCartellaAperta)+39*dpi+row*25*dpi;
+    return x>=xx+cw-22*dpi && x<xx+cw-4*dpi && y>=yy+3*dpi && y<yy+21*dpi ? appIndex : -1;
 }
 inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
     if(lModalita!=2 || lCartellaGestita<0 || lCartellaGestita>=(int)lCartelle.size()) return -1;
@@ -852,7 +886,7 @@ inline auto Motore::caricaFotoProfilo() -> bool {
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
     const float w=(lDividerX()-40*dpi)/2.0f;
     const float x=16*dpi+(i%2)*(w+8*dpi);
-    const float y=130*dpi+(i/2)*54*dpi;
+    const float y=122*dpi+(i/2)*54*dpi;
     return {x,y,x+w,y+48*dpi};
 }
 inline auto Motore::lPinnedIn(float x,float y) const -> int {
@@ -1285,6 +1319,16 @@ inline auto Motore::renderLauncher() -> bool {
         const double prossima=verso(lScalaPinnedHover[i],obiettivo,0.075);
         if(prossima!=lScalaPinnedHover[i]) { lScalaPinnedHover[i]=prossima; anim=true; }
     }
+    {
+        const double obiettivo=(lModalita==1 && lSopra>=0)?1.035:1.0;
+        const double prossima=verso(lScalaAllHover,obiettivo,0.075);
+        if(prossima!=lScalaAllHover) { lScalaAllHover=prossima; anim=true; }
+    }
+    for(int i=0;i<4;++i) {
+        const double obiettivo=(i==lSopraAzione)?1.035:1.0;
+        const double prossima=verso(lScalaAzioneHover[i],obiettivo,0.075);
+        if(prossima!=lScalaAzioneHover[i]) { lScalaAzioneHover[i]=prossima; anim=true; }
+    }
     if (lChiusura) {
         lAlfa = std::clamp((lScala - 0.10) / 0.30, 0.0, 1.0);
         if (lAlfa <= 0.02 || !anim) { nascondiLauncher(); return false; }
@@ -1400,49 +1444,60 @@ inline auto Motore::renderLauncher() -> bool {
         const wchar_t* simboli[4]={L">_",L"⌗",L"▥",L"↓"};
         for(int k=0;k<4;++k) {
             const float top=ay+(28.0f+k*36.0f)*dpi;
-            const D2D1_RECT_F ar={16*dpi,top,leftR,top+30*dpi};
-            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
-            dc->FillRoundedRectangle({ar,9*dpi,9*dpi},pennello);
+            const D2D1_RECT_F base={16*dpi,top,leftR,top+30*dpi};
+            const float scala=(float)lScalaAzioneHover[k],cx=(base.left+base.right)*0.5f,cy=(base.top+base.bottom)*0.5f;
+            const D2D1_RECT_F ar=scaleRect(base,cx,cy,scala);
+            const bool hover=k==lSopraAzione;
+            pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f))
+                                    :(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
+            dc->FillRoundedRectangle({ar,9*dpi*scala,9*dpi*scala},pennello);
             pennello->SetColor(blu);
-            scrivi(simboli[k],fmtVoce,{ar.left+12*dpi,ar.top,ar.left+38*dpi,ar.bottom});
+            scrivi(simboli[k],fmtVoce,scaleRect({base.left+12*dpi,base.top,base.left+38*dpi,base.bottom},cx,cy,scala));
             pennello->SetColor(ink);
-            scrivi(azioni[k],fmtVoce,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
+            scrivi(azioni[k],fmtVoce,scaleRect({base.left+42*dpi,base.top,base.right-12*dpi,base.bottom},cx,cy,scala));
         }
     }
 
+    auto scaleRect=[&](const D2D1_RECT_F& box,float cx,float cy,float factor) -> D2D1_RECT_F {
+        return {cx+(box.left-cx)*factor,cy+(box.top-cy)*factor,
+                cx+(box.right-cx)*factor,cy+(box.bottom-cy)*factor};
+    };
     auto drawAppIcon=[&](int appIndex,const D2D1_RECT_F& box) {
         if(appIndex<0 || appIndex>=(int)tutteApp.size()) return;
         AppL& app=tutteApp[appIndex];
         if(app.icona) dc->DrawBitmap(app.icona,box,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
         else { pennello->SetColor(tenue); dc->FillRoundedRectangle({box,7*dpi,7*dpi},pennello); }
     };
-    auto drawAppLibraryRow=[&](int appIndex,const D2D1_RECT_F& r,bool managed,bool pinnedControls) {
+    auto drawAppLibraryRow=[&](int appIndex,const D2D1_RECT_F& base,bool managed,bool pinnedControls,bool hover=false) {
         const AppL& app=tutteApp[appIndex];
-        const D2D1_RECT_F tile={r.left+7*dpi,r.top+6*dpi,r.left+36*dpi,r.top+35*dpi};
+        const float cx=(base.left+base.right)*0.5f,cy=(base.top+base.bottom)*0.5f;
+        const float scala=hover?(float)lScalaAllHover:1.0f;
+        auto rct=[&](const D2D1_RECT_F& box) { return scaleRect(box,cx,cy,scala); };
+        const D2D1_RECT_F r=rct(base);
+        const D2D1_RECT_F tile=rct({base.left+7*dpi,base.top+6*dpi,base.left+36*dpi,base.top+35*dpi});
         const int cat=lCategoriaApp(app);
-        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f));
-        dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
+        pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f))
+                                :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f)));
+        dc->FillRoundedRectangle({r,9*dpi*scala,9*dpi*scala},pennello);
         drawAppIcon(appIndex,tile);
         pennello->SetColor(ink);
-        scrivi(app.nome,fmtVoce,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?46:10)*dpi,r.top+25*dpi});
+        scrivi(app.nome,fmtVoce,rct({base.left+44*dpi,base.top+3*dpi,base.right-(pinnedControls?46:10)*dpi,base.top+25*dpi}));
         pennello->SetColor(tenue);
         scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtSotto,
-               {r.left+44*dpi,r.top+23*dpi,r.right-(pinnedControls?46:10)*dpi,r.bottom-2*dpi});
+               rct({base.left+44*dpi,base.top+23*dpi,base.right-(pinnedControls?46:10)*dpi,base.bottom-2*dpi}));
         if(managed) {
             const bool selected=cat==lCartellaGestita;
-            const D2D1_RECT_F chk={r.left+7*dpi,r.top+14*dpi,r.left+18*dpi,r.top+25*dpi};
+            const D2D1_RECT_F chk=rct({base.left+7*dpi,base.top+14*dpi,base.left+18*dpi,base.top+25*dpi});
             pennello->SetColor(selected?blu:tenue);
-            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
-            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi*scala,2*dpi*scala},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi*scala,2*dpi*scala},pennello,1*dpi*scala);
         }
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
-            // Classic pushpin silhouette from the reference images in pics/: outline when
-            // unpinned and the exact same silhouette filled when pinned. Both are embedded white SVGs.
             ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
             if(iconaPin) {
-                const float px=r.right-24*dpi, py=r.top+27*dpi, lato=14*dpi;
-                const D2D1_RECT_F pinBox={px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f};
+                const float px=base.right-24*dpi, py=base.top+27*dpi, lato=14*dpi;
+                const D2D1_RECT_F pinBox=rct({px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f});
                 dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
         }
@@ -1474,8 +1529,9 @@ inline auto Motore::renderLauncher() -> bool {
                                        :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
             dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
             if(k==lSopraCartella) {
+                const D2D1_RECT_F headerName={fr.left+8*dpi,fy,fr.right-120*dpi,fy+36*dpi};
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f));
-                dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
+                dc->FillRoundedRectangle({headerName,9*dpi,9*dpi},pennello);
             }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
@@ -1491,13 +1547,29 @@ inline auto Motore::renderLauncher() -> bool {
             disegnaFreccia(fr.right-16*dpi,fy+18*dpi,aperta?3.141592653589793:0.0,9*dpi);
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
-                    const int col=j%2,row=j/2;
+                    const int col=j%2,row=j/2,appIndex=apps[j];
                     const float cw=(rr-rx-22*dpi)*0.5f;
                     const float xx=rx+10*dpi+col*cw,yy=fy+39*dpi+row*25*dpi;
+                    const bool hoverApp=appIndex==lSopraAppCartella;
+                    const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
+                    const D2D1_RECT_F appRow={xx,yy+1*dpi,xx+cw,yy+24*dpi};
+                    if(hoverApp) {
+                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.085f):D2D1::ColorF(0,0,0,0.065f));
+                        dc->FillRoundedRectangle({appRow,6*dpi,6*dpi},pennello);
+                    }
                     const D2D1_RECT_F ir={xx+2*dpi,yy+4*dpi,xx+18*dpi,yy+20*dpi};
-                    drawAppIcon(apps[j],ir);
+                    drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[apps[j]].nome,fmtNome,{xx+25*dpi,yy,xx+cw-4*dpi,yy+24*dpi});
+                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+25*dpi,yy,xx+cw-27*dpi,yy+24*dpi});
+                    const D2D1_RECT_F removeBox={xx+cw-22*dpi,yy+3*dpi,xx+cw-4*dpi,yy+21*dpi};
+                    if(hoverRemove) {
+                        pennello->SetColor(scuro?D2D1::ColorF(0.96f,0.20f,0.24f,0.19f):D2D1::ColorF(0.88f,0.10f,0.14f,0.12f));
+                        dc->FillRoundedRectangle({removeBox,5*dpi,5*dpi},pennello);
+                    }
+                    pennello->SetColor(hoverRemove?D2D1::ColorF(0.96f,0.24f,0.28f,1.0f)
+                                                   :D2D1::ColorF(ink.r,ink.g,ink.b,0.58f));
+                    dc->DrawLine({removeBox.left+5*dpi,removeBox.top+5*dpi},{removeBox.right-5*dpi,removeBox.bottom-5*dpi},pennello,1.45f*dpi);
+                    dc->DrawLine({removeBox.right-5*dpi,removeBox.top+5*dpi},{removeBox.left+5*dpi,removeBox.bottom-5*dpi},pennello,1.45f*dpi);
                 }
             }
         }
@@ -1529,20 +1601,24 @@ inline auto Motore::renderLauncher() -> bool {
                     }
                     precedente=lettera;
                 }
-                drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
+                drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true,i==lSopra);
             }
         } else {
             for(int i=0;i<(int)filtrate.size();++i) {
                 const D2D1_RECT_F riga=lCella(i);
                 if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
                 const int index=filtrate[i];
-                const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
-                                        riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
-                dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
+                const bool hover=i==lSopra;
+                const float scala=hover?(float)lScalaAllHover:1.0f,cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
+                const D2D1_RECT_F tile=scaleRect({riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                                  riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi},cx,cy,scala);
+                const D2D1_RECT_F area=scaleRect(riga,cx,cy,scala);
+                pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f))
+                                        :(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
+                dc->FillRoundedRectangle({area,10*dpi*scala,10*dpi*scala},pennello);
                 drawAppIcon(index,tile);
                 pennello->SetColor(ink);
-                scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                scrivi(tutteApp[index].nome,fmtNome,scaleRect({riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi},cx,cy,scala));
             }
         }
         if(filtrate.empty()) {
@@ -1866,7 +1942,17 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                           x>=b.left && x<b.right && y>=b.top && y<b.bottom;
             const int s=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
             const int pin=d->lPinnedIn(x,y);
-            const int cartella=d->lModalita==0?d->lCartellaIn(x,y):-1;
+            const int cartella=d->lModalita==0?d->lCartellaNomeIn(x,y):-1;
+            const int appCartella=d->lModalita==0?d->lAppCartellaIn(x,y):-1;
+            const int rimuoviApp=d->lModalita==0?d->lAppCartellaRimuoviIn(x,y):-1;
+            int azione=-1;
+            if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
+                const float ay=d->LH-256*d->dpi;
+                for(int k=0;k<4;++k) {
+                    const float top=ay+(28.0f+k*36.0f)*d->dpi;
+                    if(y>=top && y<top+30*d->dpi) { azione=k; break; }
+                }
+            }
             const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
             const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
             const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
@@ -1874,16 +1960,18 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const bool explorer=x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
             const bool settings=x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
             if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned || cartella!=d->lSopraCartella ||
+               appCartella!=d->lSopraAppCartella || rimuoviApp!=d->lSopraRimuoviAppCartella || azione!=d->lSopraAzione ||
                profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
                explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni) {
                 d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin; d->lSopraCartella=cartella;
+                d->lSopraAppCartella=appCartella; d->lSopraRimuoviAppCartella=rimuoviApp; d->lSopraAzione=azione;
                 d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
                 d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
                 d->lDirty=true;
             }
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             break;
@@ -1999,6 +2087,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 if(folder>=0) {
                     d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder);
                     d->lDirty=true; return 0;
+                }
+                const int removeApp=d->lAppCartellaRimuoviIn(x,y);
+                if(removeApp>=0) {
+                    d->rimuoviAppDaCartella(removeApp,d->lCartellaAperta);
+                    return 0;
                 }
             }
 

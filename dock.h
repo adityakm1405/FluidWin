@@ -3578,7 +3578,9 @@ private:
     bool lTrascinoBarra = false, lSopraBarra = false;
     float lPresaY = 0; double lPresaScroll = 0;
     int lSel = 0, lSopra = -1, lSopraPinned = -1, lSopraCartella = -1;
+    int lSopraAppCartella = -1, lSopraRimuoviAppCartella = -1, lSopraAzione = -1;
     double lScalaPinnedHover[6] = {1.0,1.0,1.0,1.0,1.0,1.0};
+    double lScalaAzioneHover[4] = {1.0,1.0,1.0,1.0}, lScalaAllHover = 1.0;
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     bool lSopraEsplora = false, lSopraImpostazioni = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
@@ -3663,6 +3665,7 @@ private:
     void salvaCartelle();
     void inizializzaCartelle();
     void toggleAppCartella(int indiceApp, int cartella);
+    void rimuoviAppDaCartella(int indiceApp, int cartella);
     void creaCartella();
     void apriGestisciCartella(int cartella);
     void apriMenuCartella(int cartella, POINT pt);
@@ -3679,7 +3682,9 @@ private:
     float lFooterTop() const;
     float lCartellaY(int cartella) const;
     int lCartellaIn(float x, float y) const;
+    int lCartellaNomeIn(float x, float y) const;
     int lAppCartellaIn(float x, float y) const;
+    int lAppCartellaRimuoviIn(float x, float y) const;
     int lGestisciAppIn(float x, float y) const;
     int lNuovaAppIn(float x, float y) const;
     int lAppElencoIn(float x, float y) const;
