@@ -718,7 +718,8 @@ inline auto Motore::lCartellaY(int cartella) const -> float {
     return y;
 }
 inline auto Motore::lCartellaIn(float x, float y) const -> int {
-    if(lModalita!=0 || x<lDividerX()+10*dpi || x>LW-10*dpi) return -1;
+    // Match the folder card's exact horizontal bounds so the side edges are included too.
+    if(lModalita!=0 || x<lDividerX()+14*dpi || x>=LW-14*dpi) return -1;
     for(int i=0;i<(int)lCartelle.size();++i) {
         const float top=lCartellaY(i);
         if(y>=top && y<top+36*dpi) return i;
@@ -1532,9 +1533,9 @@ inline auto Motore::renderLauncher() -> bool {
             if(k==lSopraCartella) {
                 // Highlight the entire header row, from the folder name through the count and arrow.
                 // Keep the bottom edge above the divider; the expanded app area is not part of this hover.
-                const D2D1_RECT_F headerRow={fr.left+6*dpi,fy,fr.right-6*dpi,fy+35*dpi};
+                const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+35*dpi};
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
-                dc->FillRoundedRectangle({headerRow,10*dpi,10*dpi},pennello);
+                dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
             }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
