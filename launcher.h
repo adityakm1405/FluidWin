@@ -619,10 +619,10 @@ inline auto Motore::creaCartella() -> void {
     std::wstring nome=lNomeNuovaCartella;
     while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
     while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
-    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder.").,L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
-    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders.").,L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder."),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders."),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
     for(const auto& f:lCartelle) if(!_wcsicmp(f.nome.c_str(),nome.c_str())) {
-        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists.").,L"FluidWin",MB_OK|MB_ICONINFORMATION);
+        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists."),L"FluidWin",MB_OK|MB_ICONINFORMATION);
         return;
     }
     CartellaL nuova; nuova.nome=nome; nuova.icona=lIconaNuovaCartella; nuova.colore=lIconaNuovaCartella; nuova.personalizzata=true;
@@ -1832,7 +1832,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 const double top=d->lModalita==2?180*d->dpi:292*d->dpi;
                 const double bottom=d->lModalita==2?d->lFooterTop()-78*d->dpi:d->lFooterTop()-82*d->dpi;
                 const double visible=std::max(0.0,bottom-top);
-                const double total=std::ceil(tutteApp.size()/2.0)*35*d->dpi;
+                const double total=std::ceil(d->tutteApp.size()/2.0)*35*d->dpi;
                 const double max=std::max(0.0,total-visible);
                 d->lScrollEditor=std::clamp(d->lScrollEditor-passo*42*d->dpi,0.0,max);
             } else if(d->lModalita==1 || d->lModalita==4) {
