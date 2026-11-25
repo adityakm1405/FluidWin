@@ -329,7 +329,7 @@ inline auto Motore::togglePinned(int indiceApp) -> void {
     else {
         if(lPinnedManual.size()>=6) {
             MessageBoxW(launcher,testi::t(L"Puoi tenere fino a sei app nel workspace fissato. Rimuovine una prima di aggiungerne un'altra.",
-                L"You can keep up to six apps in the pinned workspace. Remove one before adding another.").c_str(),
+                L"You can keep up to six apps in the pinned workspace. Remove one before adding another."),
                 L"FluidWin",MB_OK|MB_ICONINFORMATION);
             return;
         }
