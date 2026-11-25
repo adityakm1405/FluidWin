@@ -1405,6 +1405,11 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawLine(b,d,pennello,1.65f*dpi);
     };
 
+    auto scaleRect=[&](const D2D1_RECT_F& box,float cx,float cy,float factor) -> D2D1_RECT_F {
+        return {cx+(box.left-cx)*factor,cy+(box.top-cy)*factor,
+                cx+(box.right-cx)*factor,cy+(box.bottom-cy)*factor};
+    };
+
     // Le pagine Folders, All Apps, Manage Folder Apps e New Library Folder condividono la stessa colonna workspace.
     if(lModalita!=4) {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
@@ -1458,10 +1463,6 @@ inline auto Motore::renderLauncher() -> bool {
         }
     }
 
-    auto scaleRect=[&](const D2D1_RECT_F& box,float cx,float cy,float factor) -> D2D1_RECT_F {
-        return {cx+(box.left-cx)*factor,cy+(box.top-cy)*factor,
-                cx+(box.right-cx)*factor,cy+(box.bottom-cy)*factor};
-    };
     auto drawAppIcon=[&](int appIndex,const D2D1_RECT_F& box) {
         if(appIndex<0 || appIndex>=(int)tutteApp.size()) return;
         AppL& app=tutteApp[appIndex];
