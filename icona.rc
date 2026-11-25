@@ -12,6 +12,8 @@
 207 RCDATA "assets/trash-macos.svg"
 208 RCDATA "assets/download-default.svg"
 209 RCDATA "assets/download-original-source.png"
+210 RCDATA "assets/pin-20-regular-white.svg"
+211 RCDATA "assets/pin-20-filled-white.svg"
 
 1 VERSIONINFO
 FILEVERSION     1,3,1,0

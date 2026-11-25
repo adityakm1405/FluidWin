@@ -178,6 +178,10 @@ inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
     D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
                                                          D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
     dc->CreateBitmapFromDxgiSurface(sup, &bp, &bersaglioL); sup->Release();
+    if(bersaglioL) {
+        if(!lPinContorno) lPinContorno=caricaIconaSvgRisorsa(210,64);
+        if(!lPinPieno) lPinPieno=caricaIconaSvgRisorsa(211,64);
+    }
     return bersaglioL != nullptr;
 }
 
@@ -1421,19 +1425,13 @@ inline auto Motore::renderLauncher() -> bool {
         }
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
-            // La puntina resta bianca in entrambi gli stati: contorno da non fissata,
-            // silhouette piu' piena quando l'app e' fissata.
-            pennello->SetColor(D2D1::ColorF(1.0f,1.0f,1.0f,0.96f));
-            const float px=r.right-54*dpi, py=r.top+16*dpi;
-            const D2D1_ELLIPSE testa={{px+1.5f*dpi,py-3.0f*dpi},3.5f*dpi,3.5f*dpi};
-            const float tratto=fissata?3.1f:1.55f;
-            if(fissata) dc->FillEllipse(testa,pennello);
-            else dc->DrawEllipse(testa,pennello,1.45f*dpi);
-            dc->DrawLine({px-2.0f*dpi,py-6.0f*dpi},{px+5.0f*dpi,py+1.0f*dpi},pennello,tratto*dpi);
-            dc->DrawLine({px+0.7f*dpi,py-0.6f*dpi},{px-6.5f*dpi,py+6.5f*dpi},pennello,tratto*dpi);
-            if(fissata) {
-                dc->FillEllipse({{px+5.0f*dpi,py+1.0f*dpi},1.5f*dpi,1.5f*dpi},pennello);
-                dc->FillEllipse({{px-6.5f*dpi,py+6.5f*dpi},1.5f*dpi,1.5f*dpi},pennello);
+            // Use the Microsoft Fluent Pin glyphs directly: Regular when unpinned,
+            // Filled when pinned. Both SVG resources are embedded and forced to white.
+            ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
+            if(iconaPin) {
+                const float px=r.right-54*dpi, py=r.top+16*dpi, lato=18*dpi;
+                const D2D1_RECT_F pinBox={px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f};
+                dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});

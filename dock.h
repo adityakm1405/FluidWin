@@ -3543,6 +3543,7 @@ private:
     HWND launcher = nullptr, vetroLauncher = nullptr;
     IDXGISwapChain1* scL = nullptr; IDCompositionTarget* targetL = nullptr; IDCompositionVisual* visualL = nullptr;
     IDCompositionEffectGroup* effettoL = nullptr; ID2D1Bitmap1* bersaglioL = nullptr;
+    ID2D1Bitmap1* lPinContorno = nullptr; ID2D1Bitmap1* lPinPieno = nullptr;
     float LW = 0, LH = 0, LEXTRA = 0;      // misure del launcher; sotto, lo spazio fino all'icona da cui esce
     float LHMAX = 0;                       // altezza della sua superficie (LH si adatta allo schermo a ogni apertura)
     HWND primaDelLauncher = nullptr;       // finestra in primo piano prima dell'apertura
