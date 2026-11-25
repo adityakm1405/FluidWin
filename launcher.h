@@ -1364,7 +1364,7 @@ inline auto Motore::renderLauncher() -> bool {
         // Workspace heading shares the typography and muted color of App Library Folders.
         pennello->SetColor(tenue);
         scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-104*dpi,122*dpi});
-        scrivi(std::to_wstring(lPinned.size())+L" pinned",fmtNome,{dx-96*dpi,90*dpi,dx-16*dpi,122*dpi});
+        scrivi(std::to_wstring(lPinned.size())+L"pinned",fmtNome,{dx-96*dpi,90*dpi,dx-16*dpi,122*dpi});
         for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
             const bool sopra=i==lSopraPinned;
