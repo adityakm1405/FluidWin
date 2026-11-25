@@ -1280,23 +1280,7 @@ inline auto Motore::renderLauncher() -> bool {
     if (sc != lScroll) { lScroll = sc; anim = true; }
     raccogliIcone();
     caricaFotoProfilo();
-    if(lAngoliCartella.size()!=lCartelle.size()) lAngoliCartella.resize(lCartelle.size(),0.0);
-    for(int i=0;i<(int)lCartelle.size();++i) {
-        const double target=i==lCartellaAperta?3.141592653589793:0.0;
-        const double prima=lAngoliCartella[i];
-        lAngoliCartella[i]=verso(lAngoliCartella[i],target,0.20);
-        if(std::abs(prima-lAngoliCartella[i])>0.001) anim=true;
-    }
-    const double pinTarget=lPinnedEspanso?1.0:0.0;
-    const double actionTarget=lAzioniEspanse?1.0:0.0;
-    const double pinRevealNext=verso(lPinnedReveal,pinTarget,0.18);
-    const double actionRevealNext=verso(lAzioniReveal,actionTarget,0.18);
-    if(std::abs(pinRevealNext-lPinnedReveal)>0.001) { lPinnedReveal=pinRevealNext; anim=true; }
-    if(std::abs(actionRevealNext-lAzioniReveal)>0.001) { lAzioniReveal=actionRevealNext; anim=true; }
-    lPinnedChevronAngle=verso(lPinnedChevronAngle,lPinnedEspanso?3.141592653589793:0.0,0.20);
-    lAzioniChevronAngle=verso(lAzioniChevronAngle,lAzioniEspanse?3.141592653589793:0.0,0.20);
-    if(std::abs(lPinnedChevronAngle-(lPinnedEspanso?3.141592653589793:0.0))>0.002 ||
-       std::abs(lAzioniChevronAngle-(lAzioniEspanse?3.141592653589793:0.0))>0.002) anim=true;
+    // Workspace sections stay fixed; folder chevrons change immediately.
 
     const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
     const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
@@ -1353,52 +1337,39 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
         dc->DrawLine({dx,70*dpi},{dx,lFooterTop()},pennello,1*dpi);
 
-        // Workspace fissato: card piu' grandi, 2 colonne e fino a 12 app.
+        // Sei app fissate: due colonne e tre righe, con spazio stabile per le azioni rapide.
         pennello->SetColor(ink);
-        scrivi(testi::t(L"PINNED WORKSPACE",L"PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-96*dpi,122*dpi});
-        pennello->SetColor(tenue);
-        scrivi(std::to_wstring(lPinned.size())+testi::t(L" fissate",L" pinned"),fmtNome,{dx-102*dpi,90*dpi,dx-58*dpi,122*dpi});
-        pennello->SetColor(ink);
-        disegnaFreccia(dx-28*dpi,106*dpi,lPinnedChevronAngle,10*dpi);
-        const int pinVisibili=lPinnedEspanso?12:6;
-        for(int i=0;i<(int)lPinned.size() && i<pinVisibili;++i) {
+        scrivi(testi::t(L"PINNED WORKSPACE",L"PINNED WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-16*dpi,122*dpi});
+        for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F r=lPinnedCella(i);
-            const float alfa=i>=6?(float)lPinnedReveal:1.0f;
-            if(alfa<0.015f) continue;
             const bool sopra=i==lSopraPinned;
-            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.13f:0.055f*alfa)
-                                     :D2D1::ColorF(1,1,1,sopra?0.82f:0.66f*alfa));
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.13f:0.055f)
+                                     :D2D1::ColorF(1,1,1,sopra?0.82f:0.66f));
             dc->FillRoundedRectangle({r,11*dpi,11*dpi},pennello);
             AppL& app=tutteApp[lPinned[i]];
             const D2D1_RECT_F ri={r.left+7*dpi,r.top+6*dpi,r.left+43*dpi,r.top+42*dpi};
-            if(app.icona) dc->DrawBitmap(app.icona,ri,alfa,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            else { pennello->SetColor({tenue.r,tenue.g,tenue.b,tenue.a*alfa}); dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello); }
-            pennello->SetColor({ink.r,ink.g,ink.b,ink.a*alfa});
+            if(app.icona) dc->DrawBitmap(app.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello); }
+            pennello->SetColor(ink);
             scrivi(app.nome,fmtVoce,{r.left+52*dpi,r.top+3*dpi,r.right-7*dpi,r.bottom-3*dpi});
         }
 
-        const bool azioniSoloTitolo=lPinned.size()>6 && lPinnedEspanso;
-        const float ay=LH-(azioniSoloTitolo?80.0f:158.0f)*dpi;
+        const float ay=LH-256*dpi;
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.07f));
-        dc->DrawLine({16*dpi,ay-18*dpi},{dx-16*dpi,ay-18*dpi},pennello,1*dpi);
+        dc->DrawLine({16*dpi,ay-15*dpi},{dx-16*dpi,ay-15*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"INSTANT ACTIONS",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-58*dpi,ay+24*dpi});
-        pennello->SetColor(ink);
-        disegnaFreccia(dx-28*dpi,ay+12*dpi,lAzioniChevronAngle,10*dpi);
-        if(lAzioniEspanse && !azioniSoloTitolo) {
-            const float reveal=(float)lAzioniReveal;
-            for(int k=0;k<2;++k) {
-                const float top=ay+(k==0?25:63)*dpi+(1.0f-reveal)*12*dpi;
-                const D2D1_RECT_F ar={16*dpi,top,leftR,top+32*dpi};
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f*reveal):D2D1::ColorF(0,0,0,0.035f*reveal));
-                dc->FillRoundedRectangle({ar,9*dpi,9*dpi},pennello);
-                pennello->SetColor({blu.r,blu.g,blu.b,reveal});
-                scrivi(k==0?L">_":L"⌗",fmtVoce,{ar.left+12*dpi,ar.top,ar.left+38*dpi,ar.bottom});
-                pennello->SetColor({ink.r,ink.g,ink.b,reveal});
-                scrivi(k==0?testi::t(L"New Terminal Session",L"New Terminal Session")
-                           :testi::t(L"Capture Screen Region",L"Capture Screen Region"),
-                       fmtVoce,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
-            }
+        scrivi(testi::t(L"INSTANT ACTIONS",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
+        const wchar_t* azioni[4]={L"New Terminal Session",L"Capture Screen Region",L"Task Manager",L"Open Downloads"};
+        const wchar_t* simboli[4]={L">_",L"⌗",L"▥",L"↓"};
+        for(int k=0;k<4;++k) {
+            const float top=ay+(28.0f+k*36.0f)*dpi;
+            const D2D1_RECT_F ar={16*dpi,top,leftR,top+30*dpi};
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
+            dc->FillRoundedRectangle({ar,9*dpi,9*dpi},pennello);
+            pennello->SetColor(blu);
+            scrivi(simboli[k],fmtVoce,{ar.left+12*dpi,ar.top,ar.left+38*dpi,ar.bottom});
+            pennello->SetColor(ink);
+            scrivi(azioni[k],fmtVoce,{ar.left+42*dpi,ar.top,ar.right-12*dpi,ar.bottom});
         }
     }
 
