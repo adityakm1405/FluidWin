@@ -1280,8 +1280,10 @@ inline auto Motore::renderLauncher() -> bool {
     }
     const double pinTarget=lPinnedEspanso?1.0:0.0;
     const double actionTarget=lAzioniEspanse?1.0:0.0;
-    if(std::abs(verso(lPinnedReveal,pinTarget,0.18)-pinTarget)>0.001) anim=true;
-    if(std::abs(verso(lAzioniReveal,actionTarget,0.18)-actionTarget)>0.001) anim=true;
+    const double pinRevealNext=verso(lPinnedReveal,pinTarget,0.18);
+    const double actionRevealNext=verso(lAzioniReveal,actionTarget,0.18);
+    if(std::abs(pinRevealNext-lPinnedReveal)>0.001) { lPinnedReveal=pinRevealNext; anim=true; }
+    if(std::abs(actionRevealNext-lAzioniReveal)>0.001) { lAzioniReveal=actionRevealNext; anim=true; }
     lPinnedChevronAngle=verso(lPinnedChevronAngle,lPinnedEspanso?3.141592653589793:0.0,0.20);
     lAzioniChevronAngle=verso(lAzioniChevronAngle,lAzioniEspanse?3.141592653589793:0.0,0.20);
     if(std::abs(lPinnedChevronAngle-(lPinnedEspanso?3.141592653589793:0.0))>0.002 ||
@@ -1401,14 +1403,13 @@ inline auto Motore::renderLauncher() -> bool {
         const AppL& app=tutteApp[appIndex];
         const D2D1_RECT_F tile={r.left+7*dpi,r.top+6*dpi,r.left+36*dpi,r.top+35*dpi};
         const int cat=lCategoriaApp(app);
-        const D2D1_COLOR_F tone=cat>=0?accenti[lCartelle[cat].colore%6]:tenue;
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(0,0,0,0.025f));
         dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
         drawAppIcon(appIndex,tile);
         pennello->SetColor(ink);
-        scrivi(app.nome,fmtNome,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?76:10)*dpi,r.top+25*dpi});
+        scrivi(app.nome,fmtVoce,{r.left+44*dpi,r.top+3*dpi,r.right-(pinnedControls?76:10)*dpi,r.top+25*dpi});
         pennello->SetColor(tenue);
-        scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtNome,
+        scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtSotto,
                {r.left+44*dpi,r.top+23*dpi,r.right-(pinnedControls?76:10)*dpi,r.bottom-2*dpi});
         if(managed) {
             const bool selected=cat==lCartellaGestita;
@@ -1420,7 +1421,7 @@ inline auto Motore::renderLauncher() -> bool {
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
             pennello->SetColor(fissata?blu:tenue);
-            scrivi(fissata?L"★":L"☆",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
+            scrivi(fissata?L"📌":L"",fmtNome,{r.right-66*dpi,r.top+7*dpi,r.right-42*dpi,r.bottom-4*dpi});
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
@@ -1455,19 +1456,15 @@ inline auto Motore::renderLauncher() -> bool {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
                 dc->DrawLine({fr.left,fy+36*dpi},{fr.right,fy+36*dpi},pennello,1*dpi);
             }
-            const int icon=lCartelle[k].icona%6;
-            pennello->SetColor(accenti[lCartelle[k].colore%6]);
-            scrivi(iconeCartella[icon],fmtNome,{fr.left+10*dpi,fy+1*dpi,fr.left+35*dpi,fy+35*dpi});
+            // Cartelle senza icone: nome sempre allineato a sinistra come nella reference.
             pennello->SetColor(ink);
-            scrivi(lCartelle[k].nome,fmtNome,{fr.left+40*dpi,fy+1*dpi,fr.right-110*dpi,fy+35*dpi});
+            scrivi(lCartelle[k].nome,fmtVoce,{fr.left+14*dpi,fy+1*dpi,fr.right-126*dpi,fy+35*dpi});
             const auto apps=lAppCategoria(k);
             pennello->SetColor(tenue);
-            scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-69*dpi,fy+1*dpi,fr.right-48*dpi,fy+35*dpi});
+            scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-106*dpi,fy+1*dpi,fr.right-82*dpi,fy+35*dpi});
             pennello->SetColor(ink);
-            scrivi(L"+",fmtTitolo,{fr.right-45*dpi,fy+1*dpi,fr.right-25*dpi,fy+35*dpi});
-            const float cx=fr.right-15*dpi,cy=fy+18*dpi;
-            if(aperta) { linea(-3,-1,0,2,cx-2*dpi,cy-1*dpi,1.3f); linea(0,2,3,-1,cx+1*dpi,cy-1*dpi,1.3f); }
-            else { linea(-3,-1,0,2,cx-2*dpi,cy+1*dpi,1.3f); linea(0,2,3,-1,cx+1*dpi,cy+1*dpi,1.3f); }
+            scrivi(L"+",fmtTitolo,{fr.right-78*dpi,fy+1*dpi,fr.right-48*dpi,fy+35*dpi});
+            disegnaFreccia(fr.right-18*dpi,fy+18*dpi,lAngoliCartella[k],13*dpi);
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2;
@@ -1504,11 +1501,11 @@ inline auto Motore::renderLauncher() -> bool {
                     const float hy=riga.top-22*dpi;
                     if(hy+19*dpi>=136*dpi) {
                         pennello->SetColor(tenue);
-                        scrivi(std::wstring(1,lettera),fmtNome,{rx+4*dpi,hy,rr-4*dpi,hy+18*dpi});
+                        scrivi(std::wstring(1,lettera),fmtVoce,{rx+4*dpi,hy,rx+27*dpi,hy+18*dpi});
                     }
                     precedente=lettera;
                 }
-                drawAppLibraryRow(filtrate[i],{riga.left+1*dpi,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
+                drawAppLibraryRow(filtrate[i],{riga.left+25*dpi,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
             }
         } else {
             for(int i=0;i<(int)filtrate.size();++i) {
