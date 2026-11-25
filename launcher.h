@@ -1199,7 +1199,10 @@ inline auto Motore::renderLauncher() -> bool {
                 dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello);
             }
             pennello->SetColor(ink);
-            scrivi(a.nome,fmtNome,{r.left+50*dpi,r.top+3*dpi,r.right-12*dpi,r.bottom-3*dpi});
+            scrivi(a.nome,fmtNome,{r.left+50*dpi,r.top+3*dpi,r.right-44*dpi,r.bottom-3*dpi});
+            const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),a.avvio)!=lPinnedManual.end();
+            pennello->SetColor(fissata?blu:tenue);
+            scrivi(fissata?L"★":L"☆",fmtNome,{r.right-38*dpi,r.top+3*dpi,r.right-8*dpi,r.bottom-3*dpi});
         }
     } else {
         const float lato = 50*dpi;
@@ -1403,8 +1406,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const int pin = d->lPinnedIn(x, y);
             if (pin >= 0 && pin < (int)d->lPinned.size()) { d->avviaAppDiretto(d->lPinned[pin]); return 0; }
             const int i = d->lModalita == 1 ? d->lCellaIn(x, y) : -1;
-            if (i >= 0) d->avviaApp(i);
-            else { const int k = d->lModalita == 1 ? d->lFileIn(x, y) : -1; if (k >= 0) d->apriFile(k); }
+            if (i >= 0) {
+                const D2D1_RECT_F r=d->lCella(i);
+                if (d->lVistaLista && x >= r.right-42*d->dpi) d->togglePinned(d->filtrate[i]);
+                else d->avviaApp(i);
+            } else { const int k = d->lModalita == 1 ? d->lFileIn(x, y) : -1; if (k >= 0) d->apriFile(k); }
             return 0;
         }
         case WM_RBUTTONUP: {
