@@ -342,14 +342,14 @@ inline auto Motore::togglePinned(int indiceApp) -> void {
     auto it=std::find(lPinnedManual.begin(),lPinnedManual.end(),percorso);
     if(it!=lPinnedManual.end()) lPinnedManual.erase(it);
     else {
-        if(lPinnedManual.size()>=6) {
-            MessageBoxW(launcher,testi::t(L"Puoi tenere fino a sei app nel workspace fissato. Rimuovine una prima di aggiungerne un'altra.",
-                L"You can keep up to six apps in the pinned workspace. Remove one before adding another."),
+        if(lPinnedManual.size()>=12) {
+            MessageBoxW(launcher,testi::t(L"Puoi fissare fino a 12 app nel Workspace.",L"You can pin up to 12 apps in the Workspace."),
                 L"FluidWin",MB_OK|MB_ICONINFORMATION);
             return;
         }
         lPinnedManual.push_back(percorso);
     }
+    if(lPinnedManual.size()>6) { lPinnedEspanso=true; lAzioniEspanse=false; }
     salvaPinned();
     aggiornaPinned();
     lDirty=true;
@@ -577,6 +577,7 @@ inline auto Motore::caricaCartelle() -> void {
         return;
     }
     const int n=std::clamp(_wtoi(conteggio),0,32);
+    const bool puliziaUnaVolta=GetPrivateProfileIntW(L"Library",L"CustomFoldersResetV1",0,ini.c_str())==0;
     for(int i=0;i<n;++i) {
         const std::wstring sezione=L"Folder"+std::to_wstring(i);
         wchar_t nome[128]=L"",apps[32768]=L"";
@@ -595,11 +596,17 @@ inline auto Motore::caricaCartelle() -> void {
             if(fine==std::wstring::npos) break;
             inizio=fine+1;
         }
+        if(puliziaUnaVolta && f.personalizzata) continue;
         lCartelle.push_back(std::move(f));
+    }
+    if(puliziaUnaVolta) {
+        salvaCartelle();
+        WritePrivateProfileStringW(L"Library",L"CustomFoldersResetV1",L"1",ini.c_str());
     }
 }
 inline auto Motore::inizializzaCartelle() -> void {
     caricaCartelle();
+    lAngoliCartella.resize(lCartelle.size(),0.0);
     if(lCartellaAperta>=(int)lCartelle.size()) lCartellaAperta=lCartelle.empty()?-1:0;
 }
 inline auto Motore::toggleAppCartella(int indiceApp, int cartella) -> void {
@@ -625,17 +632,66 @@ inline auto Motore::creaCartella() -> void {
         MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists."),L"FluidWin",MB_OK|MB_ICONINFORMATION);
         return;
     }
-    CartellaL nuova; nuova.nome=nome; nuova.icona=lIconaNuovaCartella; nuova.colore=lIconaNuovaCartella; nuova.personalizzata=true;
+    CartellaL nuova; nuova.nome=nome; nuova.icona=0; nuova.colore=0; nuova.personalizzata=true;
     nuova.app=lAppNuovaCartella;
     for(auto& f:lCartelle) for(const auto& p:nuova.app)
         f.app.erase(std::remove(f.app.begin(),f.app.end(),p),f.app.end());
     lCartelle.push_back(std::move(nuova));
+    lAngoliCartella.push_back(0.0);
     lCartellaAperta=(int)lCartelle.size()-1;
     salvaCartelle();
     lModalita=0; lNomeNuovaCartella.clear(); lAppNuovaCartella.clear(); lScrollEditor=0;
     lNomeNuovoAttivo=false; lDirty=true;
 }
-
+inline auto Motore::apriRinominaCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartellaRinomina=cartella;
+    lNomeNuovaCartella=lCartelle[cartella].nome;
+    lNomeNuovoAttivo=true;
+    lModalita=5; lScrollEditor=0; lDirty=true;
+}
+inline auto Motore::salvaRinominaCartella() -> void {
+    if(lCartellaRinomina<0 || lCartellaRinomina>=(int)lCartelle.size()) return;
+    std::wstring nome=lNomeNuovaCartella;
+    while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
+    while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
+    if(nome.empty()) return;
+    for(int i=0;i<(int)lCartelle.size();++i)
+        if(i!=lCartellaRinomina && !_wcsicmp(lCartelle[i].nome.c_str(),nome.c_str())) {
+            MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists."),
+                        L"FluidWin",MB_OK|MB_ICONINFORMATION);
+            return;
+        }
+    lCartelle[lCartellaRinomina].nome=nome;
+    salvaCartelle();
+    lCartellaAperta=lCartellaRinomina;
+    lCartellaRinomina=-1; lNomeNuovaCartella.clear(); lNomeNuovoAttivo=false;
+    lModalita=0; lDirty=true;
+}
+inline auto Motore::rimuoviCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartelle.erase(lCartelle.begin()+cartella);
+    if(cartella<(int)lAngoliCartella.size()) lAngoliCartella.erase(lAngoliCartella.begin()+cartella);
+    if(lCartellaAperta==cartella) lCartellaAperta=-1;
+    else if(lCartellaAperta>cartella) --lCartellaAperta;
+    lCartellaGestita=-1; lModalita=0; lScrollCartelle=0;
+    salvaCartelle(); lDirty=true;
+}
+inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    HMENU menu=CreatePopupMenu();
+    if(!menu) return;
+    AppendMenuW(menu,MF_STRING,1,testi::t(L"Rinomina",L"Rename"));
+    AppendMenuW(menu,MF_STRING,2,testi::t(L"Rimuovi",L"Remove"));
+    AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
+    AppendMenuW(menu,MF_STRING,3,testi::t(L"Gestisci app",L"Manage apps"));
+    SetForegroundWindow(launcher);
+    const UINT scelta=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,pt.x,pt.y,0,launcher,nullptr);
+    DestroyMenu(menu);
+    if(scelta==1) apriRinominaCartella(cartella);
+    else if(scelta==2) rimuoviCartella(cartella);
+    else if(scelta==3) apriGestisciCartella(cartella);
+}
 inline auto Motore::lCartellaY(int cartella) const -> float {
     float y=122*dpi-lScrollCartelle;
     for(int i=0;i<cartella && i<(int)lCartelle.size();++i)
@@ -653,8 +709,14 @@ inline auto Motore::lCartellaIn(float x, float y) const -> int {
 inline auto Motore::lCartellaPiuIn(float x, float y) const -> int {
     const int k=lCartellaIn(x,y);
     if(k<0) return -1;
-    const float rx=lDividerX()+14*dpi, rr=LW-14*dpi, top=lCartellaY(k);
-    return x>=rr-48*dpi && x<rr-25*dpi && y>=top && y<top+36*dpi ? k : -1;
+    const float rr=LW-14*dpi, top=lCartellaY(k);
+    return x>=rr-78*dpi && x<rr-48*dpi && y>=top && y<top+36*dpi ? k : -1;
+}
+inline auto Motore::lCartellaFrecciaIn(float x,float y) const -> int {
+    const int k=lCartellaIn(x,y);
+    if(k<0) return -1;
+    const float rr=LW-14*dpi, top=lCartellaY(k);
+    return x>=rr-36*dpi && x<rr && y>=top && y<top+36*dpi ? k : -1;
 }
 inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
@@ -724,12 +786,13 @@ inline auto Motore::lListaAlto() const -> float {
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
     const float w=(lDividerX()-40*dpi)/2.0f;
     const float x=16*dpi+(i%2)*(w+8*dpi);
-    const float y=112*dpi+(i/2)*56*dpi;
-    return {x,y,x+w,y+50*dpi};
+    const float y=130*dpi+(i/2)*54*dpi;
+    return {x,y,x+w,y+48*dpi};
 }
 inline auto Motore::lPinnedIn(float x,float y) const -> int {
     if(lModalita==4 || !query.empty()) return -1;
-    for(int i=0;i<(int)lPinned.size() && i<6;++i) {
+    const int limite=lPinnedEspanso?12:6;
+    for(int i=0;i<(int)lPinned.size() && i<limite;++i) {
         const D2D1_RECT_F r=lPinnedCella(i);
         if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
     }
