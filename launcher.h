@@ -1793,8 +1793,8 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         }
         case WM_MOUSEMOVE: {
-            if (!d->lMouseDentro) { TRACKMOUSEEVENT tm{sizeof(tm),TME_LEAVE,h,0}; TrackMouseEvent(&tm); d->lMouseDentro=true; }
-            if (d->lTrascinoBarra) {
+            if(!d->lMouseDentro) { TRACKMOUSEEVENT tm{sizeof(tm),TME_LEAVE,h,0}; TrackMouseEvent(&tm); d->lMouseDentro=true; }
+            if(d->lTrascinoBarra) {
                 const double alt=d->lGrigliaBottom()-d->lGrigliaTop(),c=d->lCursoreBarra().bottom-d->lCursoreBarra().top;
                 const double corsa=std::max(1.0,alt-c);
                 d->lScrollObj=d->lScroll=std::clamp(d->lPresaScroll+(y-d->lPresaY)*d->lScrollMax()/corsa,0.0,d->lScrollMax());
@@ -1803,21 +1803,25 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const D2D1_RECT_F b=d->lRettBarra();
             const bool sb=(d->lModalita==1 || d->lModalita==4) && d->lScrollMax()>0 &&
                           x>=b.left && x<b.right && y>=b.top && y<b.bottom;
-            if(sb!=d->lSopraBarra) { d->lSopraBarra=sb; d->lDirty=true; }
             const int s=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
             const int pin=d->lPinnedIn(x,y);
-            const bool profilo=x>=d->rettProfilo().left && x<d->rettProfilo().right &&
-                               y>=d->rettProfilo().top && y<d->rettProfilo().bottom;
-            const bool energia=x>=d->rettEnergia().left && x<d->rettEnergia().right &&
-                               y>=d->rettEnergia().top && y<d->rettEnergia().bottom;
-            if(s!=d->lSopra || pin!=d->lSopraPinned || profilo!=d->lSopraProfilo ||
-               energia!=d->lSopraEnergia) {
-                d->lSopra=s; d->lSopraPinned=pin; d->lSopraProfilo=profilo;
-                d->lSopraEnergia=energia; d->lDirty=true;
+            const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
+            const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
+            const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
+            const float ft=d->lFooterTop();
+            const bool explorer=x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
+            const bool settings=x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
+            if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned ||
+               profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
+               explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni) {
+                d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin;
+                d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
+                d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
+                d->lDirty=true;
             }
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro = false; d->lSopra = -1; d->lSopraPinned = -1; d->lSopraVista = d->lSopraProfilo = false; d->lSopraFile = -1; d->lSopraEnergia = false; d->lSopraBarra = false; d->lDirty = true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             break;
@@ -1835,15 +1839,53 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
 
             const float paneRight=d->LW-14*d->dpi;
-            // Pulsante "Folders" usato da All Apps, Manage e New Folder.
-            if((d->lModalita==1 || d->lModalita==2 || d->lModalita==3) &&
-               x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
-                d->lModalita=0; d->lNomeNuovoAttivo=false; d->lScrollEditor=0; d->lDirty=true; return 0;
+            const float footer=d->lFooterTop();
+            // Footer icons are deliberately unboxed until hover.
+            if(d->lSopraEsplora) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",L"explorer.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
+            }
+            if(d->lSopraImpostazioni) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                if(d->impostazioni) d->impostazioni(nullptr);
+                else ShellExecuteW(nullptr,L"open",L"ms-settings:",nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
             }
 
-            // Gestione app di una cartella: selezioni persistenti e pulsante Done.
+            // I due header del workspace possono alternarsi senza sovrapporre i contenuti.
+            if(d->lModalita!=4 && y>=90*d->dpi && y<122*d->dpi &&
+               x>=d->lDividerX()-48*d->dpi && x<d->lDividerX()-10*d->dpi) {
+                if(d->lPinnedEspanso) {
+                    d->lPinnedEspanso=false;
+                    if(d->lPinned.size()>6) d->lAzioniEspanse=true;
+                } else {
+                    d->lPinnedEspanso=true;
+                    if(d->lPinned.size()>6) d->lAzioniEspanse=false;
+                }
+                d->lDirty=true; return 0;
+            }
+            const bool azioniSoloTitolo=d->lPinned.size()>6 && d->lPinnedEspanso;
+            const float ay=d->LH-(azioniSoloTitolo?80.0f:158.0f)*d->dpi;
+            if(d->lModalita!=4 && y>=ay && y<ay+24*d->dpi &&
+               x>=d->lDividerX()-48*d->dpi && x<d->lDividerX()-10*d->dpi) {
+                if(d->lAzioniEspanse) d->lAzioniEspanse=false;
+                else {
+                    d->lAzioniEspanse=true;
+                    if(d->lPinned.size()>6) d->lPinnedEspanso=false;
+                }
+                d->lDirty=true; return 0;
+            }
+
+            // Torna alla vista folders dalle pagine di libreria secondarie.
+            if((d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) &&
+               x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
+                d->lModalita=0; d->lNomeNuovoAttivo=false; d->lCartellaRinomina=-1;
+                d->lNomeNuovaCartella.clear(); d->lScrollEditor=0; d->lDirty=true; return 0;
+            }
+
+            // Gestione appartenenza app a una cartella.
             if(d->lModalita==2) {
-                const float bottom=d->lFooterTop()-16*d->dpi, by=bottom-48*d->dpi;
+                const float bottom=d->lFooterTop()-16*d->dpi,by=bottom-48*d->dpi;
                 if(x>=paneRight-86*d->dpi && x<paneRight-8*d->dpi && y>=by && y<bottom-10*d->dpi) {
                     d->lModalita=0; d->lScrollEditor=0; d->lDirty=true; return 0;
                 }
@@ -1852,47 +1894,81 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 return 0;
             }
 
-            // Editor di una nuova cartella: nome, icona/accent, app selezionate e conferma.
-            if(d->lModalita==3) {
+            // Crea/Rinomina: campo testo, elenco app solo durante la creazione.
+            if(d->lModalita==3 || d->lModalita==5) {
+                const bool rinomina=d->lModalita==5;
                 const float left=d->lDividerX()+14*d->dpi,right=d->LW-14*d->dpi;
                 const float bottom=d->lFooterTop()-16*d->dpi,by=bottom-48*d->dpi;
-                const D2D1_RECT_F nameBox={left+12*d->dpi,122*d->dpi+30*d->dpi,right-12*d->dpi,122*d->dpi+62*d->dpi};
+                const D2D1_RECT_F nameBox={left+12*d->dpi,152*d->dpi,right-12*d->dpi,184*d->dpi};
                 if(x>=nameBox.left && x<nameBox.right && y>=nameBox.top && y<nameBox.bottom) {
                     d->lNomeNuovoAttivo=true; d->lDirty=true; return 0;
                 }
                 d->lNomeNuovoAttivo=false;
-                for(int k=0;k<6;++k) {
-                    const float ix=left+12*d->dpi+k*38*d->dpi;
-                    if(x>=ix && x<ix+31*d->dpi && y>=213*d->dpi && y<244*d->dpi) {
-                        d->lIconaNuovaCartella=k; d->lDirty=true; return 0;
+                if(!rinomina) {
+                    const int app=d->lNuovaAppIn(x,y);
+                    if(app>=0) {
+                        const std::wstring& path=d->tutteApp[app].avvio;
+                        auto it=std::find(d->lAppNuovaCartella.begin(),d->lAppNuovaCartella.end(),path);
+                        if(it==d->lAppNuovaCartella.end()) d->lAppNuovaCartella.push_back(path);
+                        else d->lAppNuovaCartella.erase(it);
+                        d->lDirty=true; return 0;
                     }
                 }
-                const int app=d->lNuovaAppIn(x,y);
-                if(app>=0) {
-                    const std::wstring& path=d->tutteApp[app].avvio;
-                    auto it=std::find(d->lAppNuovaCartella.begin(),d->lAppNuovaCartella.end(),path);
-                    if(it==d->lAppNuovaCartella.end()) d->lAppNuovaCartella.push_back(path);
-                    else d->lAppNuovaCartella.erase(it);
-                    d->lDirty=true; return 0;
-                }
                 const D2D1_RECT_F cancel={left+12*d->dpi,by,right-104*d->dpi,bottom-10*d->dpi};
-                const D2D1_RECT_F create={right-98*d->dpi,by,right-12*d->dpi,bottom-10*d->dpi};
+                const D2D1_RECT_F save={right-98*d->dpi,by,right-12*d->dpi,bottom-10*d->dpi};
                 if(x>=cancel.left && x<cancel.right && y>=cancel.top && y<cancel.bottom) {
-                    d->lModalita=0; d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella.clear();
-                    d->lScrollEditor=0; d->lDirty=true; return 0;
+                    d->lModalita=0; d->lCartellaRinomina=-1; d->lNomeNuovaCartella.clear();
+                    d->lAppNuovaCartella.clear(); d->lScrollEditor=0; d->lDirty=true; return 0;
                 }
-                if(x>=create.left && x<create.right && y>=create.top && y<create.bottom) {
-                    d->creaCartella(); return 0;
+                if(x>=save.left && x<save.right && y>=save.top && y<save.bottom) {
+                    if(rinomina) d->salvaRinominaCartella();
+                    else d->creaCartella();
+                    return 0;
                 }
                 return 0;
             }
 
-            // Pulsante Folders nella pagina All Apps.
-            if(d->lModalita==1 && x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
-                d->lModalita=0; d->lScroll=d->lScrollObj=0; d->lDirty=true; return 0;
+            // Pulsante + Folder e All Apps.
+            if(d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi) {
+                if(x>=paneRight-84*d->dpi && x<paneRight) {
+                    d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
+                }
+                if(x>=paneRight-166*d->dpi && x<paneRight-91*d->dpi) {
+                    d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella.clear();
+                    d->lScrollEditor=0; d->lModalita=3; d->lNomeNuovoAttivo=true;
+                    d->lDirty=true; return 0;
+                }
             }
 
-            // Search: cancella la query con la X; il risultato web usa lo stesso layout Spotlight.
+            if(d->lModalita==0) {
+                const int plus=d->lCartellaPiuIn(x,y);
+                if(plus>=0) { d->apriGestisciCartella(plus); return 0; }
+                const int freccia=d->lCartellaFrecciaIn(x,y);
+                if(freccia>=0) {
+                    d->lCartellaAperta=(d->lCartellaAperta==freccia?-1:freccia);
+                    d->lDirty=true; return 0;
+                }
+                const int folder=d->lCartellaIn(x,y);
+                if(folder>=0) {
+                    POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt);
+                    d->apriMenuCartella(folder,pt); d->lDirty=true; return 0;
+                }
+            }
+
+            // Instant actions.
+            if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
+                const float topAzioni=d->LH-(d->lPinned.size()>6 && d->lPinnedEspanso?80.0f:158.0f)*d->dpi;
+                if(d->lAzioniEspanse && y>=topAzioni+25*d->dpi && y<topAzioni+57*d->dpi) {
+                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                    ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
+                }
+                if(d->lAzioniEspanse && y>=topAzioni+63*d->dpi && y<topAzioni+95*d->dpi) {
+                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                    ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL); return 0;
+                }
+            }
+
+            // Search clear / Web search.
             if(!d->query.empty() && x>=d->LW-107*d->dpi && x<d->LW-82*d->dpi && y>=14*d->dpi && y<54*d->dpi) {
                 d->query.clear(); d->filtra(); d->lModalita=0;
                 d->lSelFile=-1; d->lScroll=d->lScrollObj=0; d->lDirty=true; return 0;
@@ -1902,63 +1978,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                y>=170*d->dpi && y<212*d->dpi) {
                 const std::wstring url=L"https://www.google.com/search?q="+codificaQueryWeb(d->query);
                 d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
-                return 0;
-            }
-
-            if(d->lModalita==0) {
-                if(y>=85*d->dpi && y<115*d->dpi) {
-                    if(x>=paneRight-84*d->dpi && x<paneRight) {
-                        d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
-                    }
-                    if(x>=paneRight-166*d->dpi && x<paneRight-91*d->dpi) {
-                        d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella.clear();
-                        d->lIconaNuovaCartella=0; d->lScrollEditor=0; d->lModalita=3;
-                        d->lNomeNuovoAttivo=true; d->lDirty=true; return 0;
-                    }
-                }
-                const int plus=d->lCartellaPiuIn(x,y);
-                if(plus>=0) { d->apriGestisciCartella(plus); return 0; }
-                const int folder=d->lCartellaIn(x,y);
-                if(folder>=0) {
-                    d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder);
-                    d->lDirty=true; return 0;
-                }
-                const int folderApp=d->lAppCartellaIn(x,y);
-                if(folderApp>=0) { d->avviaAppDiretto(folderApp); return 0; }
-            }
-
-            // Instant Actions sono sempre disponibili nella colonna sinistra.
-            if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
-                const float ay=d->LH-158*d->dpi;
-                if(y>=ay+20*d->dpi && y<ay+54*d->dpi) {
-                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                    ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
-                }
-                if(y>=ay+58*d->dpi && y<ay+92*d->dpi) {
-                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                    ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL); return 0;
-                }
-            }
-
-            // Footer: File Explorer e Impostazioni.
-            const float footer=d->lFooterTop();
-            if(d->lModalita!=4 && x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi &&
-               y>=footer+6*d->dpi && y<footer+46*d->dpi) {
-                d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                ShellExecuteW(nullptr,L"open",L"explorer.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
-            }
-            if(d->lModalita!=4 && x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi &&
-               y>=footer+6*d->dpi && y<footer+46*d->dpi) {
-                d->primaDelLauncher=nullptr; d->chiudiLauncher();
-                if(d->impostazioni) d->impostazioni(nullptr);
-                else ShellExecuteW(nullptr,L"open",L"ms-settings:",nullptr,nullptr,SW_SHOWNORMAL);
-                return 0;
+                ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL); return 0;
             }
 
             const int pin=d->lPinnedIn(x,y);
             if(pin>=0 && pin<(int)d->lPinned.size()) { d->avviaAppDiretto(d->lPinned[pin]); return 0; }
-
             const int i=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
             if(i>=0) {
                 const D2D1_RECT_F riga=d->lCella(i);
@@ -1968,7 +1992,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                     if(cat>=0) d->apriGestisciCartella(cat);
                     else {
                         d->lModalita=3; d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella={d->tutteApp[appIndex].avvio};
-                        d->lIconaNuovaCartella=0; d->lScrollEditor=0; d->lNomeNuovoAttivo=false; d->lDirty=true;
+                        d->lScrollEditor=0; d->lNomeNuovoAttivo=false; d->lDirty=true;
                     }
                 }
                 else if(d->lModalita==1 && d->lVistaLista && x>=riga.right-70*d->dpi)
