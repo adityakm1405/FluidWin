@@ -3558,8 +3558,13 @@ private:
     int lModalita = 0;                      // 0 workspace, 1 All Apps, 2 manage folder, 3 new folder, 4 search
     int lCartellaAperta = 0;                // una sola cartella dell'archivio aperta alla volta
     int lCartellaGestita = -1;
-    int lIconaNuovaCartella = 0;
+    int lCartellaRinomina = -1;
     std::wstring lNomeNuovaCartella;
+    std::vector<double> lAngoliCartella;
+    bool lPinnedEspanso = true, lAzioniEspanse = true;
+    double lPinnedReveal = 1.0, lAzioniReveal = 1.0;
+    ID2D1Bitmap1* lFotoProfilo = nullptr;
+    bool lFotoProfiloTentata = false;
     std::vector<std::wstring> lAppNuovaCartella;
     bool lNomeNuovoAttivo = false;
     double lScrollCartelle = 0, lScrollEditor = 0;
@@ -3571,6 +3576,7 @@ private:
     float lPresaY = 0; double lPresaScroll = 0;
     int lSel = 0, lSopra = -1, lSopraPinned = -1;
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
+    bool lSopraEsplora = false, lSopraImpostazioni = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
     // l'ultimo tasto, un thread chiede all'indice di Windows; sotto la griglia compare la sezione con i risultati del
     // testo lFileTesto e, in fondo, "Cerca in Esplora file". lFileGen scarta i risultati di un testo vecchio; lFileH e'
@@ -3655,6 +3661,11 @@ private:
     void toggleAppCartella(int indiceApp, int cartella);
     void creaCartella();
     void apriGestisciCartella(int cartella);
+    void apriMenuCartella(int cartella, POINT pt);
+    void apriRinominaCartella(int cartella);
+    void salvaRinominaCartella();
+    void rimuoviCartella(int cartella);
+    bool caricaFotoProfilo();
     int lCategoriaPredefinita(const AppL& app) const;
     int lCategoriaApp(const AppL& app) const;
     int lIndiceCartella(const std::wstring& avvio) const;
@@ -3669,6 +3680,7 @@ private:
     int lNuovaAppIn(float x, float y) const;
     int lAppElencoIn(float x, float y) const;
     int lCartellaPiuIn(float x, float y) const;
+    int lCartellaFrecciaIn(float x, float y) const;
 
     float lColonne() const;
     float lCellaW() const;
