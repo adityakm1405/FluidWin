@@ -1280,6 +1280,11 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
 // restituisce false se il launcher si e' appena chiuso
 inline auto Motore::renderLauncher() -> bool {
     bool anim = molla(lScala, lVel, lChiusura ? 0.0 : 1.0, 240, lChiusura ? 0.8 : 0.55, 0.0005);
+    for(int i=0;i<6;++i) {
+        const double obiettivo=(i<(int)lPinned.size() && i==lSopraPinned)?1.045:1.0;
+        const double prossima=verso(lScalaPinnedHover[i],obiettivo,0.075);
+        if(prossima!=lScalaPinnedHover[i]) { lScalaPinnedHover[i]=prossima; anim=true; }
+    }
     if (lChiusura) {
         lAlfa = std::clamp((lScala - 0.10) / 0.30, 0.0, 1.0);
         if (lAlfa <= 0.02 || !anim) { nascondiLauncher(); return false; }
@@ -1363,20 +1368,27 @@ inline auto Motore::renderLauncher() -> bool {
 
         // Workspace heading shares the typography and muted color of App Library Folders.
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,90*dpi,dx-104*dpi,122*dpi});
-        scrivi(std::to_wstring(lPinned.size())+L"pinned",fmtNome,{dx-96*dpi,90*dpi,dx-16*dpi,122*dpi});
+        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,84*dpi,dx-104*dpi,116*dpi});
+        scrivi(std::to_wstring(lPinned.size())+L" pinned",fmtNome,{dx-96*dpi,84*dpi,dx-16*dpi,116*dpi});
         for(int i=0;i<(int)lPinned.size() && i<6;++i) {
-            const D2D1_RECT_F r=lPinnedCella(i);
+            const D2D1_RECT_F base=lPinnedCella(i);
+            const float scala=(float)lScalaPinnedHover[i];
+            const float cx=(base.left+base.right)*0.5f, cy=(base.top+base.bottom)*0.5f;
+            auto scalaBox=[&](const D2D1_RECT_F& box) -> D2D1_RECT_F {
+                return {cx+(box.left-cx)*scala,cy+(box.top-cy)*scala,
+                        cx+(box.right-cx)*scala,cy+(box.bottom-cy)*scala};
+            };
+            const D2D1_RECT_F r=scalaBox(base);
             const bool sopra=i==lSopraPinned;
             pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.13f:0.055f)
                                      :D2D1::ColorF(1,1,1,sopra?0.82f:0.66f));
-            dc->FillRoundedRectangle({r,11*dpi,11*dpi},pennello);
+            dc->FillRoundedRectangle({r,11*dpi*scala,11*dpi*scala},pennello);
             AppL& app=tutteApp[lPinned[i]];
-            const D2D1_RECT_F ri={r.left+7*dpi,r.top+6*dpi,r.left+43*dpi,r.top+42*dpi};
+            const D2D1_RECT_F ri=scalaBox({base.left+7*dpi,base.top+6*dpi,base.left+43*dpi,base.top+42*dpi});
             if(app.icona) dc->DrawBitmap(app.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,7*dpi,7*dpi},pennello); }
+            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,7*dpi*scala,7*dpi*scala},pennello); }
             pennello->SetColor(ink);
-            scrivi(app.nome,fmtVoce,{r.left+52*dpi,r.top+3*dpi,r.right-7*dpi,r.bottom-3*dpi});
+            scrivi(app.nome,fmtVoce,scalaBox({base.left+52*dpi,base.top+3*dpi,base.right-7*dpi,base.bottom-3*dpi}));
         }
 
         const float ay=LH-256*dpi;
@@ -1439,7 +1451,7 @@ inline auto Motore::renderLauncher() -> bool {
     if(lModalita==0) {
         // Libreria app a fisarmonica, con cartelle personalizzate persistenti.
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,90*dpi,rr-174*dpi,122*dpi});
+        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,84*dpi,rr-174*dpi,116*dpi});
         const D2D1_RECT_F add={rr-166*dpi,85*dpi,rr-91*dpi,115*dpi};
         const D2D1_RECT_F all={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
@@ -1461,6 +1473,10 @@ inline auto Motore::renderLauncher() -> bool {
             pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
                                        :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
             dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
+            if(k==lSopraCartella) {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.095f):D2D1::ColorF(0,0,0,0.075f));
+                dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
+            }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
                 dc->DrawLine({fr.left,fy+36*dpi},{fr.right,fy+36*dpi},pennello,1*dpi);
@@ -1513,7 +1529,7 @@ inline auto Motore::renderLauncher() -> bool {
                     }
                     precedente=lettera;
                 }
-                drawAppLibraryRow(filtrate[i],{riga.left+25*dpi,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
+                drawAppLibraryRow(filtrate[i],{riga.left,riga.top+1*dpi,riga.right-1*dpi,riga.bottom-2*dpi},false,true);
             }
         } else {
             for(int i=0;i<(int)filtrate.size();++i) {
@@ -1850,23 +1866,24 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                           x>=b.left && x<b.right && y>=b.top && y<b.bottom;
             const int s=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
             const int pin=d->lPinnedIn(x,y);
+            const int cartella=d->lModalita==0?d->lCartellaIn(x,y):-1;
             const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
             const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
             const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
             const float ft=d->lFooterTop();
             const bool explorer=x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
             const bool settings=x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
-            if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned ||
+            if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned || cartella!=d->lSopraCartella ||
                profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
                explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni) {
-                d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin;
+                d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin; d->lSopraCartella=cartella;
                 d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
                 d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
                 d->lDirty=true;
             }
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             break;

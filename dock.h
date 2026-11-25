@@ -3577,7 +3577,8 @@ private:
     // barra di scorrimento: si trascina (la si prende dove si vuole), un clic sul binario salta di una pagina
     bool lTrascinoBarra = false, lSopraBarra = false;
     float lPresaY = 0; double lPresaScroll = 0;
-    int lSel = 0, lSopra = -1, lSopraPinned = -1;
+    int lSel = 0, lSopra = -1, lSopraPinned = -1, lSopraCartella = -1;
+    double lScalaPinnedHover[6] = {1.0,1.0,1.0,1.0,1.0,1.0};
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     bool lSopraEsplora = false, lSopraImpostazioni = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
