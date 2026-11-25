@@ -4,6 +4,16 @@
 
 namespace dock {
 
+// Preferiti del workspace salvati per utente; il file resta fuori dalla cartella del programma.
+inline std::wstring percorsoConfigLauncher() {
+    wchar_t base[MAX_PATH] = L"";
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, base)))
+        return L"launcher.ini";
+    const std::wstring dir = std::wstring(base) + L"\\FluidWin";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\launcher.ini";
+}
+
 // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----
 
 inline DWORD WINAPI Motore::threadIcone(LPVOID p) {
@@ -258,9 +268,6 @@ inline auto Motore::filtra() -> void {
 
 // Preferiti nella parte superiore: ogni voce viene risolta tra le app installate reali.
 inline auto Motore::aggiornaPinned() -> void {
-    // Sei preferiti secondari, risolti tra le applicazioni realmente installate.
-    // L'elenco resta corto per non duplicare le app quotidiane gia' presenti nel dock.
-    lPinned.clear();
     const std::vector<std::vector<std::wstring>> preferiti = {
         {L"visual studio code", L"vs code"},
         {L"figma"},
@@ -269,18 +276,68 @@ inline auto Motore::aggiornaPinned() -> void {
         {L"raycast"},
         {L"notion"}
     };
-    for (const auto& gruppo : preferiti) {
-        for (int i = 0; i < (int)tutteApp.size(); ++i) {
-            if (std::find(lPinned.begin(), lPinned.end(), i) != lPinned.end()) continue;
-            const std::wstring& n = tutteApp[i].minuscolo;
-            if (std::any_of(gruppo.begin(), gruppo.end(), [&](const std::wstring& s) {
-                    return n == s || n.find(s) != std::wstring::npos;
-                })) {
-                lPinned.push_back(i);
-                break;
+    // Il marcatore distingue la prima esecuzione da una lista salvata intenzionalmente vuota.
+    wchar_t salvati[8192] = L"";
+    const std::wstring ini = percorsoConfigLauncher();
+    GetPrivateProfileStringW(L"Workspace",L"Pinned",L"__DEFAULT__",salvati,(DWORD)std::size(salvati),ini.c_str());
+    lPinnedManual.clear();
+    if (wcscmp(salvati,L"__DEFAULT__")==0) {
+        for (const auto& gruppo : preferiti) {
+            for (const auto& app : tutteApp) {
+                const std::wstring& n=app.minuscolo;
+                if (std::any_of(gruppo.begin(),gruppo.end(),[&](const std::wstring& s) {
+                        return n==s || n.find(s)!=std::wstring::npos;
+                    })) {
+                    lPinnedManual.push_back(app.avvio);
+                    break;
+                }
             }
         }
+        salvaPinned();
+    } else {
+        std::wstring elenco=salvati;
+        size_t inizio=0;
+        while(inizio<elenco.size()) {
+            const size_t fine=elenco.find(L'|',inizio);
+            const std::wstring percorso=elenco.substr(inizio,fine==std::wstring::npos?std::wstring::npos:fine-inizio);
+            if(!percorso.empty()) lPinnedManual.push_back(percorso);
+            if(fine==std::wstring::npos) break;
+            inizio=fine+1;
+        }
     }
+    lPinned.clear();
+    for(const auto& percorso:lPinnedManual) {
+        for(int i=0;i<(int)tutteApp.size();++i) {
+            if(tutteApp[i].avvio==percorso) { lPinned.push_back(i); break; }
+        }
+    }
+}
+inline auto Motore::salvaPinned() -> void {
+    std::wstring elenco;
+    for(const auto& percorso:lPinnedManual) {
+        if(!elenco.empty()) elenco+=L"|";
+        elenco+=percorso;
+    }
+    const std::wstring ini=percorsoConfigLauncher();
+    WritePrivateProfileStringW(L"Workspace",L"Pinned",elenco.c_str(),ini.c_str());
+}
+inline auto Motore::togglePinned(int indiceApp) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    auto it=std::find(lPinnedManual.begin(),lPinnedManual.end(),percorso);
+    if(it!=lPinnedManual.end()) lPinnedManual.erase(it);
+    else {
+        if(lPinnedManual.size()>=6) {
+            MessageBoxW(launcher,testi::t(L"Puoi tenere fino a sei app nel workspace fissato. Rimuovine una prima di aggiungerne un'altra.",
+                L"You can keep up to six apps in the pinned workspace. Remove one before adding another.").c_str(),
+                L"FluidWin",MB_OK|MB_ICONINFORMATION);
+            return;
+        }
+        lPinnedManual.push_back(percorso);
+    }
+    salvaPinned();
+    aggiornaPinned();
+    lDirty=true;
 }
 
 // ---- file e cartelle sotto la griglia (issue #14) ----
