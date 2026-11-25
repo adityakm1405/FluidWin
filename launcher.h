@@ -1852,6 +1852,21 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             { const D2D1_RECT_F b=d->lRettBarra();
               if((d->lModalita==1 || d->lModalita==4) && d->lScrollMax()>0 &&
                  x>=b.left && x<b.right && y>=b.top && y<b.bottom) return 0; }
+            if(d->lCartellaMenuAperto) {
+                int azione=-1;
+                const float mx=d->lCartellaMenuX,my=d->lCartellaMenuY;
+                if(x>=mx+7*d->dpi && x<mx+177*d->dpi && y>=my+48*d->dpi && y<my+129*d->dpi)
+                    azione=(int)((y-(my+48*d->dpi))/(27*d->dpi));
+                const int cartella=d->lCartellaMenuIndice;
+                d->lCartellaMenuAperto=false;
+                d->lCartellaMenuHover=-1;
+                d->lCartellaMenuIndice=-1;
+                if(azione==0) d->apriRinominaCartella(cartella);
+                else if(azione==1) d->apriGestisciCartella(cartella);
+                else if(azione==2) d->rimuoviCartella(cartella);
+                else d->lDirty=true;
+                return 0;
+            }
             if(y>d->LH) { d->chiudiLauncher(); return 0; }
             if(d->lSopraEnergia) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuEnergia(p); return 0; }
             if(d->lSopraProfilo) {
