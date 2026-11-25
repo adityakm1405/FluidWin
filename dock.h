@@ -3667,6 +3667,8 @@ private:
     int lAppCartellaIn(float x, float y) const;
     int lGestisciAppIn(float x, float y) const;
     int lNuovaAppIn(float x, float y) const;
+    int lAppElencoIn(float x, float y) const;
+    int lCartellaPiuIn(float x, float y) const;
 
     float lColonne() const;
     float lCellaW() const;
