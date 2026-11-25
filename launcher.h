@@ -1421,13 +1421,20 @@ inline auto Motore::renderLauncher() -> bool {
         }
         if(pinnedControls) {
             const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
-            pennello->SetColor(fissata?blu:tenue);
+            // La puntina resta bianca in entrambi gli stati: contorno da non fissata,
+            // silhouette piu' piena quando l'app e' fissata.
+            pennello->SetColor(D2D1::ColorF(1.0f,1.0f,1.0f,0.96f));
             const float px=r.right-54*dpi, py=r.top+16*dpi;
             const D2D1_ELLIPSE testa={{px+1.5f*dpi,py-3.0f*dpi},3.5f*dpi,3.5f*dpi};
+            const float tratto=fissata?3.1f:1.55f;
             if(fissata) dc->FillEllipse(testa,pennello);
             else dc->DrawEllipse(testa,pennello,1.45f*dpi);
-            dc->DrawLine({px-2.0f*dpi,py-6.0f*dpi},{px+5.0f*dpi,py+1.0f*dpi},pennello,1.8f*dpi);
-            dc->DrawLine({px+0.7f*dpi,py-0.6f*dpi},{px-6.5f*dpi,py+6.5f*dpi},pennello,1.8f*dpi);
+            dc->DrawLine({px-2.0f*dpi,py-6.0f*dpi},{px+5.0f*dpi,py+1.0f*dpi},pennello,tratto*dpi);
+            dc->DrawLine({px+0.7f*dpi,py-0.6f*dpi},{px-6.5f*dpi,py+6.5f*dpi},pennello,tratto*dpi);
+            if(fissata) {
+                dc->FillEllipse({{px+5.0f*dpi,py+1.0f*dpi},1.5f*dpi,1.5f*dpi},pennello);
+                dc->FillEllipse({{px-6.5f*dpi,py+6.5f*dpi},1.5f*dpi,1.5f*dpi},pennello);
+            }
             pennello->SetColor(tenue);
             scrivi(L"⊞",fmtNome,{r.right-39*dpi,r.top+7*dpi,r.right-9*dpi,r.bottom-4*dpi});
         }
