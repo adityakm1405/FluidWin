@@ -1578,7 +1578,8 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(blu);
         scrivi(testi::t(L"Fatto",L"Done"),fmtTitolo,{pane.right-86*dpi,by,pane.right-14*dpi,bottom-10*dpi});
     }
-    else if(lModalita==3) {
+    else if(lModalita==3 || lModalita==5) {
+        const bool rinomina=lModalita==5;
         const float top=122*dpi,bottom=lFooterTop()-16*dpi;
         const D2D1_RECT_F pane={rx,top,rr,bottom};
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.66f));
@@ -1586,73 +1587,66 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
         dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
+        scrivi(rinomina?testi::t(L"RINOMINA CARTELLA",L"RENAME FOLDER")
+                       :testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),
+               fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
         const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
-        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        scrivi(std::wstring(L"‹  ")+testi::t(L"Indietro",L"Back"),fmtVoce,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
 
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtNome,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
+        scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtSotto,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
         const D2D1_RECT_F nameBox={pane.left+12*dpi,pane.top+30*dpi,pane.right-12*dpi,pane.top+62*dpi};
         pennello->SetColor(lNomeNuovoAttivo?(scuro?D2D1::ColorF(0.10f,0.34f,0.52f,0.30f):D2D1::ColorF(0.10f,0.48f,0.82f,0.10f))
                                                :(scuro?D2D1::ColorF(0.01f,0.02f,0.04f,0.44f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({nameBox,9*dpi,9*dpi},pennello);
-        pennello->SetColor(tenue);
-        scrivi(lNomeNuovaCartella.empty()?testi::t(L"es. AI & ML, Modding, Media...",L"e.g., AI & ML, Modding, Media..."):lNomeNuovaCartella,
-               fmtNome,{nameBox.left+11*dpi,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
+        pennello->SetColor(ink);
+        scrivi(lNomeNuovaCartella.empty()?testi::t(L"Digita il nome della cartella...",L"Enter a folder name..."):lNomeNuovaCartella,
+               fmtVoce,{nameBox.left+11*dpi,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
         if(lNomeNuovoAttivo) {
-            const float tw=larghezzaTesto(lNomeNuovaCartella,fmtNome);
+            const float tw=larghezzaTesto(lNomeNuovaCartella,fmtVoce);
             pennello->SetColor(blu);
-            dc->DrawLine({nameBox.left+11*dpi+tw+2*dpi,nameBox.top+8*dpi},{nameBox.left+11*dpi+tw+2*dpi,nameBox.bottom-8*dpi},pennello,1.4f*dpi);
+            dc->DrawLine({nameBox.left+11*dpi+tw+2*dpi,nameBox.top+8*dpi},
+                         {nameBox.left+11*dpi+tw+2*dpi,nameBox.bottom-8*dpi},pennello,1.4f*dpi);
         }
-        pennello->SetColor(tenue);
-        scrivi(testi::t(L"ICONA CARTELLA E COLORE",L"FOLDER ICON & ACCENT"),fmtNome,{pane.left+12*dpi,pane.top+69*dpi,pane.right-12*dpi,pane.top+88*dpi});
-        const wchar_t* glifi[6]={L"▱",L"▦",L"⚒",L"➤",L"✦",L">_"};
-        for(int i=0;i<6;++i) {
-            const float x=pane.left+12*dpi+i*38*dpi;
-            const D2D1_RECT_F item={x,pane.top+91*dpi,x+31*dpi,pane.top+122*dpi};
-            pennello->SetColor(i==lIconaNuovaCartella?D2D1::ColorF(0.08f,0.30f,0.47f,0.50f):(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
-            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
-            if(i==lIconaNuovaCartella) { pennello->SetColor(blu); dc->DrawRoundedRectangle({item,8*dpi,8*dpi},pennello,1*dpi); }
-            pennello->SetColor(accenti[i]);
-            scrivi(glifi[i],fmtNome,item);
-        }
-        pennello->SetColor(tenue);
-        scrivi(std::wstring(testi::t(L"SELEZIONA APP",L"SELECT APPS"))+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
-               fmtNome,{pane.left+12*dpi,pane.top+129*dpi,pane.right-12*dpi,pane.top+150*dpi});
 
-        dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+158*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
-        const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
-        for(int i=0;i<(int)tutteApp.size();++i) {
-            const int col=i%2,row=i/2;
-            const float x=listLeft+col*(cw+10*dpi),y=292*dpi+row*rowH-(float)lScrollEditor;
-            const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
-            if(item.bottom<pane.top+158*dpi || item.top>bottom-57*dpi) continue;
-            const bool selected=std::find(lAppNuovaCartella.begin(),lAppNuovaCartella.end(),tutteApp[i].avvio)!=lAppNuovaCartella.end();
-            pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
-                                      :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
-            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
-            const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
-            pennello->SetColor(selected?blu:tenue);
-            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
-            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
-            pennello->SetColor(ink);
-            scrivi(tutteApp[i].nome,fmtNome,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+        if(!rinomina) {
+            pennello->SetColor(tenue);
+            scrivi(std::wstring(testi::t(L"SELEZIONA APP",L"SELECT APPS"))+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
+                   fmtSotto,{pane.left+12*dpi,pane.top+72*dpi,pane.right-12*dpi,pane.top+94*dpi});
+            dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+102*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+            const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
+            for(int i=0;i<(int)tutteApp.size();++i) {
+                const int col=i%2,row=i/2;
+                const float x=listLeft+col*(cw+10*dpi),y=234*dpi+row*rowH-(float)lScrollEditor;
+                const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
+                if(item.bottom<pane.top+102*dpi || item.top>bottom-57*dpi) continue;
+                const bool selected=std::find(lAppNuovaCartella.begin(),lAppNuovaCartella.end(),tutteApp[i].avvio)!=lAppNuovaCartella.end();
+                pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
+                                          :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
+                dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+                const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
+                pennello->SetColor(selected?blu:tenue);
+                if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+                else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+                pennello->SetColor(ink);
+                scrivi(tutteApp[i].nome,fmtVoce,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+            }
+            dc->PopAxisAlignedClip();
         }
-        dc->PopAxisAlignedClip();
         const float by=bottom-48*dpi;
         const D2D1_RECT_F cancel={pane.left+12*dpi,by,pane.right-104*dpi,bottom-10*dpi};
-        const D2D1_RECT_F create={pane.right-98*dpi,by,pane.right-12*dpi,bottom-10*dpi};
+        const D2D1_RECT_F save={pane.right-98*dpi,by,pane.right-12*dpi,bottom-10*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f));
         dc->FillRoundedRectangle({cancel,9*dpi,9*dpi},pennello);
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"Annulla",L"Cancel"),fmtNome,cancel);
+        scrivi(testi::t(L"Annulla",L"Cancel"),fmtVoce,cancel);
         pennello->SetColor(blu);
-        dc->FillRoundedRectangle({create,9*dpi,9*dpi},pennello);
+        dc->FillRoundedRectangle({save,9*dpi,9*dpi},pennello);
         pennello->SetColor(D2D1::ColorF(0.02f,0.04f,0.08f,1));
-        scrivi(testi::t(L"Crea cartella",L"Create Folder"),fmtNome,create);
+        scrivi(rinomina?testi::t(L"Salva",L"Save"):testi::t(L"Crea cartella",L"Create Folder"),fmtVoce,save);
     }
     else {
         // Vista Spotlight: risultati a schede, come nello screenshot di ricerca.
