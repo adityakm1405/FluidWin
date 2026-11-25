@@ -2003,20 +2003,22 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         }
         case WM_RBUTTONUP: {
-            int indice = d->lModalita == 1 ? d->lCellaIn(x, y) : -1;
-            const int pin = d->lPinnedIn(x, y);
-            const int appCartella = d->lAppCartellaIn(x, y);
-            if (appCartella >= 0) {
-                auto it = std::find(d->filtrate.begin(), d->filtrate.end(), appCartella);
-                if (it != d->filtrate.end()) indice = (int)std::distance(d->filtrate.begin(), it);
+            if(d->lModalita==0) {
+                const int folder=d->lCartellaIn(x,y);
+                if(folder>=0) { POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt); d->apriMenuCartella(folder,pt); d->lDirty=true; return 0; }
             }
-            if (pin >= 0 && pin < (int)d->lPinned.size()) {
-                const int indiceApp = d->lPinned[pin];
-                auto it = std::find(d->filtrate.begin(), d->filtrate.end(), indiceApp);
-                if (it != d->filtrate.end()) indice = (int)std::distance(d->filtrate.begin(), it);
+            int indice=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
+            const int pin=d->lPinnedIn(x,y);
+            if(pin>=0 && pin<(int)d->lPinned.size()) {
+                const int appIndex=d->lPinned[pin];
+                auto it=std::find(d->filtrate.begin(),d->filtrate.end(),appIndex);
+                if(it!=d->filtrate.end()) indice=(int)std::distance(d->filtrate.begin(),it);
             }
-            if (indice >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuApp(indice, p); }
-            else { const int k = d->lModalita == 1 ? d->lFileIn(x, y) : -1; if (k >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuFile(k, p); } }
+            if(indice>=0) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuApp(indice,p); }
+            else {
+                const int k=d->lModalita==1?d->lFileIn(x,y):-1;
+                if(k>=0) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuFile(k,p); }
+            }
             return 0;
         }
         // sottomenu del menu di Windows ("Invia a", "Apri con"...): li disegna lui
@@ -2033,7 +2035,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 const double max=std::max(0.0,totale-(d->lFooterTop()-8*d->dpi-122*d->dpi));
                 d->lScrollCartelle=std::clamp(d->lScrollCartelle-passo*42*d->dpi,0.0,max);
             } else if(d->lModalita==2 || d->lModalita==3) {
-                const double top=d->lModalita==2?180*d->dpi:292*d->dpi;
+                const double top=d->lModalita==2?180*d->dpi:234*d->dpi;
                 const double bottom=d->lModalita==2?d->lFooterTop()-78*d->dpi:d->lFooterTop()-82*d->dpi;
                 const double visible=std::max(0.0,bottom-top);
                 const double total=std::ceil(d->tutteApp.size()/2.0)*35*d->dpi;
@@ -2045,9 +2047,9 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             d->lDirty=true; return 0;
         }
         case WM_CHAR: {
-            if(d->lModalita==3 && d->lNomeNuovoAttivo) {
+            if((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo) {
                 if(w==27) { d->lNomeNuovoAttivo=false; d->lDirty=true; return 0; }
-                if(w==13) { d->creaCartella(); return 0; }
+                if(w==13) { if(d->lModalita==5) d->salvaRinominaCartella(); else d->creaCartella(); return 0; }
                 if(w==8) { if(!d->lNomeNuovaCartella.empty()) d->lNomeNuovaCartella.pop_back(); d->lDirty=true; return 0; }
                 if(w>=32 && d->lNomeNuovaCartella.size()<48) {
                     const wchar_t ch=(wchar_t)w;
@@ -2072,7 +2074,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 if(!d->query.empty()) {
                     d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1;
                     d->lScroll=d->lScrollObj=0; d->lDirty=true;
-                } else if(d->lModalita==1 || d->lModalita==2 || d->lModalita==3) {
+                } else if(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) {
                     d->lModalita=0; d->lNomeNuovoAttivo=false; d->lScrollEditor=0; d->lDirty=true;
                 } else d->chiudiLauncher();
                 return 0;
@@ -2118,7 +2120,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         }
         case WM_KEYDOWN: {
-            if(d->lModalita==2 || (d->lModalita==3 && d->lNomeNuovoAttivo)) return 0;
+            if(d->lModalita==2 || ((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo)) return 0;
             // Frecce su e giu' fra griglia e file: dall'ultima riga di app (o senza app) la freccia giu' entra nei file;
             // nei file su e giu' scorrono le righe, fino a "Cerca in Esplora file"; su dalla prima torna alla griglia.
             // Gli altri tasti di spostamento riportano nella griglia
