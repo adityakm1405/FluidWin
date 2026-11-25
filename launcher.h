@@ -121,7 +121,7 @@ inline auto Motore::raccogliIcone() -> bool {
 inline auto Motore::launcherDaDisegnare() const -> bool { return lAperto && (lDirty || lAnim); }
 
 inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
-    LW = std::ceil(560 * dpi); LH = LHMAX = std::ceil(780 * dpi); LEXTRA = std::ceil(160 * dpi);
+    LW = std::ceil(740 * dpi); LH = LHMAX = std::ceil(520 * dpi); LEXTRA = std::ceil(160 * dpi);
     WNDCLASSW wl{}; wl.lpfnWndProc = procLauncher; wl.hInstance = inst; wl.lpszClassName = L"FluidWin.Launcher";
     wl.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClassW(&wl);
@@ -258,24 +258,27 @@ inline auto Motore::filtra() -> void {
 
 // Preferiti nella parte superiore: ogni voce viene risolta tra le app installate reali.
 inline auto Motore::aggiornaPinned() -> void {
+    // Sei preferiti secondari, risolti tra le applicazioni realmente installate.
+    // L'elenco resta corto per non duplicare le app quotidiane gia' presenti nel dock.
     lPinned.clear();
-    const int gruppi = 8;
-    for (int slot = 0; slot < gruppi; ++slot) {
+    const std::vector<std::vector<std::wstring>> preferiti = {
+        {L"visual studio code", L"vs code"},
+        {L"figma"},
+        {L"linear"},
+        {L"docker"},
+        {L"raycast"},
+        {L"notion"}
+    };
+    for (const auto& gruppo : preferiti) {
         for (int i = 0; i < (int)tutteApp.size(); ++i) {
             if (std::find(lPinned.begin(), lPinned.end(), i) != lPinned.end()) continue;
             const std::wstring& n = tutteApp[i].minuscolo;
-            bool match = false;
-            switch (slot) {
-                case 0: match = n.find(L"visual studio code") != std::wstring::npos || n == L"vs code"; break;
-                case 1: match = n.find(L"unity hub") != std::wstring::npos; break;
-                case 2: match = n.find(L"blender") != std::wstring::npos; break;
-                case 3: match = n.find(L"inno") != std::wstring::npos; break;
-                case 4: match = n == L"word" || n.find(L"microsoft word") != std::wstring::npos; break;
-                case 5: match = n == L"excel" || n.find(L"microsoft excel") != std::wstring::npos; break;
-                case 6: match = n.find(L"powerpoint") != std::wstring::npos; break;
-                case 7: match = n.find(L"onenote") != std::wstring::npos; break;
+            if (std::any_of(gruppo.begin(), gruppo.end(), [&](const std::wstring& s) {
+                    return n == s || n.find(s) != std::wstring::npos;
+                })) {
+                lPinned.push_back(i);
+                break;
             }
-            if (match) { lPinned.push_back(i); break; }
         }
     }
 }
@@ -432,16 +435,66 @@ inline auto Motore::disegnaFileLauncher(bool scuro, D2D1_COLOR_F ink) -> bool {
     return muove;
 }
 
-// Misure e coordinate del launcher: elenco alfabetico come default, quattro colonne nella vista Griglia.
+// Misure e coordinate della nuova area di lavoro, ancorata al dock.
+inline auto Motore::lDividerX() const -> float { return LW * 0.48f; }
+inline auto Motore::lFooterTop() const -> float { return LH - 52 * dpi; }
+
+inline auto Motore::lCategoriaApp(const AppL& app) const -> int {
+    const std::wstring& n = app.minuscolo;
+    auto contiene = [&](std::initializer_list<const wchar_t*> parole) {
+        for (const wchar_t* p : parole) if (n.find(p) != std::wstring::npos) return true;
+        return false;
+    };
+    if (contiene({L"steam", L"epic games", L"ubisoft", L"ea app", L"battle.net", L"gog galaxy", L"xbox", L"riot client", L"minecraft", L"playnite", L"game"})) return 1;
+    if (contiene({L"figma", L"blender", L"photoshop", L"illustrator", L"premiere", L"after effects", L"gimp", L"krita", L"paint.net", L"affinity", L"obs studio", L" davinci"})) return 2;
+    if (contiene({L"chrome", L"firefox", L"edge", L"brave", L"opera", L"discord", L"slack", L"zoom", L"teams", L"telegram", L"whatsapp", L"thunderbird"})) return 3;
+    if (contiene({L"word", L"excel", L"powerpoint", L"onenote", L"notion", L"linear", L"obsidian", L"libreoffice", L"outlook", L"office", L"todo", L"calendar"})) return 4;
+    if (contiene({L"visual studio", L"vs code", L"code", L"unity", L"docker", L"git", L"postman", L"tableplus", L"neovim", L"pycharm", L"intellij", L"android studio", L"node", L"python", L"raycast", L"terminal"})) return 0;
+    if (contiene({L"settings", L"control panel", L"task manager", L"powershell", L"command prompt", L"windows tools", L"file explorer", L"security", L"defender", L"system"})) return 5;
+    return 4;
+}
+inline auto Motore::lAppCategoria(int categoria) const -> std::vector<int> {
+    std::vector<int> app;
+    for (int i = 0; i < (int)tutteApp.size(); ++i)
+        if (lCategoriaApp(tutteApp[i]) == categoria) app.push_back(i);
+    return app;
+}
+inline auto Motore::lCartellaIn(float x, float y) const -> int {
+    if (lModalita != 0 || x < lDividerX() + 10 * dpi || x > LW - 10 * dpi) return -1;
+    float top = 122 * dpi;
+    for (int i = 0; i < 6; ++i) {
+        if (y >= top && y < top + 36 * dpi) return i;
+        top += (i == lCartellaAperta ? 119 : 36) * dpi + 7 * dpi;
+    }
+    return -1;
+}
+inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
+    if (lModalita != 0) return -1;
+    float top = 122 * dpi;
+    for (int i = 0; i < 6; ++i) {
+        if (i == lCartellaAperta) {
+            const float left = lDividerX() + 10 * dpi, right = LW - 10 * dpi;
+            const float bodyTop = top + 36 * dpi;
+            if (x >= left && x < right && y >= bodyTop && y < bodyTop + 78 * dpi) {
+                const int col = x < (left + right) * 0.5f ? 0 : 1;
+                const int row = std::clamp((int)((y - bodyTop) / (26 * dpi)), 0, 2);
+                const auto app = lAppCategoria(i);
+                const int k = row * 2 + col;
+                if (k >= 0 && k < (int)app.size() && k < 6) return app[k];
+                return -1;
+            }
+            top += 119 * dpi + 7 * dpi;
+        } else top += 36 * dpi + 7 * dpi;
+    }
+    return -1;
+}
+
+// Misure e coordinate dell'elenco alfabetico, mostrato nella modalita' All Apps.
 inline auto Motore::lColonne() const -> float { return lVistaLista ? 1.0f : 4.0f; }
 inline auto Motore::lCellaW() const -> float { return lVistaLista ? LW - 32 * dpi : (LW - 48 * dpi) / lColonne(); }
 inline auto Motore::lCellaH() const -> float { return lVistaLista ? 44 * dpi : 104 * dpi; }
 
-inline auto Motore::lAllTop() const -> float {
-    if (!query.empty() || lPinned.empty()) return 68 * dpi;
-    const int righe = std::min(2, ((int)lPinned.size() + 3) / 4);
-    return (104 + righe * 92 + 10) * dpi;
-}
+inline auto Motore::lAllTop() const -> float { return 78 * dpi; }
 
 inline auto Motore::lListaY(int i) const -> float {
     float y = 0;
@@ -469,15 +522,15 @@ inline auto Motore::lListaAlto() const -> float {
 }
 
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
-    const float w = (LW - 32 * dpi) / 4.0f;
-    const float x = 16 * dpi + (i % 4) * w;
-    const float y = 104 * dpi + (i / 4) * 92 * dpi;
-    return {x, y, x + w, y + 88 * dpi};
+    const float w = (lDividerX() - 40 * dpi) / 2.0f;
+    const float x = 16 * dpi + (i % 2) * (w + 8 * dpi);
+    const float y = 122 * dpi + (i / 2) * 56 * dpi;
+    return {x, y, x + w, y + 50 * dpi};
 }
 
 inline auto Motore::lPinnedIn(float x, float y) const -> int {
-    if (!query.empty()) return -1;
-    for (int i = 0; i < (int)lPinned.size(); ++i) {
+    if (lModalita != 0 || !query.empty()) return -1;
+    for (int i = 0; i < (int)lPinned.size() && i < 6; ++i) {
         const D2D1_RECT_F r = lPinnedCella(i);
         if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
     }
@@ -494,7 +547,7 @@ inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
 }
 
 inline auto Motore::lGrigliaTop() const -> float { return lAllTop() + 42 * dpi; }
-inline auto Motore::lGrigliaBottom() const -> float { return LH - 14 * dpi - (float)lFileH; }
+inline auto Motore::lGrigliaBottom() const -> float { return lFooterTop() - 12 * dpi - (float)lFileH; }
 
 inline auto Motore::lScrollMax() const -> double {
     const double contenuto = lVistaLista
