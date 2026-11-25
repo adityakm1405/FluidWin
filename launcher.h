@@ -7,7 +7,7 @@ namespace dock {
 inline std::wstring codificaQueryWeb(const std::wstring& query) {
     const int n=WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),nullptr,0,nullptr,nullptr);
     if(n<=0) return L"";
-    std::string utf8(n,'\\0');
+    std::string utf8(n,'\0');
     WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),utf8.data(),n,nullptr,nullptr);
     const wchar_t* hex=L"0123456789ABCDEF";
     std::wstring out;
