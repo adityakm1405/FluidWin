@@ -1429,7 +1429,7 @@ inline auto Motore::renderLauncher() -> bool {
             // unpinned and the exact same silhouette filled when pinned. Both are embedded white SVGs.
             ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
             if(iconaPin) {
-                const float px=r.right-54*dpi, py=r.top+31*dpi, lato=14*dpi;
+                const float px=r.right-54*dpi, py=r.top+27*dpi, lato=14*dpi;
                 const D2D1_RECT_F pinBox={px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f};
                 dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
