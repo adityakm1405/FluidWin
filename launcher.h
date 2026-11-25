@@ -320,13 +320,17 @@ inline auto Motore::aggiornaPinned() -> void {
             inizio=fine+1;
         }
     }
+    // Hard limit: keep the workspace compact and always leave room for Instant Actions.
+    if(lPinnedManual.size()>6) {
+        lPinnedManual.resize(6);
+        salvaPinned();
+    }
     lPinned.clear();
     for(const auto& percorso:lPinnedManual) {
         for(int i=0;i<(int)tutteApp.size();++i) {
             if(tutteApp[i].avvio==percorso) { lPinned.push_back(i); break; }
         }
     }
-    if(lPinned.size()>6 && lPinnedEspanso) lAzioniEspanse=false;
 }
 inline auto Motore::salvaPinned() -> void {
     std::wstring elenco;
@@ -343,14 +347,13 @@ inline auto Motore::togglePinned(int indiceApp) -> void {
     auto it=std::find(lPinnedManual.begin(),lPinnedManual.end(),percorso);
     if(it!=lPinnedManual.end()) lPinnedManual.erase(it);
     else {
-        if(lPinnedManual.size()>=12) {
-            MessageBoxW(launcher,testi::t(L"Puoi fissare fino a 12 app nel Workspace.",L"You can pin up to 12 apps in the Workspace."),
+        if(lPinnedManual.size()>=6) {
+            MessageBoxW(launcher,testi::t(L"Puoi fissare al massimo 6 app nel Workspace.",L"You can pin a maximum of 6 apps in the Workspace."),
                 L"FluidWin",MB_OK|MB_ICONINFORMATION);
             return;
         }
         lPinnedManual.push_back(percorso);
     }
-    if(lPinnedManual.size()>6) { lPinnedEspanso=true; lAzioniEspanse=false; }
     salvaPinned();
     aggiornaPinned();
     lDirty=true;
@@ -853,8 +856,7 @@ inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
 }
 inline auto Motore::lPinnedIn(float x,float y) const -> int {
     if(lModalita==4 || !query.empty()) return -1;
-    const int limite=lPinnedEspanso?12:6;
-    for(int i=0;i<(int)lPinned.size() && i<limite;++i) {
+    for(int i=0;i<(int)lPinned.size() && i<6;++i) {
         const D2D1_RECT_F r=lPinnedCella(i);
         if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
     }
