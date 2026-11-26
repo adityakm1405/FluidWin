@@ -1483,10 +1483,17 @@ inline auto Motore::renderLauncher() -> bool {
         dc->FillRoundedRectangle({r,radius,radius},pennello);
         drawAppIcon(appIndex,tile);
 
-        // App name sits immediately beside the icon and is vertically centered in the row.
-        // Keep the title bright white for clear contrast in both launcher themes.
+        // App name and its folder are stacked only when the app has an assignment.
+        // Unassigned apps retain the original single-line, vertically centered title.
         pennello->SetColor(D2D1::ColorF(1,1,1,1));
-        scrivi(app.nome,fmtVoce,{base.left+48*dpi,base.top,base.right-(pinnedControls?48:10)*dpi,base.bottom});
+        const D2D1_RECT_F testoApp={base.left+48*dpi,base.top,base.right-(pinnedControls?48:10)*dpi,base.bottom};
+        if(cat>=0 && cat<(int)lCartelle.size()) {
+            scrivi(app.nome,fmtVoce,{testoApp.left,base.top+2*dpi,testoApp.right,base.top+27*dpi});
+            pennello->SetColor(tenue);
+            scrivi(lCartelle[cat].nome,fmtSotto,{testoApp.left,base.top+27*dpi,testoApp.right,base.bottom-1*dpi});
+        } else {
+            scrivi(app.nome,fmtVoce,testoApp);
+        }
 
         if(managed) {
             const bool selected=cat==lCartellaGestita;
@@ -1659,8 +1666,15 @@ inline auto Motore::renderLauncher() -> bool {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
                 dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
                 drawAppIcon(index,tile);
+                const int folderIndex=lCategoriaApp(tutteApp[index]);
                 pennello->SetColor(ink);
-                scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
+                    scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
+                    pennello->SetColor(tenue);
+                    scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+78*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                } else {
+                    scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                }
             }
             if(lSopra>=0 && lSopra<(int)filtrate.size()) {
                 const D2D1_RECT_F riga=lCella(lSopra);
@@ -1671,8 +1685,15 @@ inline auto Motore::renderLauncher() -> bool {
                     pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.105f));
                     dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
                     drawAppIcon(index,tile);
+                    const int folderIndex=lCategoriaApp(tutteApp[index]);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                    if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
+                        scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
+                        pennello->SetColor(tenue);
+                        scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+78*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                    } else {
+                        scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                    }
                 }
             }
         }
