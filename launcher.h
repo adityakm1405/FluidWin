@@ -1578,10 +1578,10 @@ inline auto Motore::renderLauncher() -> bool {
                     const bool hoverApp=appIndex==lSopraAppCartella;
                     const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
                     const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+47*dpi};
-                    pennello->SetColor(hoverApp
-                        ?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f))
-                        :(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.035f)));
-                    dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
+                    if(hoverApp) {
+                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f));
+                        dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
+                    }
                     const D2D1_RECT_F ir={xx+7*dpi,yy+15.5f*dpi,xx+25*dpi,yy+33.5f*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
