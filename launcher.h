@@ -746,11 +746,21 @@ inline auto Motore::lCartellaFrecciaIn(float x,float y) const -> int {
 inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
     const int k=lCartellaAperta;
-    const float top=lCartellaY(k), left=lDividerX()+24*dpi, right=LW-24*dpi;
-    const float bodyTop=top+43*dpi;
+    const float top=lCartellaY(k), left=lDividerX()+28*dpi, right=LW-28*dpi;
+    const float bodyTop=top+43*dpi, colGap=8*dpi;
+    const float colWidth=(right-left-colGap)*0.5f;
     if(x<left || x>=right || y<bodyTop || y>=bodyTop+75*dpi) return -1;
-    const int col=x<(left+right)*0.5f?0:1;
-    const int row=(int)((y-bodyTop)/(25*dpi)), slot=row*2+col;
+
+    const float localX=x-left;
+    int col=-1;
+    if(localX<colWidth) col=0;
+    else if(localX>=colWidth+colGap) col=1;
+    else return -1; // The visible gap between columns is not part of either app tile.
+
+    const int row=(int)((y-bodyTop)/(25*dpi));
+    const float localY=y-(bodyTop+row*25*dpi);
+    if(localY<2*dpi || localY>=23*dpi) return -1; // Match the inset tile's top/bottom padding.
+    const int slot=row*2+col;
     const auto app=lAppCategoria(k);
     return slot>=0 && slot<(int)app.size() && slot<6 ? app[slot] : -1;
 }
@@ -761,10 +771,10 @@ inline auto Motore::lAppCartellaRimuoviIn(float x, float y) const -> int {
     const auto it=std::find(apps.begin(),apps.end(),appIndex);
     if(it==apps.end()) return -1;
     const int slot=(int)(it-apps.begin()), col=slot%2, row=slot/2;
-    const float rx=lDividerX()+14*dpi, rr=LW-14*dpi;
-    const float cw=(rr-rx-22*dpi)*0.5f;
-    const float xx=rx+10*dpi+col*cw, yy=lCartellaY(lCartellaAperta)+43*dpi+row*25*dpi;
-    return x>=xx+cw-22*dpi && x<xx+cw-4*dpi && y>=yy+3*dpi && y<yy+21*dpi ? appIndex : -1;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, colGap=8*dpi;
+    const float cw=(right-left-colGap)*0.5f;
+    const float xx=left+col*(cw+colGap), yy=lCartellaY(lCartellaAperta)+43*dpi+row*25*dpi;
+    return x>=xx+cw-22*dpi && x<xx+cw-5*dpi && y>=yy+4*dpi && y<yy+21*dpi ? appIndex : -1;
 }
 inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
     if(lModalita!=2 || lCartellaGestita<0 || lCartellaGestita>=(int)lCartelle.size()) return -1;
@@ -1560,21 +1570,24 @@ inline auto Motore::renderLauncher() -> bool {
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2,appIndex=apps[j];
-                    const float cw=(rr-rx-22*dpi)*0.5f;
-                    const float xx=rx+10*dpi+col*cw,yy=fy+43*dpi+row*25*dpi;
+                    // Give each folder app its own inset tile, with consistent outer,
+                    // column and row spacing so the two columns never crowd each other.
+                    const float contentLeft=rx+14*dpi,contentRight=rr-14*dpi,colGap=8*dpi;
+                    const float cw=(contentRight-contentLeft-colGap)*0.5f;
+                    const float xx=contentLeft+col*(cw+colGap),yy=fy+43*dpi+row*25*dpi;
                     const bool hoverApp=appIndex==lSopraAppCartella;
                     const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
-                    const D2D1_RECT_F appRow={xx,yy+1*dpi,xx+cw,yy+24*dpi};
+                    const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+23*dpi};
                     if(hoverApp) {
                         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.085f):D2D1::ColorF(0,0,0,0.065f));
-                        dc->FillRoundedRectangle({appRow,6*dpi,6*dpi},pennello);
+                        dc->FillRoundedRectangle({appRow,7*dpi,7*dpi},pennello);
                     }
-                    const D2D1_RECT_F ir={xx+2*dpi,yy+4*dpi,xx+18*dpi,yy+20*dpi};
+                    const D2D1_RECT_F ir={xx+8*dpi,yy+4*dpi,xx+24*dpi,yy+20*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+25*dpi,yy,xx+cw-27*dpi,yy+24*dpi});
+                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+32*dpi,yy+2*dpi,xx+cw-33*dpi,yy+23*dpi});
                     if(hoverApp) {
-                        const float crossCx=xx+cw-13*dpi,crossCy=yy+12*dpi,half=3.3f*dpi;
+                        const float crossCx=xx+cw-14*dpi,crossCy=yy+12*dpi,half=3.3f*dpi;
                         // The small × appears only on this hovered app; no background or hover plate.
                         pennello->SetColor(hoverRemove?D2D1::ColorF(0.96f,0.24f,0.28f,1.0f)
                                                        :D2D1::ColorF(ink.r,ink.g,ink.b,0.68f));
