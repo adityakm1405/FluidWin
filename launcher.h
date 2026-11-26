@@ -1582,7 +1582,7 @@ inline auto Motore::renderLauncher() -> bool {
                         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
                         dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
                     }
-                    const D2D1_RECT_F ir={xx+8*dpi,yy+17.5f*dpi,xx+22*dpi,yy+31.5f*dpi};
+                    const D2D1_RECT_F ir={xx+7*dpi,yy+16.5f*dpi,xx+23*dpi,yy+32.5f*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
                     scrivi(tutteApp[appIndex].nome,fmtVoce,{xx+35*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
