@@ -1533,9 +1533,15 @@ inline auto Motore::renderLauncher() -> bool {
             if(k==lSopraCartella) {
                 // Highlight the entire header row, from the folder name through the count and arrow.
                 // Keep the bottom edge above the divider; the expanded app area is not part of this hover.
-                const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+35*dpi};
+                const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+36*dpi};
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
                 dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
+                if(aperta) {
+                    // The expanded header shares the folder's outer top corners,
+                    // but its bottom corners are square and run flush into the divider.
+                    const D2D1_RECT_F headerBottom={fr.left,fy+14*dpi,fr.right,fy+36*dpi};
+                    dc->FillRectangle(headerBottom,pennello);
+                }
             }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
