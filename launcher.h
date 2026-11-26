@@ -1759,8 +1759,9 @@ inline auto Motore::renderLauncher() -> bool {
                                                :(scuro?D2D1::ColorF(0.01f,0.02f,0.04f,0.44f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({nameBox,9*dpi,9*dpi},pennello);
         pennello->SetColor(ink);
+        const float nameTextInset=11*dpi+((lNomeNuovoAttivo && lNomeNuovaCartella.empty())?10*dpi:0.0f);
         scrivi(lNomeNuovaCartella.empty()?testi::t(L"Digita il nome della cartella...",L"Enter a folder name..."):lNomeNuovaCartella,
-               fmtVoce,{nameBox.left+11*dpi,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
+               fmtVoce,{nameBox.left+nameTextInset,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
         if(lNomeNuovoAttivo && lCaretVisibile) {
             const float tw=larghezzaTesto(lNomeNuovaCartella,fmtVoce);
             pennello->SetColor(ink);
@@ -2076,7 +2077,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 d->lDirty=true;
             }
             if(searchClear || handCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
-            else if(searchBar) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+            else if(searchBar || folderNameField) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
             else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
             return 0;
         }
