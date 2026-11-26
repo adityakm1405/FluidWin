@@ -1561,10 +1561,10 @@ inline auto Motore::renderLauncher() -> bool {
             }
             // Cartelle senza icone: nome sempre allineato a sinistra come nella reference.
             pennello->SetColor(ink);
-            scrivi(lCartelle[k].nome,fmtVoce,{fr.left+14*dpi,fy+1*dpi,fr.right-126*dpi,fy+39*dpi});
+            scrivi(lCartelle[k].nome,fmtTitolo,{fr.left+14*dpi,fy+1*dpi,fr.right-126*dpi,fy+39*dpi});
             const auto apps=lAppCategoria(k);
             pennello->SetColor(tenue);
-            scrivi(std::to_wstring(apps.size()),fmtNome,{fr.right-52*dpi,fy+1*dpi,fr.right-32*dpi,fy+39*dpi});
+            scrivi(std::to_wstring(apps.size()),fmtVoce,{fr.right-52*dpi,fy+1*dpi,fr.right-32*dpi,fy+39*dpi});
             pennello->SetColor(ink);
             disegnaFreccia(fr.right-16*dpi,fy+20*dpi,aperta?3.141592653589793:0.0,9*dpi);
             if(aperta) {
@@ -1578,14 +1578,14 @@ inline auto Motore::renderLauncher() -> bool {
                     const bool hoverApp=appIndex==lSopraAppCartella;
                     const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
                     const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+47*dpi};
-                    if(hoverApp) {
-                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
-                        dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
-                    }
-                    const D2D1_RECT_F ir={xx+7*dpi,yy+16.5f*dpi,xx+23*dpi,yy+32.5f*dpi};
+                    pennello->SetColor(hoverApp
+                        ?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f))
+                        :(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.035f)));
+                    dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
+                    const D2D1_RECT_F ir={xx+7*dpi,yy+15.5f*dpi,xx+25*dpi,yy+33.5f*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[appIndex].nome,fmtVoce,{xx+35*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
+                    scrivi(tutteApp[appIndex].nome,fmtTitolo,{xx+38*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
                     if(hoverApp) {
                         const float crossCx=xx+cw-18*dpi,crossCy=yy+24.5f*dpi,half=3.3f*dpi;
                         // The small × appears only on this hovered app; no background or hover plate.
