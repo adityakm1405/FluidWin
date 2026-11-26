@@ -3580,7 +3580,6 @@ private:
     int lSel = 0, lSopra = -1, lSopraPinned = -1, lSopraCartella = -1;
     int lSopraAppCartella = -1, lSopraRimuoviAppCartella = -1, lSopraAzione = -1;
     double lScalaPinnedHover[6] = {1.0,1.0,1.0,1.0,1.0,1.0};
-    double lScalaAzioneHover[4] = {1.0,1.0,1.0,1.0}, lScalaAllHover = 1.0;
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     bool lSopraEsplora = false, lSopraImpostazioni = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
