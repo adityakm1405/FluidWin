@@ -1730,7 +1730,7 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(tenue);
         scrivi(rinomina?testi::t(L"RINOMINA CARTELLA",L"RENAME FOLDER")
                        :testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),
-               fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
+               fmtTitolo,{rx,85*dpi,rr-92*dpi,115*dpi});
         const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
@@ -1740,7 +1740,7 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(tenue);
         scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtSotto,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
         const D2D1_RECT_F nameBox={pane.left+12*dpi,pane.top+30*dpi,pane.right-12*dpi,pane.top+62*dpi};
-        pennello->SetColor(lNomeNuovoAttivo?(scuro?D2D1::ColorF(0.10f,0.34f,0.52f,0.30f):D2D1::ColorF(0.10f,0.48f,0.82f,0.10f))
+        pennello->SetColor(lNomeNuovoAttivo?(scuro?D2D1::ColorF(1,1,1,0.085f):D2D1::ColorF(0,0,0,0.055f))
                                                :(scuro?D2D1::ColorF(0.01f,0.02f,0.04f,0.44f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({nameBox,9*dpi,9*dpi},pennello);
         pennello->SetColor(ink);
@@ -1787,7 +1787,7 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(blu);
         dc->FillRoundedRectangle({save,9*dpi,9*dpi},pennello);
         pennello->SetColor(D2D1::ColorF(0.02f,0.04f,0.08f,1));
-        scrivi(rinomina?testi::t(L"Salva",L"Save"):testi::t(L"Crea cartella",L"Create Folder"),fmtVoce,save);
+        scrivi(rinomina?testi::t(L"Salva",L"Save"):testi::t(L"Crea",L"Create"),fmtVoce,save);
     }
     else {
         // Vista Spotlight: risultati a schede, come nello screenshot di ricerca.
