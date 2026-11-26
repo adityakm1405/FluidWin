@@ -714,7 +714,7 @@ inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
 inline auto Motore::lCartellaY(int cartella) const -> float {
     float y=122*dpi-lScrollCartelle;
     for(int i=0;i<cartella && i<(int)lCartelle.size();++i)
-        y+=(i==lCartellaAperta?118:40)*dpi+7*dpi;
+        y+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
     return y;
 }
 inline auto Motore::lCartellaIn(float x, float y) const -> int {
@@ -747,19 +747,19 @@ inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
     const int k=lCartellaAperta;
     const float top=lCartellaY(k), left=lDividerX()+28*dpi, right=LW-28*dpi;
-    const float bodyTop=top+43*dpi, colGap=8*dpi;
+    const float bodyTop=top+48*dpi, rowPitch=53*dpi, colGap=8*dpi;
     const float colWidth=(right-left-colGap)*0.5f;
-    if(x<left || x>=right || y<bodyTop || y>=bodyTop+75*dpi) return -1;
+    if(x<left || x>=right || y<bodyTop || y>=bodyTop+3*rowPitch) return -1;
 
     const float localX=x-left;
     int col=-1;
     if(localX<colWidth) col=0;
     else if(localX>=colWidth+colGap) col=1;
-    else return -1; // The visible gap between columns is not part of either app tile.
+    else return -1; // The visible gap between app tiles is not interactive.
 
-    const int row=(int)((y-bodyTop)/(25*dpi));
-    const float localY=y-(bodyTop+row*25*dpi);
-    if(localY<2*dpi || localY>=23*dpi) return -1; // Match the inset tile's top/bottom padding.
+    const int row=(int)((y-bodyTop)/rowPitch);
+    const float localY=y-(bodyTop+row*rowPitch);
+    if(localY<2*dpi || localY>=47*dpi) return -1; // 45px tile inside each 53px row pitch.
     const int slot=row*2+col;
     const auto app=lAppCategoria(k);
     return slot>=0 && slot<(int)app.size() && slot<6 ? app[slot] : -1;
@@ -773,8 +773,8 @@ inline auto Motore::lAppCartellaRimuoviIn(float x, float y) const -> int {
     const int slot=(int)(it-apps.begin()), col=slot%2, row=slot/2;
     const float left=lDividerX()+28*dpi, right=LW-28*dpi, colGap=8*dpi;
     const float cw=(right-left-colGap)*0.5f;
-    const float xx=left+col*(cw+colGap), yy=lCartellaY(lCartellaAperta)+43*dpi+row*25*dpi;
-    return x>=xx+cw-22*dpi && x<xx+cw-5*dpi && y>=yy+4*dpi && y<yy+21*dpi ? appIndex : -1;
+    const float xx=left+col*(cw+colGap), yy=lCartellaY(lCartellaAperta)+48*dpi+row*53*dpi;
+    return x>=xx+cw-30*dpi && x<xx+cw-5*dpi && y>=yy+2*dpi && y<yy+47*dpi ? appIndex : -1;
 }
 inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
     if(lModalita!=2 || lCartellaGestita<0 || lCartellaGestita>=(int)lCartelle.size()) return -1;
@@ -1514,7 +1514,7 @@ inline auto Motore::renderLauncher() -> bool {
         for(int k=0;k<(int)lCartelle.size();++k) {
             const float fy=lCartellaY(k);
             const bool aperta=k==lCartellaAperta;
-            const float h=aperta?118*dpi:40*dpi;
+            const float h=aperta?218*dpi:40*dpi;
             if(fy+h<116*dpi || fy>lFooterTop()-8*dpi) continue;
             const D2D1_RECT_F fr={rx,fy,rr,fy+h};
             pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
@@ -1570,24 +1570,24 @@ inline auto Motore::renderLauncher() -> bool {
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2,appIndex=apps[j];
-                    // Give each folder app its own inset tile, with consistent outer,
-                    // column and row spacing so the two columns never crowd each other.
+                    // Two-column folder grid styled like the reference: roomy rounded tiles,
+                    // an 8px gutter and vertically centered icon, name and remove affordance.
                     const float contentLeft=rx+14*dpi,contentRight=rr-14*dpi,colGap=8*dpi;
                     const float cw=(contentRight-contentLeft-colGap)*0.5f;
-                    const float xx=contentLeft+col*(cw+colGap),yy=fy+43*dpi+row*25*dpi;
+                    const float xx=contentLeft+col*(cw+colGap),yy=fy+48*dpi+row*53*dpi;
                     const bool hoverApp=appIndex==lSopraAppCartella;
                     const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
-                    const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+23*dpi};
+                    const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+47*dpi};
                     if(hoverApp) {
-                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.085f):D2D1::ColorF(0,0,0,0.065f));
-                        dc->FillRoundedRectangle({appRow,7*dpi,7*dpi},pennello);
+                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
+                        dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
                     }
-                    const D2D1_RECT_F ir={xx+8*dpi,yy+4*dpi,xx+24*dpi,yy+20*dpi};
+                    const D2D1_RECT_F ir={xx+12*dpi,yy+16*dpi,xx+28*dpi,yy+32*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+32*dpi,yy+2*dpi,xx+cw-33*dpi,yy+23*dpi});
+                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+38*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
                     if(hoverApp) {
-                        const float crossCx=xx+cw-14*dpi,crossCy=yy+12*dpi,half=3.3f*dpi;
+                        const float crossCx=xx+cw-18*dpi,crossCy=yy+24.5f*dpi,half=3.3f*dpi;
                         // The small × appears only on this hovered app; no background or hover plate.
                         pennello->SetColor(hoverRemove?D2D1::ColorF(0.96f,0.24f,0.28f,1.0f)
                                                        :D2D1::ColorF(ink.r,ink.g,ink.b,0.68f));
@@ -2217,7 +2217,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const double passo=GET_WHEEL_DELTA_WPARAM(w)/(double)WHEEL_DELTA;
             if(d->lModalita==0 && x>=d->lDividerX()) {
                 double totale=0;
-                for(int i=0;i<(int)d->lCartelle.size();++i) totale+=(i==d->lCartellaAperta?118:40)*d->dpi+7*d->dpi;
+                for(int i=0;i<(int)d->lCartelle.size();++i) totale+=(i==d->lCartellaAperta?218:40)*d->dpi+7*d->dpi;
                 const double max=std::max(0.0,totale-(d->lFooterTop()-8*d->dpi-122*d->dpi));
                 d->lScrollCartelle=std::clamp(d->lScrollCartelle-passo*42*d->dpi,0.0,max);
             } else if(d->lModalita==2 || d->lModalita==3) {
