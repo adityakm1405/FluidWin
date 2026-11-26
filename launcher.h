@@ -1533,11 +1533,18 @@ inline auto Motore::renderLauncher() -> bool {
             if(k==lSopraCartella) {
                 // Highlight the entire header row, from the folder name through the count and arrow.
                 // Keep the bottom edge above the divider; the expanded app area is not part of this hover.
-                // Match the reference: a single full-width rounded header highlight,
-                // with all four corners rounded, including the lower pair.
-                const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+36*dpi};
+                // Match the reference: rounded outer top corners, with the header
+                // highlight continuing as a solid strip down to the divider.
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
-                dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
+                if(aperta) {
+                    const D2D1_RECT_F headerTop={fr.left,fy,fr.right,fy+28*dpi};
+                    const D2D1_RECT_F headerFill={fr.left,fy+14*dpi,fr.right,fy+36*dpi};
+                    dc->FillRoundedRectangle({headerTop,14*dpi,14*dpi},pennello);
+                    dc->FillRectangle(headerFill,pennello);
+                } else {
+                    const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+36*dpi};
+                    dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
+                }
             }
             if(aperta) {
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
