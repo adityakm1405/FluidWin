@@ -741,19 +741,19 @@ inline auto Motore::lCartelleScrollMax() const -> double {
     for(int i=0;i<(int)lCartelle.size();++i)
         totale+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
     const double spazioInferiore=16*dpi;
-    return std::max(0.0,totale+spazioInferiore-(lFooterTop()-8*dpi-122*dpi));
+    return std::max(0.0,totale+spazioInferiore-(lFooterTop()-8*dpi-110*dpi));
 }
 inline auto Motore::lScrollCartellePerUltima() const -> double {
     if(lCartelle.empty()) return 0.0;
     const int ultima=(int)lCartelle.size()-1;
-    double top=122*dpi;
+    double top=110*dpi;
     for(int i=0;i<ultima;++i)
         top+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
     const double fondo=top+218*dpi;
     return std::clamp(fondo-(lFooterTop()-16*dpi),0.0,lCartelleScrollMax());
 }
 inline auto Motore::lCartellaY(int cartella) const -> float {
-    float y=122*dpi-lScrollCartelle;
+    float y=110*dpi-lScrollCartelle;
     for(int i=0;i<cartella && i<(int)lCartelle.size();++i)
         y+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
     return y;
@@ -936,7 +936,7 @@ inline auto Motore::caricaFotoProfilo() -> bool {
 inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
     const float w=(lDividerX()-40*dpi)/2.0f;
     const float x=16*dpi+(i%2)*(w+8*dpi);
-    const float y=122*dpi+(i/2)*54*dpi;
+    const float y=110*dpi+(i/2)*54*dpi;
     return {x,y,x+w,y+48*dpi};
 }
 inline auto Motore::lPinnedIn(float x,float y) const -> int {
@@ -1458,12 +1458,12 @@ inline auto Motore::renderLauncher() -> bool {
     // Le pagine Folders, All Apps, Manage Folder Apps e New Library Folder condividono la stessa colonna workspace.
     if(lModalita!=4) {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
-        dc->DrawLine({dx,70*dpi},{dx,lFooterTop()},pennello,1*dpi);
+        dc->DrawLine({dx,70*dpi},{dx,lFooterTop()-16*dpi},pennello,1*dpi);
 
         // Workspace heading shares the typography and muted color of App Library Folders.
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,84*dpi,dx-104*dpi,116*dpi});
-        scrivi(std::to_wstring(lPinned.size())+L" pinned",fmtNome,{dx-96*dpi,84*dpi,dx-16*dpi,116*dpi});
+        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,72*dpi,dx-104*dpi,104*dpi});
+        scrivi(std::to_wstring(lPinned.size())+L" pinned",fmtNome,{dx-96*dpi,72*dpi,dx-16*dpi,104*dpi});
         for(int i=0;i<(int)lPinned.size() && i<6;++i) {
             const D2D1_RECT_F base=lPinnedCella(i);
             const float scala=(float)lScalaPinnedHover[i];
@@ -1485,7 +1485,7 @@ inline auto Motore::renderLauncher() -> bool {
             scrivi(app.nome,fmtVoce,scalaBox({base.left+52*dpi,base.top+3*dpi,base.right-7*dpi,base.bottom-3*dpi}));
         }
 
-        const float ay=LH-256*dpi;
+        const float ay=LH-268*dpi;
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.07f));
         dc->DrawLine({16*dpi,ay-15*dpi},{dx-16*dpi,ay-15*dpi},pennello,1*dpi);
         pennello->SetColor(tenue);
@@ -1586,9 +1586,9 @@ inline auto Motore::renderLauncher() -> bool {
     if(lModalita==0) {
         // Libreria app a fisarmonica, con cartelle personalizzate persistenti.
         pennello->SetColor(tenue);
-        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,84*dpi,rr-174*dpi,116*dpi});
-        const D2D1_RECT_F add={rr-166*dpi,85*dpi,rr-91*dpi,115*dpi};
-        const D2D1_RECT_F all={rr-84*dpi,85*dpi,rr,115*dpi};
+        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,72*dpi,rr-174*dpi,104*dpi});
+        const D2D1_RECT_F add={rr-166*dpi,73*dpi,rr-91*dpi,103*dpi};
+        const D2D1_RECT_F all={rr-84*dpi,73*dpi,rr,103*dpi};
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
         dc->FillRoundedRectangle({add,8*dpi,8*dpi},pennello);
         dc->FillRoundedRectangle({all,8*dpi,8*dpi},pennello);
@@ -1617,12 +1617,12 @@ inline auto Motore::renderLauncher() -> bool {
         }
         scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+25*dpi,all.top,all.right-4*dpi,all.bottom});
 
-        dc->PushAxisAlignedClip({rx,116*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        dc->PushAxisAlignedClip({rx,104*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
         for(int k=0;k<(int)lCartelle.size();++k) {
             const float fy=lCartellaY(k);
             const bool aperta=k==lCartellaAperta;
             const float h=aperta?218*dpi:40*dpi;
-            if(fy+h<116*dpi || fy>lFooterTop()-8*dpi) continue;
+            if(fy+h<104*dpi || fy>lFooterTop()-8*dpi) continue;
             const D2D1_RECT_F fr={rx,fy,rr,fy+h};
             pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
                                        :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
@@ -2142,7 +2142,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             const int rimuoviApp=d->lModalita==0?d->lAppCartellaRimuoviIn(x,y):-1;
             int azione=-1;
             if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
-                const float ay=d->LH-256*d->dpi;
+                const float ay=d->LH-268*d->dpi;
                 for(int k=0;k<4;++k) {
                     const float top=ay+(28.0f+k*36.0f)*d->dpi;
                     if(y>=top && y<top+30*d->dpi) { azione=k; break; }
@@ -2162,7 +2162,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 x>=d->lDividerX()+26*d->dpi && x<d->LW-26*d->dpi && y>=152*d->dpi && y<184*d->dpi;
             const bool searchClear=!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi && y>=14*d->dpi && y<54*d->dpi;
             const bool backHover=(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
-            const bool headerButtons=d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi &&
+            const bool headerButtons=d->lModalita==0 && y>=73*d->dpi && y<103*d->dpi &&
                 ((x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi) || (x>=d->LW-180*d->dpi && x<d->LW-105*d->dpi));
             const int editorApp=(d->lModalita==3)?d->lNuovaAppIn(x,y):((d->lModalita==2)?d->lGestisciAppIn(x,y):-1);
             const int fileHit=d->lFileIn(x,y);
@@ -2350,7 +2350,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
 
             // Pulsante + Folder e All Apps.
-            if(d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi) {
+            if(d->lModalita==0 && y>=73*d->dpi && y<103*d->dpi) {
                 if(x>=paneRight-84*d->dpi && x<paneRight) {
                     d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
                 }
@@ -2386,7 +2386,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
 
             // Four quick actions use the reserved area below the six pinned apps.
             if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
-                const float ay=d->LH-256*d->dpi;
+                const float ay=d->LH-268*d->dpi;
                 const int action=(int)((y-(ay+28*d->dpi))/(36*d->dpi));
                 if(y>=ay+28*d->dpi && y<ay+28*d->dpi+4*36*d->dpi && action>=0 && action<4) {
                     d->primaDelLauncher=nullptr; d->chiudiLauncher();
