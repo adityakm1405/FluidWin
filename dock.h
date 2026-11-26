@@ -3564,7 +3564,7 @@ private:
     int lCartellaGestita = -1;
     int lCartellaRinomina = -1;
     std::wstring lNomeNuovaCartella;
-    std::vector<double> lAngoliCartella;
+    std::vector<double> lAngoliCartella, lVelAngoliCartella;
     bool lCartellaMenuAperto = false; // custom D2D context menu
     int lCartellaMenuIndice = -1, lCartellaMenuHover = -1;
     float lCartellaMenuX = 0, lCartellaMenuY = 0;
