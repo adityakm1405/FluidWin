@@ -746,7 +746,7 @@ inline auto Motore::lCartellaFrecciaIn(float x,float y) const -> int {
 inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
     const int k=lCartellaAperta;
-    const float top=lCartellaY(k), left=lDividerX()+28*dpi, right=LW-28*dpi;
+    const float top=lCartellaY(k), left=lDividerX()+26*dpi, right=LW-26*dpi;
     const float bodyTop=top+48*dpi, rowPitch=53*dpi, colGap=8*dpi;
     const float colWidth=(right-left-colGap)*0.5f;
     if(x<left || x>=right || y<bodyTop || y>=bodyTop+3*rowPitch) return -1;
@@ -771,7 +771,7 @@ inline auto Motore::lAppCartellaRimuoviIn(float x, float y) const -> int {
     const auto it=std::find(apps.begin(),apps.end(),appIndex);
     if(it==apps.end()) return -1;
     const int slot=(int)(it-apps.begin()), col=slot%2, row=slot/2;
-    const float left=lDividerX()+28*dpi, right=LW-28*dpi, colGap=8*dpi;
+    const float left=lDividerX()+26*dpi, right=LW-26*dpi, colGap=8*dpi;
     const float cw=(right-left-colGap)*0.5f;
     const float xx=left+col*(cw+colGap), yy=lCartellaY(lCartellaAperta)+48*dpi+row*53*dpi;
     return x>=xx+cw-30*dpi && x<xx+cw-5*dpi && y>=yy+2*dpi && y<yy+47*dpi ? appIndex : -1;
@@ -1570,9 +1570,9 @@ inline auto Motore::renderLauncher() -> bool {
             if(aperta) {
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2,appIndex=apps[j];
-                    // Two-column folder grid styled like the reference: roomy rounded tiles,
-                    // an 8px gutter and vertically centered icon, name and remove affordance.
-                    const float contentLeft=rx+14*dpi,contentRight=rr-14*dpi,colGap=8*dpi;
+                    // Compact two-column folder grid matching the blue Start-menu reference.
+                    // Keep the 45px hover row and 8px gutter, with a tighter 12px outer inset.
+                    const float contentLeft=rx+12*dpi,contentRight=rr-12*dpi,colGap=8*dpi;
                     const float cw=(contentRight-contentLeft-colGap)*0.5f;
                     const float xx=contentLeft+col*(cw+colGap),yy=fy+48*dpi+row*53*dpi;
                     const bool hoverApp=appIndex==lSopraAppCartella;
@@ -1582,10 +1582,10 @@ inline auto Motore::renderLauncher() -> bool {
                         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
                         dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
                     }
-                    const D2D1_RECT_F ir={xx+12*dpi,yy+16*dpi,xx+28*dpi,yy+32*dpi};
+                    const D2D1_RECT_F ir={xx+8*dpi,yy+17.5f*dpi,xx+22*dpi,yy+31.5f*dpi};
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[appIndex].nome,fmtNome,{xx+38*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
+                    scrivi(tutteApp[appIndex].nome,fmtVoce,{xx+35*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
                     if(hoverApp) {
                         const float crossCx=xx+cw-18*dpi,crossCy=yy+24.5f*dpi,half=3.3f*dpi;
                         // The small × appears only on this hovered app; no background or hover plate.
