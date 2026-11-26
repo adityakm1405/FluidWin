@@ -1543,8 +1543,25 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(blu);
         scrivi(L"+",fmtTitolo,{add.left+5*dpi,add.top,add.left+23*dpi,add.bottom});
         pennello->SetColor(ink);
-        scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+23*dpi,add.top,add.right-3*dpi,add.bottom});
-        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+5*dpi,all.top,all.right-4*dpi,all.bottom});
+        // Folder glyph sits between the existing add symbol and the Folder label.
+        const float folderX=add.left+26*dpi, folderY=(add.top+add.bottom)*0.5f-6*dpi;
+        dc->DrawLine({folderX,folderY+4*dpi},{folderX+4*dpi,folderY+4*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX+4*dpi,folderY+4*dpi},{folderX+6*dpi,folderY+2*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX+6*dpi,folderY+2*dpi},{folderX+11*dpi,folderY+2*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX+11*dpi,folderY+2*dpi},{folderX+13*dpi,folderY+4*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX+13*dpi,folderY+4*dpi},{folderX+13*dpi,folderY+11*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX+13*dpi,folderY+11*dpi},{folderX,folderY+11*dpi},pennello,1.45f*dpi);
+        dc->DrawLine({folderX,folderY+11*dpi},{folderX,folderY+4*dpi},pennello,1.45f*dpi);
+        scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+42*dpi,add.top,add.right-3*dpi,add.bottom});
+
+        // Compact three-dot list glyph for All Apps.
+        const float listX=all.left+9*dpi, listY=(all.top+all.bottom)*0.5f;
+        for(int row=0;row<3;++row) {
+            const float yy=listY+(row-1)*4.8f*dpi;
+            dc->FillEllipse({{listX+1*dpi,yy},1.05f*dpi,1.05f*dpi},pennello);
+            dc->DrawLine({listX+5*dpi,yy},{listX+15*dpi,yy},pennello,1.45f*dpi);
+        }
+        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+27*dpi,all.top,all.right-4*dpi,all.bottom});
 
         dc->PushAxisAlignedClip({rx,116*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
         for(int k=0;k<(int)lCartelle.size();++k) {
