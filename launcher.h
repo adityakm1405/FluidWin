@@ -1410,7 +1410,7 @@ inline auto Motore::renderLauncher() -> bool {
     for(int i=0;i<(int)lCartelle.size();++i) {
         const double obiettivo=i==lCartellaAperta?PI_CARTELLE:0.0;
         // Critically damped spring: smooth acceleration and deceleration with no visible bounce.
-        if(molla(lAngoliCartella[i],lVelAngoliCartella[i],obiettivo,150.0,1.0,0.001))
+        if(molla(lAngoliCartella[i],lVelAngoliCartella[i],obiettivo,300.0,1.0,0.001))
             anim=true;
     }
     lScrollCartelleObj=std::clamp(lScrollCartelleObj,0.0,lCartelleScrollMax());
