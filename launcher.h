@@ -2090,30 +2090,23 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawLine({fx-10*dpi,fy-7.0f*dpi},{fx-3.5f*dpi,fy-7.0f*dpi},pennello,1.75f*dpi);
         dc->DrawLine({fx-3.5f*dpi,fy-7.0f*dpi},{fx-0.8f*dpi,fy-4.5f*dpi},pennello,1.75f*dpi);
 
-        // Modern settings gear with a clean central opening and evenly spaced teeth.
+        // Modern tune/settings glyph: three balanced tracks and staggered circular sliders.
         const float sx=(settings.left+settings.right)*0.5f, sy=(settings.top+settings.bottom)*0.5f;
-        dc->DrawEllipse({{sx,sy},7.1f*dpi,7.1f*dpi},pennello,1.85f*dpi);
-        for(int i=0;i<8;++i) {
-            const float a=(float)i*0.785398163f, co=std::cos(a),si=std::sin(a);
-            dc->DrawLine({sx+co*7.6f*dpi,sy+si*7.6f*dpi},
-                         {sx+co*10.1f*dpi,sy+si*10.1f*dpi},pennello,1.85f*dpi);
+        const float trackHalf=10.5f*dpi, knobRadius=2.35f*dpi;
+        const float trackYs[3]={sy-6.5f*dpi,sy,sy+6.5f*dpi};
+        const float knobXs[3]={sx-3.5f*dpi,sx+4.0f*dpi,sx-1.0f*dpi};
+        for(int i=0;i<3;++i) {
+            dc->DrawLine({sx-trackHalf,trackYs[i]},{sx+trackHalf,trackYs[i]},pennello,1.65f*dpi);
+            pennello->SetColor(footerColor);
+            dc->FillEllipse({{knobXs[i],trackYs[i]},knobRadius+0.65f*dpi,knobRadius+0.65f*dpi},pennello);
+            pennello->SetColor(ink);
+            dc->DrawEllipse({{knobXs[i],trackYs[i]},knobRadius,knobRadius},pennello,1.75f*dpi);
         }
-        dc->DrawEllipse({{sx,sy},2.65f*dpi,2.65f*dpi},pennello,1.75f*dpi);
 
-        // Standard power mark: a clean 270-degree arc with an open top and a separate stem.
+        // Updated power symbol: a crisp complete ring with a centered vertical stem.
         const float px=(power.left+power.right)*0.5f, py=(power.top+power.bottom)*0.5f;
-        constexpr float PI_POWER=3.14159265358979323846f;
-        const float powerRadius=9.0f*dpi;
-        D2D1_POINT_2F prev={px+std::cos(PI_POWER*0.25f)*powerRadius,
-                            py+1.0f*dpi+std::sin(PI_POWER*0.25f)*powerRadius};
-        for(int i=1;i<=30;++i) {
-            const float a=PI_POWER*(0.25f+1.5f*(float)i/30.0f);
-            const D2D1_POINT_2F next={px+std::cos(a)*powerRadius,
-                                      py+1.0f*dpi+std::sin(a)*powerRadius};
-            dc->DrawLine(prev,next,pennello,1.85f*dpi);
-            prev=next;
-        }
-        dc->DrawLine({px,py-10.5f*dpi},{px,py+0.5f*dpi},pennello,1.9f*dpi);
+        dc->DrawEllipse({{px,py+1.0f*dpi},8.8f*dpi,8.8f*dpi},pennello,1.9f*dpi);
+        dc->DrawLine({px,py-11.0f*dpi},{px,py+1.0f*dpi},pennello,2.0f*dpi);
     }
 
     // Native-looking FluidWin folder menu: matching dark/light surface, rounded edge and restrained hover.
