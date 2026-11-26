@@ -1490,7 +1490,7 @@ inline auto Motore::renderLauncher() -> bool {
         if(cat>=0 && cat<(int)lCartelle.size()) {
             scrivi(app.nome,fmtVoce,{testoApp.left,base.top+2*dpi,testoApp.right,base.top+27*dpi});
             pennello->SetColor(tenue);
-            scrivi(lCartelle[cat].nome,fmtSotto,{testoApp.left,base.top+27*dpi,testoApp.right,base.bottom-1*dpi});
+            scrivi(lCartelle[cat].nome,fmtSotto,{testoApp.left,base.top+24*dpi,testoApp.right,base.bottom-1*dpi});
         } else {
             scrivi(app.nome,fmtVoce,testoApp);
         }
@@ -1671,7 +1671,7 @@ inline auto Motore::renderLauncher() -> bool {
                 if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
                     scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
                     pennello->SetColor(tenue);
-                    scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+78*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                    scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+75*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
                 } else {
                     scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
                 }
@@ -1690,7 +1690,7 @@ inline auto Motore::renderLauncher() -> bool {
                     if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
                         scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
                         pennello->SetColor(tenue);
-                        scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+78*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                        scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+75*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
                     } else {
                         scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
                     }
