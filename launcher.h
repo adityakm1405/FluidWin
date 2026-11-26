@@ -753,9 +753,14 @@ inline auto Motore::lScrollCartellePerUltima() const -> double {
     return std::clamp(fondo-(lFooterTop()-16*dpi),0.0,lCartelleScrollMax());
 }
 inline auto Motore::lCartellaY(int cartella) const -> float {
-    float y=110*dpi-lScrollCartelle;
-    for(int i=0;i<cartella && i<(int)lCartelle.size();++i)
-        y+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
+    constexpr double PI=3.14159265358979323846;
+    float y=110*dpi-(float)lScrollCartelle;
+    for(int i=0;i<cartella && i<(int)lCartelle.size();++i) {
+        const double angolo=i<(int)lAngoliCartella.size()
+            ?std::clamp(lAngoliCartella[i],0.0,PI):(i==lCartellaAperta?PI:0.0);
+        const double apertura=angolo/PI;
+        y+=(40.0+178.0*apertura)*dpi+7*dpi;
+    }
     return y;
 }
 inline auto Motore::lCartellaIn(float x, float y) const -> int {
@@ -788,9 +793,13 @@ inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
     if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
     const int k=lCartellaAperta;
     const float top=lCartellaY(k), left=lDividerX()+26*dpi, right=LW-26*dpi;
+    constexpr double PI=3.14159265358979323846;
+    const double angolo=k<(int)lAngoliCartella.size()
+        ?std::clamp(lAngoliCartella[k],0.0,PI):(k==lCartellaAperta?PI:0.0);
+    const float cardBottom=top+(float)(40.0+178.0*angolo/PI)*dpi;
     const float bodyTop=top+48*dpi, rowPitch=53*dpi, colGap=8*dpi;
     const float colWidth=(right-left-colGap)*0.5f;
-    if(x<left || x>=right || y<bodyTop || y>=bodyTop+3*rowPitch) return -1;
+    if(x<left || x>=right || y<bodyTop || y>=cardBottom || y>=bodyTop+3*rowPitch) return -1;
 
     const float localX=x-left;
     int col=-1;
@@ -1392,6 +1401,13 @@ inline auto Motore::renderLauncher() -> bool {
     }
     const double sc = verso(lScroll, lScrollObj, 0.06);
     if (sc != lScroll) { lScroll = sc; anim = true; }
+    constexpr double PI_CARTELLE=3.14159265358979323846;
+    if(lAngoliCartella.size()!=lCartelle.size()) lAngoliCartella.resize(lCartelle.size(),0.0);
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const double obiettivo=i==lCartellaAperta?PI_CARTELLE:0.0;
+        const double prossimo=verso(lAngoliCartella[i],obiettivo,0.16);
+        if(prossimo!=lAngoliCartella[i]) { lAngoliCartella[i]=prossimo; anim=true; }
+    }
     lScrollCartelleObj=std::clamp(lScrollCartelleObj,0.0,lCartelleScrollMax());
     const double scCartelle=verso(lScrollCartelle,lScrollCartelleObj,0.06);
     if(scCartelle!=lScrollCartelle) { lScrollCartelle=scCartelle; anim=true; }
@@ -1621,7 +1637,10 @@ inline auto Motore::renderLauncher() -> bool {
         for(int k=0;k<(int)lCartelle.size();++k) {
             const float fy=lCartellaY(k);
             const bool aperta=k==lCartellaAperta;
-            const float h=aperta?218*dpi:40*dpi;
+            const double angolo=k<(int)lAngoliCartella.size()
+                ?std::clamp(lAngoliCartella[k],0.0,PI_CARTELLE):(aperta?PI_CARTELLE:0.0);
+            const double apertura=angolo/PI_CARTELLE;
+            const float h=(float)(40.0+178.0*apertura)*dpi;
             if(fy+h<104*dpi || fy>lFooterTop()-8*dpi) continue;
             const D2D1_RECT_F fr={rx,fy,rr,fy+h};
             pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
@@ -1633,7 +1652,7 @@ inline auto Motore::renderLauncher() -> bool {
                 // Match the reference: rounded outer top corners, with the header
                 // highlight continuing as a solid strip down to the divider.
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
-                if(aperta) {
+                if(apertura>0.001) {
                     // One continuous path avoids seams or doubled alpha from overlapping fills:
                     // rounded top corners, straight sides and a flat lower edge at the divider.
                     ID2D1PathGeometry* headerGeometry=nullptr;
@@ -1662,8 +1681,9 @@ inline auto Motore::renderLauncher() -> bool {
                     dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
                 }
             }
-            if(aperta) {
-                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.045f));
+            if(apertura>0.001) {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f*(float)apertura)
+                                          :D2D1::ColorF(0,0,0,0.045f*(float)apertura));
                 dc->DrawLine({fr.left,fy+40*dpi},{fr.right,fy+40*dpi},pennello,1*dpi);
             }
             // Cartelle senza icone: nome sempre allineato a sinistra come nella reference.
@@ -1673,8 +1693,12 @@ inline auto Motore::renderLauncher() -> bool {
             pennello->SetColor(tenue);
             scrivi(std::to_wstring(apps.size()),fmtVoce,{fr.right-52*dpi,fy+1*dpi,fr.right-32*dpi,fy+39*dpi});
             pennello->SetColor(ink);
-            disegnaFreccia(fr.right-16*dpi,fy+20*dpi,aperta?3.141592653589793:0.0,9*dpi);
-            if(aperta) {
+            disegnaFreccia(fr.right-16*dpi,fy+20*dpi,angolo,9*dpi);
+            if(apertura>0.001 && h>40*dpi) {
+                const D2D1_RECT_F contenutoCartella={
+                    fr.left+1*dpi,fy+40*dpi,fr.right-1*dpi,std::max(fy+40*dpi,fy+h-1*dpi)
+                };
+                dc->PushAxisAlignedClip(contenutoCartella,D2D1_ANTIALIAS_MODE_ALIASED);
                 for(int j=0;j<(int)apps.size() && j<6;++j) {
                     const int col=j%2,row=j/2,appIndex=apps[j];
                     // Compact two-column folder grid matching the blue Start-menu reference.
@@ -1709,6 +1733,7 @@ inline auto Motore::renderLauncher() -> bool {
                         dc->DrawLine({crossCx+half,crossCy-half},{crossCx-half,crossCy+half},pennello,1.2f*dpi);
                     }
                 }
+                dc->PopAxisAlignedClip();
             }
         }
         dc->PopAxisAlignedClip();
