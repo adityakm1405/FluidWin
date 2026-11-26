@@ -984,6 +984,7 @@ inline auto Motore::apriLauncher() -> void {
     if (!nessunaScheda()) { if (dopo != 1) { chiudiTutte(); apriDopo(1, 0); } return; }
     primaDelLauncher = GetForegroundWindow();
     query.clear(); filtra(); lModalita = 0; lCartellaAperta = 0;
+    lRicercaAttiva=false; lRicercaCaretVisibile=false; if(launcher) KillTimer(launcher,TIMER_SEARCH_CARET_L);
     lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
     lScroll = lScrollObj = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
     lAperto = true; lChiusura = false; lScala = 0.12; lVel = 0; lAlfa = 0; lT0 = adesso(); lRegione = false; lRipreso = false;
@@ -1970,6 +1971,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
     const float x = (float)GET_X_LPARAM(l), y = (float)GET_Y_LPARAM(l);
     switch (m) {
         case WM_LBUTTONDOWN: {
+            const bool clickInSearch=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            if(!clickInSearch && d->lRicercaAttiva) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+            }
             // barra di scorrimento: preso il cursore lo si trascina; un clic sul binario salta di una pagina
             const D2D1_RECT_F b = d->lRettBarra();
             if ((d->lModalita == 1 || d->lModalita == 4) && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
@@ -1992,7 +1998,8 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 const float mx=d->lCartellaMenuX,my=d->lCartellaMenuY;
                 if(x>=mx+7*d->dpi && x<mx+177*d->dpi && y>=my+48*d->dpi && y<my+129*d->dpi)
                     hover=(int)((y-(my+48*d->dpi))/(27*d->dpi));
-                if(hover!=d->lCartellaMenuHover) { d->lCartellaMenuHover=hover; d->lDirty=true; }
+                if(hover!=d->lCartellaMenuHover || !d->lManoCursor) { d->lCartellaMenuHover=hover; d->lManoCursor=hover>=0; d->lDirty=true; }
+                SetCursor(LoadCursorW(nullptr,hover>=0?IDC_HAND:IDC_ARROW));
                 return 0;
             }
             if(d->lTrascinoBarra) {
@@ -2027,23 +2034,23 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 confermaCartella=x>=save.left && x<save.right && y>=save.top && y<save.bottom;
             }
             const bool searchBar=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
-            const bool searchClear=!d->query.empty() && x>=d->LW-52*d->dpi && x<d->LW-30*d->dpi && y>=14*d->dpi && y<54*d->dpi;
-            const bool backHover=(d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
+            const bool searchClear=!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool backHover=(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
             const bool headerButtons=d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi &&
                 ((x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi) || (x>=d->LW-180*d->dpi && x<d->LW-105*d->dpi));
             const int editorApp=(d->lModalita==3)?d->lNuovaAppIn(x,y):((d->lModalita==2)?d->lGestisciAppIn(x,y):-1);
             const int fileHit=d->lFileIn(x,y);
             const bool doneButton=d->lModalita==2 && x>=d->LW-100*d->dpi && x<d->LW-22*d->dpi &&
                 y>=d->lFooterTop()-80*d->dpi && y<d->lFooterTop()-26*d->dpi;
-            const bool handCursor=s>=0 || pin>=0 || cartella>=0 || appCartella>=0 || rimuoviApp>=0 || azione>=0 ||
-                profilo || energia || explorer || settings || cancelCartella || confermaCartella || backHover ||
-                headerButtons || editorApp>=0 || fileHit>=0 || doneButton || searchClear;
             const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
             const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
             const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
             const float ft=d->lFooterTop();
             const bool explorer=x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
             const bool settings=x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
+            const bool handCursor=s>=0 || pin>=0 || cartella>=0 || appCartella>=0 || rimuoviApp>=0 || azione>=0 ||
+                profilo || energia || explorer || settings || cancelCartella || confermaCartella || backHover ||
+                headerButtons || editorApp>=0 || fileHit>=0 || doneButton || searchClear;
             if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned || cartella!=d->lSopraCartella ||
                appCartella!=d->lSopraAppCartella || rimuoviApp!=d->lSopraRimuoviAppCartella || azione!=d->lSopraAzione ||
                profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
@@ -2123,7 +2130,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             }
             const bool clickSearch=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
             if(clickSearch) {
-                if(!d->query.empty() && x>=d->LW-52*d->dpi && x<d->LW-30*d->dpi) {
+                if(!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi) {
                     d->query.clear(); d->filtra(); d->lModalita=0;
                     d->lSelFile=-1; d->lScroll=d->lScrollObj=0;
                 }
