@@ -1368,28 +1368,34 @@ inline auto Motore::renderLauncher() -> bool {
     // Barra di ricerca universale: la digitazione in qualunque punto della finestra filtra le app.
     {
         const D2D1_RECT_F rc = {16 * dpi, 14 * dpi, LW - 16 * dpi, 54 * dpi};
-        pennello->SetColor(scuro ? D2D1::ColorF(0.105f,0.108f,0.12f,0.96f) : D2D1::ColorF(0.94f,0.945f,0.955f,0.90f));
+        pennello->SetColor(lRicercaAttiva
+            ?(scuro?D2D1::ColorF(0.145f,0.15f,0.17f,0.99f):D2D1::ColorF(0.90f,0.92f,0.95f,0.98f))
+            :(scuro?D2D1::ColorF(0.105f,0.108f,0.12f,0.96f):D2D1::ColorF(0.94f,0.945f,0.955f,0.90f)));
         dc->FillRoundedRectangle({rc, 13 * dpi, 13 * dpi}, pennello);
+        if(lRicercaAttiva) {
+            pennello->SetColor(D2D1::ColorF(ink.r,ink.g,ink.b,0.24f));
+            dc->DrawRoundedRectangle({rc,13*dpi,13*dpi},pennello,1*dpi);
+        }
         pennello->SetColor(tenue);
         const float lx = rc.left + 19 * dpi, ly = (rc.top + rc.bottom) * 0.5f;
         dc->DrawEllipse({{lx,ly},6*dpi,6*dpi},pennello,1.8f*dpi);
         linea(2.5f,2.5f,7,7,lx,ly);
-        const D2D1_RECT_F rt = {lx + 18*dpi, rc.top, rc.right - 108*dpi, rc.bottom};
-        if (query.empty()) scrivi(testi::t(L"Cerca app, file recenti o esegui un comando...",L"Search apps, recent files, or run a command..."),fmtTitolo,rt);
-        else {
+        const D2D1_RECT_F rt = {lx + 18*dpi, rc.top, rc.right - (query.empty()?18.0f:55.0f)*dpi, rc.bottom};
+        if (query.empty()) {
+            D2D1_RECT_F placeholder=rt;
+            if(lRicercaAttiva) placeholder.left+=10*dpi;
+            scrivi(testi::t(L"Cerca app, impostazioni e documenti",L"Search for apps, settings and documents"),fmtTitolo,placeholder);
+        } else {
             pennello->SetColor(ink);
             scrivi(query,fmtTitolo,rt);
-            const float lt = larghezzaTesto(query,fmtTitolo);
-            pennello->SetColor(blu);
-            dc->DrawLine({rt.left+lt+2*dpi,ly-9*dpi},{rt.left+lt+2*dpi,ly+9*dpi},pennello,1.6f*dpi);
             pennello->SetColor(tenue);
-            scrivi(L"×",fmtTitolo,{rc.right-91*dpi,rc.top,rc.right-66*dpi,rc.bottom});
+            scrivi(L"×",fmtTitolo,{rc.right-46*dpi,rc.top,rc.right-20*dpi,rc.bottom});
         }
-        const D2D1_RECT_F esc={rc.right-54*dpi,rc.top+9*dpi,rc.right-12*dpi,rc.bottom-9*dpi};
-        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.055f));
-        dc->FillRoundedRectangle({esc,6*dpi,6*dpi},pennello);
-        pennello->SetColor(tenue);
-        scrivi(L"ESC",fmtNome,esc);
+        if(lRicercaAttiva && lRicercaCaretVisibile) {
+            const float caretX=rt.left+(query.empty()?0.0f:larghezzaTesto(query,fmtTitolo))+2*dpi;
+            pennello->SetColor(ink);
+            dc->DrawLine({caretX,ly-9*dpi},{caretX,ly+9*dpi},pennello,1.5f*dpi);
+        }
     }
 
     const D2D1_COLOR_F accenti[6]={
@@ -1736,10 +1742,14 @@ inline auto Motore::renderLauncher() -> bool {
                        :testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),
                fmtTitolo,{rx,85*dpi,rr-92*dpi,115*dpi});
         const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
-        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        pennello->SetColor(lSopraIndietro
+            ?(scuro?D2D1::ColorF(0.13f,0.42f,0.66f,0.48f):D2D1::ColorF(0.10f,0.48f,0.78f,0.22f))
+            :(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f)));
         dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
         pennello->SetColor(blu);
-        scrivi(std::wstring(L"‹  ")+testi::t(L"Indietro",L"Back"),fmtVoce,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_CENTER);
+        scrivi(std::wstring(L"‹  ")+testi::t(L"Indietro",L"Back"),fmtVoce,back);
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_LEADING);
 
         pennello->SetColor(tenue);
         scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtSotto,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
@@ -1789,7 +1799,8 @@ inline auto Motore::renderLauncher() -> bool {
             :(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f)));
         dc->FillRoundedRectangle({cancel,9*dpi,9*dpi},pennello);
         pennello->SetColor(lSopraConfermaCartella
-            ?D2D1::ColorF(0.25f,0.61f,0.98f,1.0f):blu);
+            ?(scuro?D2D1::ColorF(0.34f,0.63f,0.97f,1.0f):D2D1::ColorF(0.08f,0.44f,0.94f,1.0f))
+            :(scuro?D2D1::ColorF(0.23f,0.50f,0.84f,1.0f):D2D1::ColorF(0.00f,0.33f,0.80f,1.0f)));
         dc->FillRoundedRectangle({save,9*dpi,9*dpi},pennello);
         testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_CENTER);
         pennello->SetColor(tenue);
@@ -2015,6 +2026,18 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 cancelCartella=x>=cancel.left && x<cancel.right && y>=cancel.top && y<cancel.bottom;
                 confermaCartella=x>=save.left && x<save.right && y>=save.top && y<save.bottom;
             }
+            const bool searchBar=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool searchClear=!d->query.empty() && x>=d->LW-52*d->dpi && x<d->LW-30*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool backHover=(d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
+            const bool headerButtons=d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi &&
+                ((x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi) || (x>=d->LW-180*d->dpi && x<d->LW-105*d->dpi));
+            const int editorApp=(d->lModalita==3)?d->lNuovaAppIn(x,y):((d->lModalita==2)?d->lGestisciAppIn(x,y):-1);
+            const int fileHit=d->lFileIn(x,y);
+            const bool doneButton=d->lModalita==2 && x>=d->LW-100*d->dpi && x<d->LW-22*d->dpi &&
+                y>=d->lFooterTop()-80*d->dpi && y<d->lFooterTop()-26*d->dpi;
+            const bool handCursor=s>=0 || pin>=0 || cartella>=0 || appCartella>=0 || rimuoviApp>=0 || azione>=0 ||
+                profilo || energia || explorer || settings || cancelCartella || confermaCartella || backHover ||
+                headerButtons || editorApp>=0 || fileHit>=0 || doneButton || searchClear;
             const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
             const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
             const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
@@ -2025,25 +2048,47 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                appCartella!=d->lSopraAppCartella || rimuoviApp!=d->lSopraRimuoviAppCartella || azione!=d->lSopraAzione ||
                profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
                explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni ||
-               cancelCartella!=d->lSopraCancelCartella || confermaCartella!=d->lSopraConfermaCartella) {
+               cancelCartella!=d->lSopraCancelCartella || confermaCartella!=d->lSopraConfermaCartella ||
+               searchBar!=d->lSopraRicerca || searchClear!=d->lSopraCancellaRicerca || backHover!=d->lSopraIndietro || handCursor!=d->lManoCursor) {
                 d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin; d->lSopraCartella=cartella;
                 d->lSopraAppCartella=appCartella; d->lSopraRimuoviAppCartella=rimuoviApp; d->lSopraAzione=azione;
                 d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
                 d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
                 d->lSopraCancelCartella=cancelCartella; d->lSopraConfermaCartella=confermaCartella;
+                d->lSopraRicerca=searchBar; d->lSopraCancellaRicerca=searchClear; d->lSopraIndietro=backHover; d->lManoCursor=handCursor;
                 d->lDirty=true;
             }
+            if(searchClear || handCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
+            else if(searchBar) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+            else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
             return 0;
         }
         case WM_KILLFOCUS:
+            if(d->lRicercaAttiva || d->lRicercaCaretVisibile) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+            }
             if(d->lNomeNuovoAttivo) {
                 d->lNomeNuovoAttivo=false; d->lCaretVisibile=false;
                 KillTimer(h,TIMER_CARET_L); d->lDirty=true;
             }
             return 0;
-        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
+        case WM_SETCURSOR:
+            if(LOWORD(l)==HTCLIENT) {
+                if(d->lSopraCancellaRicerca || d->lManoCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
+                else if(d->lSopraRicerca) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+                else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
+                return TRUE;
+            }
+            break;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false; d->lSopraRicerca=false; d->lSopraCancellaRicerca=false; d->lSopraIndietro=false; d->lManoCursor=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
+            if (w == TIMER_SEARCH_CARET_L) {
+                if(d->lRicercaAttiva) { d->lRicercaCaretVisibile=!d->lRicercaCaretVisibile; d->lDirty=true; }
+                else { KillTimer(h,TIMER_SEARCH_CARET_L); d->lRicercaCaretVisibile=false; d->lDirty=true; }
+                return 0;
+            }
             if (w == TIMER_CARET_L) {
                 if ((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo) {
                     d->lCaretVisibile=!d->lCaretVisibile;
@@ -2075,6 +2120,22 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 else if(azione==2) d->rimuoviCartella(cartella);
                 else d->lDirty=true;
                 return 0;
+            }
+            const bool clickSearch=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            if(clickSearch) {
+                if(!d->query.empty() && x>=d->LW-52*d->dpi && x<d->LW-30*d->dpi) {
+                    d->query.clear(); d->filtra(); d->lModalita=0;
+                    d->lSelFile=-1; d->lScroll=d->lScrollObj=0;
+                }
+                d->lRicercaAttiva=true; d->lRicercaCaretVisibile=true;
+                SetTimer(h,TIMER_SEARCH_CARET_L,520,nullptr);
+                if(d->lNomeNuovoAttivo) {
+                    d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L);
+                }
+                d->lDirty=true; return 0;
+            } else if(d->lRicercaAttiva) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
             }
             if(y>d->LH) { d->chiudiLauncher(); return 0; }
             if(d->lSopraEnergia) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuEnergia(p); return 0; }
@@ -2201,11 +2262,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 }
             }
 
-            // Search clear / Web search.
-            if(!d->query.empty() && x>=d->LW-107*d->dpi && x<d->LW-82*d->dpi && y>=14*d->dpi && y<54*d->dpi) {
-                d->query.clear(); d->filtra(); d->lModalita=0;
-                d->lSelFile=-1; d->lScroll=d->lScrollObj=0; d->lDirty=true; return 0;
-            }
+            // Web search result action (search field clear is handled inside the search field).
             if(d->lModalita==4 && d->filtrate.empty() && !d->query.empty() &&
                x>=16*d->dpi && x<std::min(d->LW-16*d->dpi,460*d->dpi) &&
                y>=170*d->dpi && y<212*d->dpi) {
@@ -2228,6 +2285,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         }
         case WM_RBUTTONUP: {
+            if(d->lRicercaAttiva) { d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false; KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true; }
             if(d->lModalita==0) {
                 const int folder=d->lCartellaIn(x,y);
                 if(folder>=0) { POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt); d->apriMenuCartella(folder,pt); d->lDirty=true; return 0; }
@@ -2298,10 +2356,15 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 }
                 return 0;
             }
+            auto attivaRicerca=[&]() {
+                d->lRicercaAttiva=true; d->lRicercaCaretVisibile=true;
+                SetTimer(h,TIMER_SEARCH_CARET_L,520,nullptr);
+            };
             if(w==27) {
                 if(!d->query.empty()) {
                     d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1;
-                    d->lScroll=d->lScrollObj=0; d->lDirty=true;
+                    d->lScroll=d->lScrollObj=0; d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                    KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
                 } else if(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) {
                     d->lModalita=0; d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L); d->lScrollEditor=0; d->lDirty=true;
                 } else d->chiudiLauncher();
@@ -2319,13 +2382,13 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             if(w==127 || (w==8 && (GetKeyState(VK_CONTROL)&0x8000))) {
                 while(!d->query.empty() && d->query.back()==L' ') d->query.pop_back();
                 while(!d->query.empty() && d->query.back()!=L' ') d->query.pop_back();
-                d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0; return 0;
+                d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0; attivaRicerca(); d->lDirty=true; return 0;
             }
             if(w==8) {
                 if(!d->query.empty()) {
                     d->query.pop_back(); d->filtra(); d->lModalita=d->query.empty()?0:4;
                 }
-                d->lDirty=true; return 0;
+                attivaRicerca(); d->lDirty=true; return 0;
             }
             if(w==22) {
                 if(OpenClipboard(h)) {
@@ -2338,12 +2401,13 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                     }
                     CloseClipboard();
                     d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0;
+                    attivaRicerca();
                 }
                 return 0;
             }
             if(w>=32) {
                 d->query+=(wchar_t)w; d->lModalita=4; d->filtra();
-                d->lScroll=d->lScrollObj=0; d->lSelFile=-1; return 0;
+                d->lScroll=d->lScrollObj=0; d->lSelFile=-1; attivaRicerca(); return 0;
             }
             return 0;
         }

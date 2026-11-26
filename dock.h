@@ -105,6 +105,7 @@ static const UINT_PTR TIMER_DOPO = 9;    // launcher o centro di controllo da ap
 static const UINT_PTR TIMER_CITTA = 10;  // (finestra del pannello) ricerca della citta' del meteo: attesa dopo l'ultimo tasto e risultati
 static const UINT_PTR TIMER_FILE_L = 11; // (finestra del launcher) file e cartelle: la ricerca parte 0,2 s dopo l'ultimo tasto
 static const UINT_PTR TIMER_CARET_L = 14; // lampeggio del cursore nel campo nome cartella
+static const UINT_PTR TIMER_SEARCH_CARET_L = 15; // lampeggio cursore ricerca launcher
 static const UINT_PTR TIMER_DESKTOP = 12; // "Mostra il desktop" / "Ripristina le finestre": una finestra ogni 45 ms
 static const UINT_PTR TIMER_ANTEPRIME = 13; // anteprime delle finestre: quando aprirle e chiuderle (ogni 80 ms, solo col mouse sul dock o aperte)
 static const wchar_t* const AVVIO_LAUNCHER = L"*launcher";   // la voce "App" del dock
@@ -3571,6 +3572,7 @@ private:
     bool lFotoProfiloTentata = false;
     std::vector<std::wstring> lAppNuovaCartella;
     bool lNomeNuovoAttivo = false, lCaretVisibile = false;
+    bool lRicercaAttiva = false, lRicercaCaretVisibile = false;
     double lScrollCartelle = 0, lScrollEditor = 0;
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
@@ -3584,6 +3586,7 @@ private:
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     bool lSopraEsplora = false, lSopraImpostazioni = false;
     bool lSopraCancelCartella = false, lSopraConfermaCartella = false;
+    bool lSopraRicerca = false, lSopraCancellaRicerca = false, lSopraIndietro = false, lManoCursor = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
     // l'ultimo tasto, un thread chiede all'indice di Windows; sotto la griglia compare la sezione con i risultati del
     // testo lFileTesto e, in fondo, "Cerca in Esplora file". lFileGen scarta i risultati di un testo vecchio; lFileH e'
