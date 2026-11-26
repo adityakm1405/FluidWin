@@ -125,25 +125,8 @@ inline auto Motore::raccogliIcone() -> bool {
             for (auto& a : appSfondo) if (a.exe == ip.percorso) a.icona = b;
             pDirty = true; altra.pDirty = true;
         } else if (ip.lato == 96) {    // launcher
-            double luminanzaTotale=0;
-            size_t campioni=0, pixelScuri=0;
-            if(ip.ok && b && ip.w>0 && ip.h>0) {
-                for(UINT p:ip.px) {
-                    const UINT alpha=p>>24;
-                    if(alpha<32) continue;
-                    const UINT r=std::min(255u,(((p>>16)&255u)*255u)/alpha);
-                    const UINT g=std::min(255u,(((p>>8)&255u)*255u)/alpha);
-                    const UINT bl=std::min(255u,((p&255u)*255u)/alpha);
-                    const double lum=0.2126*r+0.7152*g+0.0722*bl;
-                    luminanzaTotale+=lum; ++campioni;
-                    if(lum<112.0) ++pixelScuri;
-                }
-            }
-            const bool iconaScura=campioni>0 &&
-                (luminanzaTotale/campioni)<124.0 &&
-                pixelScuri*100>=campioni*54;
             for (auto& a : tutteApp) if (a.avvio == ip.percorso && !a.icona) {
-                a.icona = b; a.iconaScura=iconaScura; presa = true; lDirty = true; break;
+                a.icona = b; presa = true; lDirty = true; break;
             }
         } else if (ip.lato == 48) {    // file e cartelle del launcher (anche "nessuna": non si richiede a ogni ricerca)
             auto& v = iconeFile[ip.percorso];
@@ -228,7 +211,7 @@ inline auto Motore::leggiTutteApp(bool subito) -> void {
 inline auto Motore::applicaTutteApp(std::vector<AppL> nuove) -> void {
     // le icone gia' caricate si conservano
     for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) {
-        a.icona = v.icona; a.provata = v.provata; a.iconaScura = v.iconaScura; v.icona = nullptr; break;
+        a.icona = v.icona; a.provata = v.provata; v.icona = nullptr; break;
     }
     for (auto& v : tutteApp) if (v.icona) v.icona->Release();
     tutteApp = std::move(nuove);
@@ -1719,12 +1702,7 @@ inline auto Motore::renderLauncher() -> bool {
                         dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
                     }
                     const D2D1_RECT_F ir={xx+6*dpi,yy+12*dpi,xx+28*dpi,yy+34*dpi};
-                    if(tutteApp[appIndex].iconaScura) {
-                        const D2D1_RECT_F backIcon={ir.left-1*dpi,ir.top-1*dpi,ir.right+1*dpi,ir.bottom+1*dpi};
-                        pennello->SetColor(scuro?D2D1::ColorF(0.78f,0.82f,0.88f,0.17f)
-                                                 :D2D1::ColorF(0.08f,0.12f,0.18f,0.075f));
-                        dc->FillRoundedRectangle({backIcon,5*dpi,5*dpi},pennello);
-                    }
+                    // Draw the app's own icon bitmap directly; do not add a synthetic tile behind dark icons.
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
                     const float labelRight=xx+cw-(hoverApp?28.0f:8.0f)*dpi;
