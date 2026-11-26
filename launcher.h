@@ -637,6 +637,7 @@ inline auto Motore::caricaCartelle() -> void {
 inline auto Motore::inizializzaCartelle() -> void {
     caricaCartelle();
     lAngoliCartella.resize(lCartelle.size(),0.0);
+    lVelAngoliCartella.resize(lCartelle.size(),0.0);
     if(lCartellaAperta>=(int)lCartelle.size()) lCartellaAperta=lCartelle.empty()?-1:0;
 }
 inline auto Motore::toggleAppCartella(int indiceApp, int cartella) -> void {
@@ -683,6 +684,7 @@ inline auto Motore::creaCartella() -> void {
         f.app.erase(std::remove(f.app.begin(),f.app.end(),p),f.app.end());
     lCartelle.push_back(std::move(nuova));
     lAngoliCartella.push_back(0.0);
+    lVelAngoliCartella.push_back(0.0);
     lCartellaAperta=(int)lCartelle.size()-1;
     salvaCartelle();
     lModalita=0; lNomeNuovaCartella.clear(); lAppNuovaCartella.clear(); lScrollEditor=0;
@@ -719,6 +721,7 @@ inline auto Motore::rimuoviCartella(int cartella) -> void {
     if(cartella<0 || cartella>=(int)lCartelle.size()) return;
     lCartelle.erase(lCartelle.begin()+cartella);
     if(cartella<(int)lAngoliCartella.size()) lAngoliCartella.erase(lAngoliCartella.begin()+cartella);
+    if(cartella<(int)lVelAngoliCartella.size()) lVelAngoliCartella.erase(lVelAngoliCartella.begin()+cartella);
     if(lCartellaAperta==cartella) lCartellaAperta=-1;
     else if(lCartellaAperta>cartella) --lCartellaAperta;
     lCartellaGestita=-1; lModalita=0; lScrollCartelle=0; lScrollCartelleObj=0;
@@ -1403,10 +1406,12 @@ inline auto Motore::renderLauncher() -> bool {
     if (sc != lScroll) { lScroll = sc; anim = true; }
     constexpr double PI_CARTELLE=3.14159265358979323846;
     if(lAngoliCartella.size()!=lCartelle.size()) lAngoliCartella.resize(lCartelle.size(),0.0);
+    if(lVelAngoliCartella.size()!=lCartelle.size()) lVelAngoliCartella.resize(lCartelle.size(),0.0);
     for(int i=0;i<(int)lCartelle.size();++i) {
         const double obiettivo=i==lCartellaAperta?PI_CARTELLE:0.0;
-        const double prossimo=verso(lAngoliCartella[i],obiettivo,0.16);
-        if(prossimo!=lAngoliCartella[i]) { lAngoliCartella[i]=prossimo; anim=true; }
+        // Critically damped spring: smooth acceleration and deceleration with no visible bounce.
+        if(molla(lAngoliCartella[i],lVelAngoliCartella[i],obiettivo,150.0,1.0,0.001))
+            anim=true;
     }
     lScrollCartelleObj=std::clamp(lScrollCartelleObj,0.0,lCartelleScrollMax());
     const double scCartelle=verso(lScrollCartelle,lScrollCartelleObj,0.06);
