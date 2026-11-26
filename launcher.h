@@ -2042,7 +2042,7 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawLine({0,top},{LW,top},pennello,1*dpi);
 
         const D2D1_RECT_F rp=rettProfilo(),re=rettEnergia();
-        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=18*dpi;
+        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=17*dpi;
         pennello->SetColor(D2D1::ColorF(0.16f,0.54f,0.96f,1));
         dc->FillEllipse({{ax,ay},radius,radius},pennello);
         if(lFotoProfilo) {
@@ -2081,27 +2081,39 @@ inline auto Motore::renderLauncher() -> bool {
         hoverTile(settings,lSopraImpostazioni);
         hoverTile(power,lSopraEnergia);
 
-        // File Explorer: sagoma cartella, disegnata senza font-glyph dipendenti dal sistema.
+        // Modern file-folder outline: rounded body with a distinct raised tab.
         const float fx=(files.left+files.right)*0.5f, fy=(files.top+files.bottom)*0.5f;
         pennello->SetColor(ink);
-        const D2D1_POINT_2F folderPts[]={{fx-12*dpi,fy-6*dpi},{fx-4*dpi,fy-6*dpi},{fx-1*dpi,fy-2*dpi},
-            {fx+12*dpi,fy-2*dpi},{fx+12*dpi,fy+8*dpi},{fx-12*dpi,fy+8*dpi},{fx-12*dpi,fy-6*dpi}};
-        for(int i=0;i<6;++i) dc->DrawLine(folderPts[i],folderPts[i+1],pennello,1.8f*dpi);
-        dc->DrawLine({fx-12*dpi,fy-2*dpi},{fx+12*dpi,fy-2*dpi},pennello,1.3f*dpi);
+        const D2D1_RECT_F folderBody={fx-10.5f*dpi,fy-4.5f*dpi,fx+10.5f*dpi,fy+8.0f*dpi};
+        dc->DrawRoundedRectangle({folderBody,2.2f*dpi,2.2f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-10*dpi,fy-4.0f*dpi},{fx-10*dpi,fy-7.0f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-10*dpi,fy-7.0f*dpi},{fx-3.5f*dpi,fy-7.0f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-3.5f*dpi,fy-7.0f*dpi},{fx-0.8f*dpi,fy-4.5f*dpi},pennello,1.75f*dpi);
 
-        // Settings: gear con otto denti e anello centrale.
+        // Modern settings gear with a clean central opening and evenly spaced teeth.
         const float sx=(settings.left+settings.right)*0.5f, sy=(settings.top+settings.bottom)*0.5f;
-        dc->DrawEllipse({{sx,sy},7.5f*dpi,7.5f*dpi},pennello,2.1f*dpi);
-        dc->DrawEllipse({{sx,sy},2.7f*dpi,2.7f*dpi},pennello,1.8f*dpi);
+        dc->DrawEllipse({{sx,sy},7.1f*dpi,7.1f*dpi},pennello,1.85f*dpi);
         for(int i=0;i<8;++i) {
-            const float a=i*0.785398163f, co=std::cos(a),si=std::sin(a);
-            dc->DrawLine({sx+co*8.2f*dpi,sy+si*8.2f*dpi},{sx+co*11.0f*dpi,sy+si*11.0f*dpi},pennello,2.1f*dpi);
+            const float a=(float)i*0.785398163f, co=std::cos(a),si=std::sin(a);
+            dc->DrawLine({sx+co*7.6f*dpi,sy+si*7.6f*dpi},
+                         {sx+co*10.1f*dpi,sy+si*10.1f*dpi},pennello,1.85f*dpi);
         }
+        dc->DrawEllipse({{sx,sy},2.65f*dpi,2.65f*dpi},pennello,1.75f*dpi);
 
-        // Power: cerchio aperto in alto con stelo verticale.
+        // Standard power mark: a clean 270-degree arc with an open top and a separate stem.
         const float px=(power.left+power.right)*0.5f, py=(power.top+power.bottom)*0.5f;
-        dc->DrawEllipse({{px,py+1*dpi},9.5f*dpi,9.5f*dpi},pennello,1.8f*dpi);
-        dc->DrawLine({px,py-11*dpi},{px,py+1*dpi},pennello,2.0f*dpi);
+        constexpr float PI_POWER=3.14159265358979323846f;
+        const float powerRadius=9.0f*dpi;
+        D2D1_POINT_2F prev={px+std::cos(PI_POWER*0.25f)*powerRadius,
+                            py+1.0f*dpi+std::sin(PI_POWER*0.25f)*powerRadius};
+        for(int i=1;i<=30;++i) {
+            const float a=PI_POWER*(0.25f+1.5f*(float)i/30.0f);
+            const D2D1_POINT_2F next={px+std::cos(a)*powerRadius,
+                                      py+1.0f*dpi+std::sin(a)*powerRadius};
+            dc->DrawLine(prev,next,pennello,1.85f*dpi);
+            prev=next;
+        }
+        dc->DrawLine({px,py-10.5f*dpi},{px,py+0.5f*dpi},pennello,1.9f*dpi);
     }
 
     // Native-looking FluidWin folder menu: matching dark/light surface, rounded edge and restrained hover.
