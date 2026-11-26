@@ -1540,22 +1540,20 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
         dc->FillRoundedRectangle({add,8*dpi,8*dpi},pennello);
         dc->FillRoundedRectangle({all,8*dpi,8*dpi},pennello);
+        // One compact folder-plus outline; the add mark is part of the folder glyph.
+        const float folderX=add.left+10*dpi, folderY=(add.top+add.bottom)*0.5f-5.5f*dpi;
         pennello->SetColor(blu);
-        scrivi(L"+",fmtTitolo,{add.left+5*dpi,add.top,add.left+23*dpi,add.bottom});
-        pennello->SetColor(ink);
-        // Single folder-with-plus glyph: the add mark is drawn inside the folder outline.
-        const float folderX=add.left+9*dpi, folderY=(add.top+add.bottom)*0.5f-7*dpi;
-        pennello->SetColor(blu);
-        dc->DrawLine({folderX,folderY+4*dpi},{folderX,folderY+2*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX,folderY+2*dpi},{folderX+5*dpi,folderY+2*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX+5*dpi,folderY+2*dpi},{folderX+7*dpi,folderY+4*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX+7*dpi,folderY+4*dpi},{folderX+14*dpi,folderY+4*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX+14*dpi,folderY+4*dpi},{folderX+14*dpi,folderY+12*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX+14*dpi,folderY+12*dpi},{folderX,folderY+12*dpi},pennello,1.35f*dpi);
-        dc->DrawLine({folderX,folderY+12*dpi},{folderX,folderY+4*dpi},pennello,1.35f*dpi);
-        const float plusX=folderX+7*dpi, plusY=folderY+8*dpi;
-        dc->DrawLine({plusX-2*dpi,plusY},{plusX+2*dpi,plusY},pennello,1.35f*dpi);
-        dc->DrawLine({plusX,plusY-2*dpi},{plusX,plusY+2*dpi},pennello,1.35f*dpi);
+        const D2D1_RECT_F folderBody={folderX,folderY+3.5f*dpi,folderX+12*dpi,folderY+11*dpi};
+        dc->DrawRoundedRectangle({folderBody,1.25f*dpi,1.25f*dpi},pennello,1.15f*dpi);
+        // Raised folder tab, joined cleanly to the top edge of the body.
+        dc->DrawLine({folderX+0.6f*dpi,folderY+4*dpi},{folderX+0.6f*dpi,folderY+2.2f*dpi},pennello,1.15f*dpi);
+        dc->DrawLine({folderX+0.6f*dpi,folderY+2.2f*dpi},{folderX+4.1f*dpi,folderY+2.2f*dpi},pennello,1.15f*dpi);
+        dc->DrawLine({folderX+4.1f*dpi,folderY+2.2f*dpi},{folderX+5.4f*dpi,folderY+3.5f*dpi},pennello,1.15f*dpi);
+        dc->DrawLine({folderX+5.4f*dpi,folderY+3.5f*dpi},{folderX+11.4f*dpi,folderY+3.5f*dpi},pennello,1.15f*dpi);
+        // Small centered plus inside the folder.
+        const float plusX=folderX+7*dpi, plusY=folderY+7.5f*dpi;
+        dc->DrawLine({plusX-1.7f*dpi,plusY},{plusX+1.7f*dpi,plusY},pennello,1.15f*dpi);
+        dc->DrawLine({plusX,plusY-1.7f*dpi},{plusX,plusY+1.7f*dpi},pennello,1.15f*dpi);
         pennello->SetColor(ink);
         scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+31*dpi,add.top,add.right-3*dpi,add.bottom});
 
