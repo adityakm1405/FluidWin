@@ -700,7 +700,7 @@ inline auto Motore::rimuoviCartella(int cartella) -> void {
     if(cartella<(int)lAngoliCartella.size()) lAngoliCartella.erase(lAngoliCartella.begin()+cartella);
     if(lCartellaAperta==cartella) lCartellaAperta=-1;
     else if(lCartellaAperta>cartella) --lCartellaAperta;
-    lCartellaGestita=-1; lModalita=0; lScrollCartelle=0;
+    lCartellaGestita=-1; lModalita=0; lScrollCartelle=0; lScrollCartelleObj=0;
     salvaCartelle(); lDirty=true;
 }
 inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
@@ -714,6 +714,21 @@ inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
     lCartellaMenuHover=-1;
     lCartellaMenuAperto=true;
     lDirty=true;
+}
+inline auto Motore::lCartelleScrollMax() const -> double {
+    double totale=0;
+    for(int i=0;i<(int)lCartelle.size();++i)
+        totale+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
+    return std::max(0.0,totale-(lFooterTop()-8*dpi-122*dpi));
+}
+inline auto Motore::lScrollCartellePerUltima() const -> double {
+    if(lCartelle.empty()) return 0.0;
+    const int ultima=(int)lCartelle.size()-1;
+    double top=122*dpi;
+    for(int i=0;i<ultima;++i)
+        top+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
+    const double fondo=top+218*dpi;
+    return std::clamp(fondo-(lFooterTop()-8*dpi),0.0,lCartelleScrollMax());
 }
 inline auto Motore::lCartellaY(int cartella) const -> float {
     float y=122*dpi-lScrollCartelle;
@@ -1353,6 +1368,9 @@ inline auto Motore::renderLauncher() -> bool {
     }
     const double sc = verso(lScroll, lScrollObj, 0.06);
     if (sc != lScroll) { lScroll = sc; anim = true; }
+    lScrollCartelleObj=std::clamp(lScrollCartelleObj,0.0,lCartelleScrollMax());
+    const double scCartelle=verso(lScrollCartelle,lScrollCartelleObj,0.06);
+    if(scCartelle!=lScrollCartelle) { lScrollCartelle=scCartelle; anim=true; }
     raccogliIcone();
     caricaFotoProfilo();
     // Workspace sections stay fixed; folder chevrons change immediately.
@@ -2271,7 +2289,14 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 // Left click anywhere on a folder row expands/collapses it; context menu is right-click only.
                 const int folder=d->lCartellaIn(x,y);
                 if(folder>=0) {
+                    const int ultima=(int)d->lCartelle.size()-1;
+                    const bool ultimaEraAperta=d->lCartellaAperta==ultima;
                     d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder);
+                    if(d->lCartellaAperta==ultima)
+                        d->lScrollCartelleObj=d->lScrollCartellePerUltima();
+                    else if(ultimaEraAperta)
+                        d->lScrollCartelleObj=0.0;
+                    d->lScrollCartelleObj=std::clamp(d->lScrollCartelleObj,0.0,d->lCartelleScrollMax());
                     d->lDirty=true; return 0;
                 }
                 const int removeApp=d->lAppCartellaRimuoviIn(x,y);
@@ -2355,10 +2380,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             d->lSelTastiera=false;
             const double passo=GET_WHEEL_DELTA_WPARAM(w)/(double)WHEEL_DELTA;
             if(d->lModalita==0 && x>=d->lDividerX()) {
-                double totale=0;
-                for(int i=0;i<(int)d->lCartelle.size();++i) totale+=(i==d->lCartellaAperta?218:40)*d->dpi+7*d->dpi;
-                const double max=std::max(0.0,totale-(d->lFooterTop()-8*d->dpi-122*d->dpi));
-                d->lScrollCartelle=std::clamp(d->lScrollCartelle-passo*42*d->dpi,0.0,max);
+                d->lScrollCartelleObj=std::clamp(d->lScrollCartelleObj-passo*42*d->dpi,0.0,d->lCartelleScrollMax());
             } else if(d->lModalita==2 || d->lModalita==3) {
                 const double top=d->lModalita==2?180*d->dpi:234*d->dpi;
                 const double bottom=d->lModalita==2?d->lFooterTop()-78*d->dpi:d->lFooterTop()-82*d->dpi;

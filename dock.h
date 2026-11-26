@@ -3573,7 +3573,7 @@ private:
     std::vector<std::wstring> lAppNuovaCartella;
     bool lNomeNuovoAttivo = false, lCaretVisibile = false;
     bool lRicercaAttiva = false, lRicercaCaretVisibile = false;
-    double lScrollCartelle = 0, lScrollEditor = 0;
+    double lScrollCartelle = 0, lScrollCartelleObj = 0, lScrollEditor = 0;
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
     double lScroll = 0, lScrollObj = 0;
@@ -3684,6 +3684,8 @@ private:
     std::vector<int> lAppCategoria(int categoria) const;
     float lDividerX() const;
     float lFooterTop() const;
+    double lCartelleScrollMax() const;
+    double lScrollCartellePerUltima() const;
     float lCartellaY(int cartella) const;
     int lCartellaIn(float x, float y) const;
     int lCartellaNomeIn(float x, float y) const;
