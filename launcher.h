@@ -869,35 +869,93 @@ inline auto Motore::lListaAlto() const -> float {
 inline auto Motore::caricaFotoProfilo() -> bool {
     if(lFotoProfiloTentata) return lFotoProfilo!=nullptr;
     lFotoProfiloTentata=true;
-    wchar_t appdata[MAX_PATH]=L"";
-    if(FAILED(SHGetFolderPathW(nullptr,CSIDL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,appdata))) return false;
-    const std::wstring cartella=std::wstring(appdata)+L"\\Microsoft\\Windows\\AccountPictures";
-    WIN32_FIND_DATAW fd{};
-    HANDLE h=FindFirstFileW((cartella+L"\\*").c_str(),&fd);
-    if(h==INVALID_HANDLE_VALUE) return false;
-    std::vector<std::wstring> candidati;
-    do {
-        if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) continue;
-        const std::wstring nome=fd.cFileName;
-        const size_t dot=nome.find_last_of(L'.');
-        if(dot==std::wstring::npos) continue;
-        std::wstring ext=nome.substr(dot);
-        for(auto& ch:ext) ch=(wchar_t)towlower(ch);
-        if(ext==L".png"||ext==L".jpg"||ext==L".jpeg"||ext==L".bmp"||ext==L".jfif")
-            candidati.push_back(cartella+L"\\"+nome);
-    } while(FindNextFileW(h,&fd));
-    FindClose(h);
-    std::sort(candidati.begin(),candidati.end(),[](const std::wstring& a,const std::wstring& b) {
+
+    std::vector<std::wstring> candidati, fallback;
+    auto aggiungiPercorso=[&](const std::wstring& percorso,std::vector<std::wstring>& destinazione) {
+        if(percorso.empty()) return;
+        const DWORD attr=GetFileAttributesW(percorso.c_str());
+        if(attr==INVALID_FILE_ATTRIBUTES || (attr&FILE_ATTRIBUTE_DIRECTORY)) return;
+        if(std::find(destinazione.begin(),destinazione.end(),percorso)==destinazione.end())
+            destinazione.push_back(percorso);
+    };
+
+    // Current Windows account photo: Windows 10/11 registers the image paths per SID.
+    HANDLE token=nullptr;
+    if(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)) {
+        DWORD dimensione=0;
+        GetTokenInformation(token,TokenUser,nullptr,0,&dimensione);
+        if(dimensione>=sizeof(TOKEN_USER)) {
+            std::vector<BYTE> datiToken(dimensione);
+            if(GetTokenInformation(token,TokenUser,datiToken.data(),dimensione,&dimensione)) {
+                const auto* utente=reinterpret_cast<const TOKEN_USER*>(datiToken.data());
+                LPWSTR sidTesto=nullptr;
+                if(ConvertSidToStringSidW(utente->User.Sid,&sidTesto) && sidTesto) {
+                    const std::wstring chiave=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AccountPicture\\Users\\"+std::wstring(sidTesto);
+                    HKEY registro=nullptr;
+                    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,chiave.c_str(),0,KEY_QUERY_VALUE,&registro)==ERROR_SUCCESS) {
+                        // Prefer the highest-resolution image path selected by Windows.
+                        const wchar_t* dimensioni[]={L"Image1080",L"Image448",L"Image424",L"Image240",
+                            L"Image208",L"Image192",L"Image96",L"Image64",L"Image48",L"Image40",L"Image32"};
+                        for(const wchar_t* nomeValore:dimensioni) {
+                            DWORD tipo=0,byteNecessari=0;
+                            if(RegQueryValueExW(registro,nomeValore,nullptr,&tipo,nullptr,&byteNecessari)!=ERROR_SUCCESS ||
+                               (tipo!=REG_SZ && tipo!=REG_EXPAND_SZ) ||
+                               byteNecessari<sizeof(wchar_t) || byteNecessari>32768*sizeof(wchar_t)) continue;
+                            std::vector<wchar_t> buffer(byteNecessari/sizeof(wchar_t)+2,L'\0');
+                            if(RegQueryValueExW(registro,nomeValore,nullptr,&tipo,
+                                reinterpret_cast<LPBYTE>(buffer.data()),&byteNecessari)!=ERROR_SUCCESS) continue;
+                            std::wstring percorso(buffer.data());
+                            if(tipo==REG_EXPAND_SZ && !percorso.empty()) {
+                                std::vector<wchar_t> espanso(32768,L'\0');
+                                const DWORD n=ExpandEnvironmentStringsW(percorso.c_str(),espanso.data(),(DWORD)espanso.size());
+                                if(n>0 && n<=espanso.size()) percorso.assign(espanso.data());
+                            }
+                            aggiungiPercorso(percorso,candidati);
+                        }
+                        RegCloseKey(registro);
+                    }
+                    LocalFree(sidTesto);
+                }
+            }
+        }
+        CloseHandle(token);
+    }
+
+    // Compatibility fallbacks for older and newer per-user AccountPictures directories.
+    auto raccogliCartella=[&](const std::wstring& cartella) {
+        WIN32_FIND_DATAW fd{};
+        HANDLE h=FindFirstFileW((cartella+L"\\*").c_str(),&fd);
+        if(h==INVALID_HANDLE_VALUE) return;
+        do {
+            if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) continue;
+            const std::wstring nome=fd.cFileName;
+            const size_t dot=nome.find_last_of(L'.');
+            if(dot==std::wstring::npos) continue;
+            std::wstring ext=nome.substr(dot);
+            for(auto& ch:ext) ch=(wchar_t)towlower(ch);
+            if(ext==L".png"||ext==L".jpg"||ext==L".jpeg"||ext==L".bmp"||ext==L".jfif")
+                aggiungiPercorso(cartella+L"\\"+nome,fallback);
+        } while(FindNextFileW(h,&fd));
+        FindClose(h);
+    };
+    wchar_t appdata[MAX_PATH]=L"",localappdata[MAX_PATH]=L"";
+    if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,appdata)))
+        raccogliCartella(std::wstring(appdata)+L"\\Microsoft\\Windows\\AccountPictures");
+    if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,localappdata)))
+        raccogliCartella(std::wstring(localappdata)+L"\\Microsoft\\Windows\\AccountPicture");
+
+    std::sort(fallback.begin(),fallback.end(),[](const std::wstring& a,const std::wstring& b) {
         WIN32_FILE_ATTRIBUTE_DATA da{},db{};
         GetFileAttributesExW(a.c_str(),GetFileExInfoStandard,&da);
         GetFileAttributesExW(b.c_str(),GetFileExInfoStandard,&db);
         return CompareFileTime(&da.ftLastWriteTime,&db.ftLastWriteTime)>0;
     });
+    for(const auto& p:fallback) aggiungiPercorso(p,candidati);
     for(const auto& percorso:candidati) {
         IShellItemImageFactory* fab=nullptr;
         if(FAILED(SHCreateItemFromParsingName(percorso.c_str(),nullptr,IID_PPV_ARGS(&fab)))||!fab) continue;
         HBITMAP hb=nullptr;
-        const HRESULT hr=fab->GetImage({128,128},SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK,&hb);
+        const HRESULT hr=fab->GetImage({128,128},SIIGBF_RESIZETOFIT|SIIGBF_BIGGERSIZEOK,&hb);
         fab->Release();
         if(FAILED(hr)||!hb) continue;
         BITMAP bm{}; GetObject(hb,sizeof(bm),&bm);
@@ -1021,6 +1079,7 @@ inline auto Motore::apriLauncher() -> void {
     lRicercaAttiva=false; lRicercaCaretVisibile=false; if(launcher) KillTimer(launcher,TIMER_SEARCH_CARET_L);
     lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
     lScroll = lScrollObj = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
+    if(!lFotoProfilo) lFotoProfiloTentata=false;
     lAperto = true; lChiusura = false; lScala = 0.12; lVel = 0; lAlfa = 0; lT0 = adesso(); lRegione = false; lRipreso = false;
     // sopra il dock, al centro; la finestra scende fino all'icona "App". Col dock in alto: sotto, al centro; ai lati:
     // accanto al dock, a meta' altezza. Li' la finestra non arriva all'icona: cresce dal suo bordo piu' vicino all'icona

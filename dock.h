@@ -18,6 +18,7 @@
 #include <iphlpapi.h>
 #include <appmodel.h>   // pacchetti delle app dello Store (aumidDalManifesto)
 #include <shellapi.h>
+#include <sddl.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <propkey.h>
