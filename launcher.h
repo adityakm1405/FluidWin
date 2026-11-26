@@ -1537,8 +1537,10 @@ inline auto Motore::renderLauncher() -> bool {
                 // highlight continuing as a solid strip down to the divider.
                 pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
                 if(aperta) {
-                    const D2D1_RECT_F headerTop={fr.left,fy,fr.right,fy+28*dpi};
-                    const D2D1_RECT_F headerFill={fr.left,fy+14*dpi,fr.right,fy+36*dpi};
+                    const D2D1_RECT_F headerTop={fr.left,fy,fr.right,fy+29*dpi};
+                    // Overlap the cap by 1px to avoid an antialiased seam, and bleed
+                    // 0.75px past the divider center so no dark hairline remains at the bottom corners.
+                    const D2D1_RECT_F headerFill={fr.left,fy+13*dpi,fr.right,fy+36.75f*dpi};
                     dc->FillRoundedRectangle({headerTop,14*dpi,14*dpi},pennello);
                     dc->FillRectangle(headerFill,pennello);
                 } else {
