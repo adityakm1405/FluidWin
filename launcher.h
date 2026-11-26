@@ -125,7 +125,26 @@ inline auto Motore::raccogliIcone() -> bool {
             for (auto& a : appSfondo) if (a.exe == ip.percorso) a.icona = b;
             pDirty = true; altra.pDirty = true;
         } else if (ip.lato == 96) {    // launcher
-            for (auto& a : tutteApp) if (a.avvio == ip.percorso && !a.icona) { a.icona = b; presa = true; lDirty = true; break; }
+            double luminanzaTotale=0;
+            size_t campioni=0, pixelScuri=0;
+            if(ip.ok && b && ip.w>0 && ip.h>0) {
+                for(UINT p:ip.px) {
+                    const UINT alpha=p>>24;
+                    if(alpha<32) continue;
+                    const UINT r=std::min(255u,(((p>>16)&255u)*255u)/alpha);
+                    const UINT g=std::min(255u,(((p>>8)&255u)*255u)/alpha);
+                    const UINT bl=std::min(255u,((p&255u)*255u)/alpha);
+                    const double lum=0.2126*r+0.7152*g+0.0722*bl;
+                    luminanzaTotale+=lum; ++campioni;
+                    if(lum<112.0) ++pixelScuri;
+                }
+            }
+            const bool iconaScura=campioni>0 &&
+                (luminanzaTotale/campioni)<124.0 &&
+                pixelScuri*100>=campioni*54;
+            for (auto& a : tutteApp) if (a.avvio == ip.percorso && !a.icona) {
+                a.icona = b; a.iconaScura=iconaScura; presa = true; lDirty = true; break;
+            }
         } else if (ip.lato == 48) {    // file e cartelle del launcher (anche "nessuna": non si richiede a ogni ricerca)
             auto& v = iconeFile[ip.percorso];
             if (!v) { v = b; presa = b != nullptr; }
@@ -208,7 +227,9 @@ inline auto Motore::leggiTutteApp(bool subito) -> void {
 
 inline auto Motore::applicaTutteApp(std::vector<AppL> nuove) -> void {
     // le icone gia' caricate si conservano
-    for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) { a.icona = v.icona; a.provata = v.provata; v.icona = nullptr; break; }
+    for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) {
+        a.icona = v.icona; a.provata = v.provata; a.iconaScura = v.iconaScura; v.icona = nullptr; break;
+    }
     for (auto& v : tutteApp) if (v.icona) v.icona->Release();
     tutteApp = std::move(nuove);
     aggiornaPinned();
@@ -719,7 +740,8 @@ inline auto Motore::lCartelleScrollMax() const -> double {
     double totale=0;
     for(int i=0;i<(int)lCartelle.size();++i)
         totale+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
-    return std::max(0.0,totale-(lFooterTop()-8*dpi-122*dpi));
+    const double spazioInferiore=16*dpi;
+    return std::max(0.0,totale+spazioInferiore-(lFooterTop()-8*dpi-122*dpi));
 }
 inline auto Motore::lScrollCartellePerUltima() const -> double {
     if(lCartelle.empty()) return 0.0;
@@ -728,7 +750,7 @@ inline auto Motore::lScrollCartellePerUltima() const -> double {
     for(int i=0;i<ultima;++i)
         top+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
     const double fondo=top+218*dpi;
-    return std::clamp(fondo-(lFooterTop()-8*dpi),0.0,lCartelleScrollMax());
+    return std::clamp(fondo-(lFooterTop()-16*dpi),0.0,lCartelleScrollMax());
 }
 inline auto Motore::lCartellaY(int cartella) const -> float {
     float y=122*dpi-lScrollCartelle;
@@ -880,7 +902,7 @@ inline auto Motore::caricaFotoProfilo() -> bool {
         IShellItemImageFactory* fab=nullptr;
         if(FAILED(SHCreateItemFromParsingName(percorso.c_str(),nullptr,IID_PPV_ARGS(&fab)))||!fab) continue;
         HBITMAP hb=nullptr;
-        const HRESULT hr=fab->GetImage({64,64},SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK,&hb);
+        const HRESULT hr=fab->GetImage({128,128},SIIGBF_THUMBNAILONLY|SIIGBF_BIGGERSIZEOK,&hb);
         fab->Release();
         if(FAILED(hr)||!hb) continue;
         BITMAP bm{}; GetObject(hb,sizeof(bm),&bm);
@@ -897,8 +919,10 @@ inline auto Motore::caricaFotoProfilo() -> bool {
             UINT& p=px[(size_t)yy*w+xx];
             const float dx=xx-cx,dy=yy-cy;
             UINT a=p>>24;
-            if(dx*dx+dy*dy>rad*rad) a=0;
-            else if(a==0) a=255;
+            if(a==0) a=255;
+            const float distanza=std::sqrt(dx*dx+dy*dy);
+            const float copertura=std::clamp(rad+0.5f-distanza,0.0f,1.0f);
+            a=(UINT)std::lround(a*copertura);
             UINT rr=(p>>16)&255,gg=(p>>8)&255,bb=p&255;
             rr=rr*a/255; gg=gg*a/255; bb=bb*a/255;
             p=(a<<24)|(rr<<16)|(gg<<8)|bb;
@@ -1467,7 +1491,6 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(tenue);
         scrivi(testi::t(L"INSTANT ACTIONS",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
         const wchar_t* azioni[4]={L"New Terminal Session",L"Capture Screen Region",L"Task Manager",L"Open Downloads"};
-        const wchar_t* simboli[4]={L">_",L"⌗",L"▥",L"↓"};
         for(int k=0;k<4;++k) {
             const float top=ay+(28.0f+k*36.0f)*dpi;
             const D2D1_RECT_F base={16*dpi,top,leftR,top+30*dpi};
@@ -1476,7 +1499,36 @@ inline auto Motore::renderLauncher() -> bool {
                                     :(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
             dc->FillRoundedRectangle({base,9*dpi,9*dpi},pennello);
             pennello->SetColor(blu);
-            scrivi(simboli[k],fmtVoce,{base.left+12*dpi,base.top,base.left+38*dpi,base.bottom});
+            const float ix=base.left+24*dpi, iy=(base.top+base.bottom)*0.5f, sp=1.65f*dpi;
+            if(k==0) { // Terminal window and prompt
+                const D2D1_RECT_F win={ix-8*dpi,iy-7*dpi,ix+8*dpi,iy+7*dpi};
+                dc->DrawRoundedRectangle({win,2*dpi,2*dpi},pennello,sp);
+                dc->DrawLine({ix-7*dpi,iy-2.8f*dpi},{ix+7*dpi,iy-2.8f*dpi},pennello,1.2f*dpi);
+                dc->DrawLine({ix-4.8f*dpi,iy-0.2f*dpi},{ix-2.0f*dpi,iy+2.0f*dpi},pennello,sp);
+                dc->DrawLine({ix-2.0f*dpi,iy+2.0f*dpi},{ix-4.8f*dpi,iy+4.1f*dpi},pennello,sp);
+                dc->DrawLine({ix+0.2f*dpi,iy+4.1f*dpi},{ix+4.2f*dpi,iy+4.1f*dpi},pennello,sp);
+            } else if(k==1) { // Screen-region crop brackets
+                const float l=ix-7*dpi,r=ix+7*dpi,t=iy-6*dpi,b=iy+6*dpi,c=4*dpi;
+                dc->DrawLine({l,t+c},{l,t},pennello,sp); dc->DrawLine({l,t},{l+c,t},pennello,sp);
+                dc->DrawLine({r-c,t},{r,t},pennello,sp); dc->DrawLine({r,t},{r,t+c},pennello,sp);
+                dc->DrawLine({l,b-c},{l,b},pennello,sp); dc->DrawLine({l,b},{l+c,b},pennello,sp);
+                dc->DrawLine({r-c,b},{r,b},pennello,sp); dc->DrawLine({r,b},{r,b-c},pennello,sp);
+            } else if(k==2) { // Task Manager monitor with activity graph
+                const D2D1_RECT_F monitor={ix-8*dpi,iy-7*dpi,ix+8*dpi,iy+5*dpi};
+                dc->DrawRoundedRectangle({monitor,1.7f*dpi,1.7f*dpi},pennello,sp);
+                dc->DrawLine({ix,iy+5*dpi},{ix,iy+8*dpi},pennello,sp);
+                dc->DrawLine({ix-4*dpi,iy+8*dpi},{ix+4*dpi,iy+8*dpi},pennello,sp);
+                dc->DrawLine({ix-5*dpi,iy+2*dpi},{ix-2.5f*dpi,iy-1*dpi},pennello,1.35f*dpi);
+                dc->DrawLine({ix-2.5f*dpi,iy-1*dpi},{ix+0.5f*dpi,iy+1*dpi},pennello,1.35f*dpi);
+                dc->DrawLine({ix+0.5f*dpi,iy+1*dpi},{ix+5*dpi,iy-3*dpi},pennello,1.35f*dpi);
+            } else { // Download arrow entering a tray
+                dc->DrawLine({ix,iy-7*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix-4*dpi,iy-1*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix+4*dpi,iy-1*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix-8*dpi,iy+4*dpi},{ix-8*dpi,iy+7*dpi},pennello,sp);
+                dc->DrawLine({ix-8*dpi,iy+7*dpi},{ix+8*dpi,iy+7*dpi},pennello,sp);
+                dc->DrawLine({ix+8*dpi,iy+7*dpi},{ix+8*dpi,iy+4*dpi},pennello,sp);
+            }
             pennello->SetColor(ink);
             scrivi(azioni[k],fmtVoce,{base.left+42*dpi,base.top,base.right-12*dpi,base.bottom});
         }
@@ -1540,31 +1592,30 @@ inline auto Motore::renderLauncher() -> bool {
         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
         dc->FillRoundedRectangle({add,8*dpi,8*dpi},pennello);
         dc->FillRoundedRectangle({all,8*dpi,8*dpi},pennello);
-        // One compact folder-plus outline; the add mark is part of the folder glyph.
-        const float folderX=add.left+10*dpi, folderY=(add.top+add.bottom)*0.5f-5.5f*dpi;
+        // Clean compact folder outline with the plus centered inside the folder body.
+        const float folderX=add.left+10*dpi, folderY=(add.top+add.bottom)*0.5f-5.0f*dpi;
         pennello->SetColor(blu);
-        const D2D1_RECT_F folderBody={folderX,folderY+3.5f*dpi,folderX+12*dpi,folderY+11*dpi};
-        dc->DrawRoundedRectangle({folderBody,1.25f*dpi,1.25f*dpi},pennello,1.15f*dpi);
-        // Raised folder tab, joined cleanly to the top edge of the body.
-        dc->DrawLine({folderX+0.6f*dpi,folderY+4*dpi},{folderX+0.6f*dpi,folderY+2.2f*dpi},pennello,1.15f*dpi);
-        dc->DrawLine({folderX+0.6f*dpi,folderY+2.2f*dpi},{folderX+4.1f*dpi,folderY+2.2f*dpi},pennello,1.15f*dpi);
-        dc->DrawLine({folderX+4.1f*dpi,folderY+2.2f*dpi},{folderX+5.4f*dpi,folderY+3.5f*dpi},pennello,1.15f*dpi);
-        dc->DrawLine({folderX+5.4f*dpi,folderY+3.5f*dpi},{folderX+11.4f*dpi,folderY+3.5f*dpi},pennello,1.15f*dpi);
-        // Small centered plus inside the folder.
-        const float plusX=folderX+7*dpi, plusY=folderY+7.5f*dpi;
-        dc->DrawLine({plusX-1.7f*dpi,plusY},{plusX+1.7f*dpi,plusY},pennello,1.15f*dpi);
-        dc->DrawLine({plusX,plusY-1.7f*dpi},{plusX,plusY+1.7f*dpi},pennello,1.15f*dpi);
+        const D2D1_POINT_2F folderPts[]={
+            {folderX,folderY+9*dpi},{folderX,folderY+2*dpi},
+            {folderX+4.1f*dpi,folderY+2*dpi},{folderX+5.8f*dpi,folderY+4*dpi},
+            {folderX+12*dpi,folderY+4*dpi},{folderX+12*dpi,folderY+9*dpi},
+            {folderX,folderY+9*dpi}
+        };
+        for(int i=0;i<6;++i) dc->DrawLine(folderPts[i],folderPts[i+1],pennello,1.3f*dpi);
+        const float plusX=folderX+6.2f*dpi, plusY=folderY+6.7f*dpi;
+        dc->DrawLine({plusX-1.5f*dpi,plusY},{plusX+1.5f*dpi,plusY},pennello,1.25f*dpi);
+        dc->DrawLine({plusX,plusY-1.5f*dpi},{plusX,plusY+1.5f*dpi},pennello,1.25f*dpi);
         pennello->SetColor(ink);
-        scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+31*dpi,add.top,add.right-3*dpi,add.bottom});
+        scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+30*dpi,add.top,add.right-3*dpi,add.bottom});
 
-        // Smaller three-dot list glyph, with shorter strokes and tighter row spacing.
-        const float listX=all.left+10*dpi, listY=(all.top+all.bottom)*0.5f;
+        // Balanced bullet-list glyph: three crisp dots with matching, slightly longer strokes.
+        const float listX=all.left+8.5f*dpi, listY=(all.top+all.bottom)*0.5f;
         for(int row=0;row<3;++row) {
-            const float yy=listY+(row-1)*3.8f*dpi;
-            dc->FillEllipse({{listX+0.8f*dpi,yy},0.72f*dpi,0.72f*dpi},pennello);
-            dc->DrawLine({listX+3.6f*dpi,yy},{listX+11.2f*dpi,yy},pennello,1.2f*dpi);
+            const float yy=listY+(row-1)*4.2f*dpi;
+            dc->FillEllipse({{listX+0.9f*dpi,yy},0.95f*dpi,0.95f*dpi},pennello);
+            dc->DrawLine({listX+4.8f*dpi,yy},{listX+15.0f*dpi,yy},pennello,1.35f*dpi);
         }
-        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+24*dpi,all.top,all.right-4*dpi,all.bottom});
+        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+25*dpi,all.top,all.right-4*dpi,all.bottom});
 
         dc->PushAxisAlignedClip({rx,116*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
         for(int k=0;k<(int)lCartelle.size();++k) {
@@ -1638,10 +1689,17 @@ inline auto Motore::renderLauncher() -> bool {
                         pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f));
                         dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
                     }
-                    const D2D1_RECT_F ir={xx+7*dpi,yy+15.5f*dpi,xx+25*dpi,yy+33.5f*dpi};
+                    const D2D1_RECT_F ir={xx+6*dpi,yy+12*dpi,xx+28*dpi,yy+34*dpi};
+                    if(tutteApp[appIndex].iconaScura) {
+                        const D2D1_RECT_F backIcon={ir.left-1*dpi,ir.top-1*dpi,ir.right+1*dpi,ir.bottom+1*dpi};
+                        pennello->SetColor(scuro?D2D1::ColorF(0.78f,0.82f,0.88f,0.17f)
+                                                 :D2D1::ColorF(0.08f,0.12f,0.18f,0.075f));
+                        dc->FillRoundedRectangle({backIcon,5*dpi,5*dpi},pennello);
+                    }
                     drawAppIcon(appIndex,ir);
                     pennello->SetColor(ink);
-                    scrivi(tutteApp[appIndex].nome,fmtTitolo,{xx+38*dpi,yy+2*dpi,xx+cw-42*dpi,yy+47*dpi});
+                    const float labelRight=xx+cw-(hoverApp?28.0f:8.0f)*dpi;
+                    scrivi(tutteApp[appIndex].nome,fmtTitolo,{xx+38*dpi,yy+2*dpi,labelRight,yy+47*dpi});
                     if(hoverApp) {
                         const float crossCx=xx+cw-18*dpi,crossCy=yy+24.5f*dpi,half=3.3f*dpi;
                         // The small × appears only on this hovered app; no background or hover plate.
@@ -1917,14 +1975,14 @@ inline auto Motore::renderLauncher() -> bool {
         dc->DrawLine({0,top},{LW,top},pennello,1*dpi);
 
         const D2D1_RECT_F rp=rettProfilo(),re=rettEnergia();
-        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=17*dpi;
+        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=18*dpi;
         pennello->SetColor(D2D1::ColorF(0.16f,0.54f,0.96f,1));
         dc->FillEllipse({{ax,ay},radius,radius},pennello);
         if(lFotoProfilo) {
             const D2D1_RECT_F avatar={ax-radius,ay-radius,ax+radius,ay+radius};
             dc->DrawBitmap(lFotoProfilo,avatar,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.20f):D2D1::ColorF(0,0,0,0.10f));
-            dc->DrawEllipse({{ax,ay},radius,radius},pennello,0.8f*dpi);
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.27f):D2D1::ColorF(0,0,0,0.13f));
+            dc->DrawEllipse({{ax,ay},radius,radius},pennello,0.9f*dpi);
         } else {
             wchar_t utente[128]=L""; DWORD nUtente=128;
             if(GetUserNameW(utente,&nUtente)&&utente[0]) {

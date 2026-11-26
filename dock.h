@@ -1644,7 +1644,7 @@ private:
         fmtNotizia->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP); fmtNotizia->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
         fmtNotizia->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, 17.0f * dpi, 13.5f * dpi);   // righe fisse: ne entrano esattamente due
         const DWRITE_TRIMMING tr{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-        for (IDWriteTextFormat* f : {fmtNome, fmtSotto, fmtVoce, fmtNotizia}) {
+        for (IDWriteTextFormat* f : {fmtTitolo, fmtNome, fmtSotto, fmtVoce, fmtNotizia}) {
             IDWriteInlineObject* punti = nullptr;
             if (SUCCEEDED(fdw->CreateEllipsisTrimmingSign(f, &punti))) { f->SetTrimming(&tr, punti); punti->Release(); }
         }
@@ -3534,7 +3534,7 @@ private:
     }
 
     // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----
-    struct AppL { std::wstring nome, avvio, minuscolo; ID2D1Bitmap1* icona = nullptr; bool provata = false; };
+    struct AppL { std::wstring nome, avvio, minuscolo; ID2D1Bitmap1* icona = nullptr; bool provata = false; bool iconaScura = false; };
     struct CartellaL {
         std::wstring nome;
         int icona = 0;
