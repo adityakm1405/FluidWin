@@ -5,6 +5,16 @@
 202 RCDATA "sfondi/seta.jpg"
 203 RCDATA "sfondi/pastello.jpg"
 
+ // Built-in dock icon replacements, embedded so an EXE-only update is sufficient.
+204 RCDATA "assets/icons8-mac-logo-480.png"
+205 RCDATA "assets/icons8-bin-windows-240.svg"
+206 RCDATA "assets/trash-windows11.svg"
+207 RCDATA "assets/trash-macos.svg"
+208 RCDATA "assets/download-default.svg"
+209 RCDATA "assets/download-original-source.png"
+210 RCDATA "assets/pushpin-outline-white.svg"
+211 RCDATA "assets/pushpin-filled-white.svg"
+
 1 VERSIONINFO
 FILEVERSION     1,3,1,0
 PRODUCTVERSION  1,3,1,0

@@ -18,6 +18,7 @@
 #include <iphlpapi.h>
 #include <appmodel.h>   // pacchetti delle app dello Store (aumidDalManifesto)
 #include <shellapi.h>
+#include <sddl.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <propkey.h>
@@ -41,6 +42,7 @@
 #include <dxgi1_3.h>
 #include <dcomp.h>
 #include <d2d1_1.h>
+#include <d2d1_3.h>   // Direct2D SVG support for bundled and custom dock icons
 #include <dwrite.h>
 #include <string>
 #include <vector>
@@ -75,6 +77,13 @@
 
 namespace dock {
 
+// Embedded resources keep all built-in dock icons available when only FluidWin.exe is copied.
+static constexpr WORD RISORSA_ICONA_MACOS = 204;
+static constexpr WORD RISORSA_CESTINO_WINDOWS10 = 205;
+static constexpr WORD RISORSA_CESTINO_WINDOWS11 = 206;
+static constexpr WORD RISORSA_CESTINO_MACOS = 207;
+static constexpr WORD RISORSA_DOWNLOAD_PREDEFINITO = 208;
+static constexpr WORD RISORSA_DOWNLOAD_ORIGINALE = 209;
 static const UINT WM_APPBAR = WM_APP + 20;
 
 // Spazio riservato al dock (impostazione): il dock si registra come "appbar", come la barra di Windows, e le finestre
@@ -96,9 +105,10 @@ static const UINT_PTR TIMER_BORDO = 8;   // dock nascosto: controlla se il mouse
 static const UINT_PTR TIMER_DOPO = 9;    // launcher o centro di controllo da aprire quando l'altro ha finito di chiudersi
 static const UINT_PTR TIMER_CITTA = 10;  // (finestra del pannello) ricerca della citta' del meteo: attesa dopo l'ultimo tasto e risultati
 static const UINT_PTR TIMER_FILE_L = 11; // (finestra del launcher) file e cartelle: la ricerca parte 0,2 s dopo l'ultimo tasto
+static const UINT_PTR TIMER_CARET_L = 14; // lampeggio del cursore nel campo nome cartella
+static const UINT_PTR TIMER_SEARCH_CARET_L = 15; // lampeggio cursore ricerca launcher
 static const UINT_PTR TIMER_DESKTOP = 12; // "Mostra il desktop" / "Ripristina le finestre": una finestra ogni 45 ms
 static const UINT_PTR TIMER_ANTEPRIME = 13; // anteprime delle finestre: quando aprirle e chiuderle (ogni 80 ms, solo col mouse sul dock o aperte)
-static const UINT_PTR TIMER_TESTA = 14;     // testa del dock (musica e timer): ridisegno a ~16 fotogrammi al secondo, solo mentre c'e'
 static const wchar_t* const AVVIO_LAUNCHER = L"*launcher";   // la voce "App" del dock
 static const wchar_t* const AVVIO_CONTROLLO = L"*controllo";   // l'ultima voce: il centro di controllo
 static const wchar_t* const AVVIO_PILA = L"*pila";             // pila della cartella Download (prima del cestino)
@@ -356,7 +366,7 @@ static void tastiWin(WORD vk) {
 
 class Motore {
 public:
-    HWND icone = nullptr, vetro = nullptr, vetroStato = nullptr, vetroOra = nullptr;   // vetroOra: la capsula di data e ora
+    HWND icone = nullptr, vetro = nullptr, vetroStato = nullptr;
     bool attivo = false;
     long diagMosse = 0, diagFotogrammi = 0;   // diagnostica: movimenti del mouse ricevuti, fotogrammi disegnati
     double diagLente() const { return lente; }
@@ -411,8 +421,8 @@ public:
         // schermo all'altro subito, senza ricreare niente. Prima si faceva con la scala del suo schermo e ogni
         // passaggio a uno con un'altra scala riavviava FluidWin (2 s senza dock, con la barra di Windows che ricompariva)
         dpi = ::vetro::dpiMonitor(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY));
-        S = latoIcone * dpi; M = S * INGRANDITE;   // icone a riposo e ingrandite (impostazione: impostaLatoIcone)
-        PAD = 8 * dpi; GAP = distanzaIcone * dpi; MARGINE = 8 * dpi;   // (GAP: impostazione, impostaDistanzaIcone)
+        S = latoIcone * dpi; M = S * fattoreIngrandimentoHover();   // ingrandimento regolabile nelle Impostazioni
+        PAD = 8 * dpi; GAP = distanzaIcone * dpi; MARGINE = margineBordo * dpi;   // (GAP/MARGINE: impostazioni)
         RAGGIO = raggio::vetro() * dpi;   // come gli angoli DWM del vetro: fondo e vetro devono coincidere
         altezzaDock = S + 2 * PAD;
         W = lunghezzaBordo();   // (ai lati: l'altezza dello schermo; lato si sceglie prima di inizializza)
@@ -423,7 +433,6 @@ public:
         RegisterClassW(&wv);
         vetro = creaVetro(inst);
         vetroStato = creaVetro(inst);
-        vetroOra = creaVetro(inst);
 
         // icone: finestra larga quanto lo schermo, disegnata con Direct2D; la regione limita i clic al dock
         WNDCLASSW wi{}; wi.lpfnWndProc = procIcone; wi.hInstance = inst; wi.lpszClassName = L"FluidWin.DockIcone";
@@ -488,12 +497,13 @@ public:
     void chiudi() {
         fermaIcone();
         fermaNotifiche();
+        if(lFotoProfilo) { lFotoProfilo->Release(); lFotoProfilo=nullptr; }
         if (!attivo) return;
         attivo = false;
         aggiornaAppbar();   // lo spazio riservato si libera (le finestre ingrandite tornano fino in fondo)
         // (solo se il dock l'aveva cambiata: senza, si annullerebbe una scelta fatta intanto dall'utente, R20261121-115814-S2)
         if (barraSalvata) { APPBARDATA tb{}; tb.cbSize = sizeof(tb); tb.lParam = statoBarraPrima; SHAppBarMessage(ABM_SETSTATE, &tb); }
-        ShowWindow(icone, SW_HIDE); ShowWindow(vetro, SW_HIDE); ShowWindow(vetroStato, SW_HIDE); ShowWindow(vetroOra, SW_HIDE); notch.mostra(false);
+        ShowWindow(icone, SW_HIDE); ShowWindow(vetro, SW_HIDE); ShowWindow(vetroStato, SW_HIDE); notch.mostra(false);
         nascondiSchede(); nascondiLauncher();
     }
 
@@ -502,7 +512,7 @@ public:
 
     // Lingua dell'interfaccia cambiata: date, nomi delle voci fisse e pannelli si rifanno nella lingua nuova
     void linguaCambiata() {
-        testoOra.clear();   // le date si ricalcolano anche se l'ora non e' cambiata
+        testoOra.clear(); testoOraOre.clear(); testoOraMinuti.clear(); testoOraMeridiem.clear();
         aggiornaStato(true);
         appDaAggiornare = true; dirty = true; pDirty = true; lDirty = true;
     }
@@ -528,7 +538,7 @@ public:
         if (w != W && w > 0) ridimensiona(w, H);
         posizionaFinestra();
         if (appbarOk) aggiornaAppbar();   // lo spazio riservato passa al nuovo schermo
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};          // i vetri si rimettono al prossimo fotogramma
+        rettVetro = rettVetroStato = RECT{};          // i vetri si rimettono al prossimo fotogramma
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (registro) { char b[96]; snprintf(b, 96, "ora su %ld,%ld-%ld,%ld", schermo.left, schermo.top, schermo.right, schermo.bottom); scrivi(b); }
         // nascondersi o no dipende dalle finestre del nuovo schermo
@@ -709,8 +719,8 @@ public:
     HWND finestraPiuBassa() const {
         HWND ultima = icone;
         int trovati = 0;
-        for (HWND x = GetWindow(icone, GW_HWNDNEXT); x && trovati < 3; x = GetWindow(x, GW_HWNDNEXT))
-            if (x == vetro || x == vetroStato || x == vetroOra) { ultima = x; trovati++; }
+        for (HWND x = GetWindow(icone, GW_HWNDNEXT); x && trovati < 2; x = GetWindow(x, GW_HWNDNEXT))
+            if (x == vetro || x == vetroStato) { ultima = x; trovati++; }
         return ultima;
     }
 
@@ -809,8 +819,8 @@ public:
         return PtInRect(&f, c) ? lato : 0;
     }
 
-    // impostazioni: notch acceso o spento, e ora e data in fondo al dock, dopo il centro di controllo
-    void impostaNotch(bool si) { notch.abilita(si); dirty = true; }   // (spento: musica e timer nella testa del dock)
+    // impostazioni: notch acceso o spento, e ora in fondo al dock, dopo il centro di controllo
+    void impostaNotch(bool si) { notch.abilita(si); dirty = true; }
     // impostazione "Angoli": raggio del fondo (il vetro lo cambia raggio::riapplica), notch e capsule
     void impostaAngoli() { RAGGIO = raggio::vetro() * dpi; notch.aggiornaAngoli(); dirty = true; }
     // impostazione "Posizione": il dock passa su un altro bordo dello schermo (pannelli, launcher e anteprime aperti si
@@ -825,7 +835,7 @@ public:
         lato = l;
         ridimensiona(lunghezzaBordo(), H);   // (anche con la stessa lunghezza: ai lati la superficie e' girata)
         posizionaFinestra();
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};
+        rettVetro = rettVetroStato = RECT{};
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (spazioRiservato) aggiornaAppbar();
         notch.inBasso(lato == 1); notch.posto(schermo, dpi);
@@ -857,19 +867,43 @@ public:
     // impostazione: lato delle icone a riposo (px a 100%). Con loro cambiano le ingrandite (stessa proporzione),
     // l'altezza del dock, la finestra delle icone e lo spazio riservato
     void impostaLatoIcone(int px) {
-        px = std::clamp(px, 24, 96);
+        px = std::clamp(px, 28, 96);
         if (px == latoIcone) return;
         latoIcone = px;
         if (!attivo) return;   // (all'avvio le misure le prende inizializza)
-        S = latoIcone * dpi; M = S * INGRANDITE;
+        S = latoIcone * dpi; M = S * fattoreIngrandimentoHover();
         altezzaDock = S + 2 * PAD;
         const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
         if (h != H) ridimensiona(W, h);
         posizionaFinestra();
-        rettVetro = rettVetroStato = rettVetroOra = RECT{};
+        rettVetro = rettVetroStato = RECT{};
         regioneDock = regioneIsola = regioneEtichetta = RECT{};
         if (appbarOk) aggiornaAppbar();
         controllaFinestre(true);
+        dirty = true;
+    }
+    // Impostazione: ingrandimento al passaggio del mouse. 0% disattiva la lente senza alterare le altre animazioni.
+    void impostaIngrandimentoHover(int percento) {
+        percento = std::clamp(percento, 0, 150);
+        if (percento == ingrandimentoHover) return;
+        ingrandimentoHover = percento;
+        M = S * fattoreIngrandimentoHover();
+        const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
+        if (attivo && h != H) ridimensiona(W, h);
+        if (attivo) {
+            posizionaFinestra();
+            if (appbarOk) aggiornaAppbar();
+            controllaFinestre(true);
+        }
+        dirty = true;
+    }
+    // Impostazione: altezza, opacita' e spessore dei separatori fra i gruppi di icone.
+    void impostaSeparatoriDock(int altezza, int opacita_, int spessore) {
+        altezza = std::clamp(altezza, 20, 100);
+        opacita_ = std::clamp(opacita_, 0, 100);
+        spessore = std::clamp(spessore, 1, 4);
+        if (altezza == separatoreAltezza && opacita_ == separatoreOpacita && spessore == separatoreSpessore) return;
+        separatoreAltezza = altezza; separatoreOpacita = opacita_; separatoreSpessore = spessore;
         dirty = true;
     }
     // impostazione: distanza fra le icone (px a 100%). Anche i separatori si allargano con lei; la finestra delle
@@ -881,6 +915,24 @@ public:
         GAP = distanzaIcone * dpi;
         dirty = true;
     }
+    // Spazio visibile fra la superficie del dock e il bordo fisico dello schermo.
+    void impostaMargineBordo(int px) {
+        px = std::clamp(px, 0, 40);
+        if (px == margineBordo) return;
+        margineBordo = px;
+        MARGINE = margineBordo * dpi;
+        const int h = (int)std::ceil(altezzaDock + MARGINE + (M - S) + 64 * dpi);
+        if (attivo && h != H) ridimensiona(W, h);
+        if (attivo) {
+            posizionaFinestra();
+            if (appbarOk) aggiornaAppbar();
+            controllaFinestre(true);
+        }
+        dirty = true;
+    }
+    void impostaColoriMedia(DWORD pulsanti, DWORD visualizzatore, DWORD visualizzatoreFine, bool gradiente) {
+        notch.impostaColoriMedia(pulsanti, visualizzatore, visualizzatoreFine, gradiente);
+    }
     // impostazione: colore del fondo del dock. 0 = automatico (chiaro o scuro col tema), altrimenti 0x01RRGGBB.
     // Il colore tinge il velo sopra il vetro; puntini, separatori e testi diventano chiari o scuri a seconda di quanto
     // e' chiaro il colore (render: scuro)
@@ -890,17 +942,344 @@ public:
         if (aut == coloreAuto && (aut || (col.r == coloreFondo.r && col.g == coloreFondo.g && col.b == coloreFondo.b))) return;
         coloreAuto = aut; coloreFondo = col;
         fondoScuro = 0.2126f * col.r + 0.7152f * col.g + 0.0722f * col.b < 0.55f;
-        // il vetro acrilico sotto: chiaro o scuro come il colore (automatico: come il tema)
+        // Il tema DWM segue anche la tinta scelta; le superfici hanno lo stesso materiale.
         BOOL s = coloreAuto ? temaScuro() : fondoScuro;
-        for (HWND v : {vetro, vetroStato, vetroOra}) if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
-        dirty = true;
+        for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher})
+            if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+        dirty = pDirty = altra.pDirty = lDirty = true;
     }
     void impostaOpacita(float a) {
         a = std::clamp(a, 0.2f, 1.0f);
         if (std::fabs(a - opacita) < 0.001f) return;
         opacita = a;
-        for (HWND v : {vetro, vetroStato, vetroOra}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
+        // Il pannello usa opacita' nel velo Direct2D, non nell'alpha DComp animato.
+        for (HWND v : {vetro, vetroStato}) if (v) SetLayeredWindowAttributes(v, 0, (BYTE)std::lround(a * 255), LWA_ALPHA);
+        dirty = pDirty = altra.pDirty = lDirty = true;
+    }
+    void impostaMateriale(int tipo) {
+        // DWMSBT_NONE, MAINWINDOW (Mica), TRANSIENTWINDOW (Desktop Acrylic), TABBEDWINDOW (Mica Alt).
+        if (tipo < 1 || tipo > 7) tipo = 3;
+        if (tipo == materialeVetro) return;
+        materialeVetro = tipo;
+        // DWM/Windows Composition compongono gli effetti; applicati solo al cambio setting, mai nel loop dei frame.
+        for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher})
+            vetro::applicaEffetto(v, materialeVetro);
+        dirty = pDirty = altra.pDirty = lDirty = true;
+    }
+    void impostaColoreTesto(DWORD c) {
+        if (c == coloreTestoUI) return;
+        coloreTestoUI = c;
+        dirty = pDirty = altra.pDirty = lDirty = true;
+    }
+    void impostaLogoStart(int s) {
+        s = std::clamp(s, 0, 2);
+        if (s == logoStart) return;
+        logoStart = s; dirty = true;
+    }
+    // Load a PNG through WIC (instead of the shell's generic file icon) so transparent icon artwork is preserved.
+    ID2D1Bitmap1* caricaIconaWic(const std::wstring& percorso, int lato = 256) {
+        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapScaler* ridimensionatore = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromFilename(percorso.c_str(), nullptr, GENERIC_READ,
+                                                           WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
+            const double scala = std::min({1.0, (double)lato / sorgenteW, (double)lato / sorgenteH});
+            const UINT destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
+            const UINT destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
+            if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
+                SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                if (FAILED(dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &risultato))) risultato = nullptr;
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ridimensionatore) ridimensionatore->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
+    // Decode a PNG embedded in FluidWin.exe; the resource data remains valid for the lifetime of the process.
+    ID2D1Bitmap1* caricaIconaWicRisorsa(WORD id, int lato = 256) {
+        if (!dc || lato < 16 || lato > 1024) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(id), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione) return nullptr;
+
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICStream* flusso = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapScaler* ridimensionatore = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateStream(&flusso)) &&
+            SUCCEEDED(flusso->InitializeFromMemory((BYTE*)dati, dimensione)) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromStream(flusso, nullptr, WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) && sorgenteW && sorgenteH) {
+            const double scala = std::min({1.0, (double)lato / sorgenteW, (double)lato / sorgenteH});
+            const UINT destinazioneW = std::max(1u, (UINT)std::lround(sorgenteW * scala));
+            const UINT destinazioneH = std::max(1u, (UINT)std::lround(sorgenteH * scala));
+            if (SUCCEEDED(fabbrica->CreateBitmapScaler(&ridimensionatore)) &&
+                SUCCEEDED(ridimensionatore->Initialize(fotogramma, destinazioneW, destinazioneH, WICBitmapInterpolationModeFant)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ridimensionatore, GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+                if (FAILED(dc->CreateBitmapFromWicBitmap(convertitore, nullptr, &risultato))) risultato = nullptr;
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ridimensionatore) ridimensionatore->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (flusso) flusso->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
+    // Extract the original Downloads tile from the reference image in pics/.
+    // Only the dock background connected to the crop edges is made transparent;
+    // the green tile and its white arrow are kept from the reference pixels.
+    ID2D1Bitmap1* caricaIconaDownloadOriginale() {
+        if (!dc) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(RISORSA_DOWNLOAD_ORIGINALE), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione) return nullptr;
+
+        IWICImagingFactory* fabbrica = nullptr;
+        IWICStream* flusso = nullptr;
+        IWICBitmapDecoder* decodificatore = nullptr;
+        IWICBitmapFrameDecode* fotogramma = nullptr;
+        IWICBitmapClipper* ritaglio = nullptr;
+        IWICFormatConverter* convertitore = nullptr;
+        ID2D1Bitmap1* risultato = nullptr;
+        UINT sorgenteW = 0, sorgenteH = 0;
+
+        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                       IID_PPV_ARGS(&fabbrica))) &&
+            SUCCEEDED(fabbrica->CreateStream(&flusso)) &&
+            SUCCEEDED(flusso->InitializeFromMemory((BYTE*)dati, dimensione)) &&
+            SUCCEEDED(fabbrica->CreateDecoderFromStream(flusso, nullptr, WICDecodeMetadataCacheOnLoad, &decodificatore)) &&
+            SUCCEEDED(decodificatore->GetFrame(0, &fotogramma)) &&
+            SUCCEEDED(fotogramma->GetSize(&sorgenteW, &sorgenteH)) &&
+            sorgenteW >= 60 && sorgenteH >= 60 &&
+            SUCCEEDED(fabbrica->CreateBitmapClipper(&ritaglio))) {
+
+            // The reference PNG is 103 x 204. This crop encloses the green Downloads tile
+            // with a thin rim, but excludes the neighboring Recycle Bin and dock controls.
+            WICRect area{25, 33, 35, 28};
+            if (area.X + area.Width > (INT)sorgenteW) area.Width = (INT)sorgenteW - area.X;
+            if (area.Y + area.Height > (INT)sorgenteH) area.Height = (INT)sorgenteH - area.Y;
+
+            if (area.Width > 0 && area.Height > 0 &&
+                SUCCEEDED(ritaglio->Initialize(fotogramma, &area)) &&
+                SUCCEEDED(fabbrica->CreateFormatConverter(&convertitore)) &&
+                SUCCEEDED(convertitore->Initialize(ritaglio, GUID_WICPixelFormat32bppBGRA,
+                    WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+
+                UINT w = 0, h = 0;
+                if (SUCCEEDED(convertitore->GetSize(&w, &h)) && w && h) {
+                    std::vector<BYTE> pixel((size_t)w * h * 4);
+                    if (SUCCEEDED(convertitore->CopyPixels(nullptr, w * 4,
+                        (UINT)pixel.size(), pixel.data()))) {
+
+                        const size_t n = (size_t)w * h;
+                        std::vector<BYTE> visit(n, 0);
+                        std::deque<size_t> coda;
+                        auto fondo = [&](size_t k) {
+                            const int bb = pixel[k * 4 + 0];
+                            const int gg = pixel[k * 4 + 1];
+                            const int rr = pixel[k * 4 + 2];
+                            const int massimo = std::max({rr, gg, bb});
+                            const int minimo = std::min({rr, gg, bb});
+                            const int luminosita = (rr + gg + bb) / 3;
+                            // The dock panel is neutral gray. The enclosed white arrow is
+                            // not reached by this edge-connected flood fill.
+                            return massimo - minimo <= 100 && luminosita >= 25 && luminosita < 220;
+                        };
+                        auto aggiungi = [&](size_t k) {
+                            if (!visit[k] && fondo(k)) { visit[k] = 1; coda.push_back(k); }
+                        };
+                        for (UINT x = 0; x < w; ++x) {
+                            aggiungi(x);
+                            aggiungi((size_t)(h - 1) * w + x);
+                        }
+                        for (UINT y = 0; y < h; ++y) {
+                            aggiungi((size_t)y * w);
+                            aggiungi((size_t)y * w + (w - 1));
+                        }
+                        while (!coda.empty()) {
+                            const size_t k = coda.front(); coda.pop_front();
+                            pixel[k * 4 + 0] = 0;
+                            pixel[k * 4 + 1] = 0;
+                            pixel[k * 4 + 2] = 0;
+                            pixel[k * 4 + 3] = 0;
+                            const UINT x = (UINT)(k % w), y = (UINT)(k / w);
+                            if (x) aggiungi(k - 1);
+                            if (x + 1 < w) aggiungi(k + 1);
+                            if (y) aggiungi(k - w);
+                            if (y + 1 < h) aggiungi(k + w);
+                        }
+
+                        UINT minX = w, minY = h, maxX = 0, maxY = 0;
+                        bool trovato = false;
+                        for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) {
+                            if (pixel[((size_t)y * w + x) * 4 + 3] == 0) continue;
+                            trovato = true;
+                            minX = std::min(minX, x); minY = std::min(minY, y);
+                            maxX = std::max(maxX, x); maxY = std::max(maxY, y);
+                        }
+                        if (trovato) {
+                            const UINT outW = maxX - minX + 1, outH = maxY - minY + 1;
+                            std::vector<BYTE> ritagliato((size_t)outW * outH * 4);
+                            for (UINT y = 0; y < outH; ++y) {
+                                const BYTE* src = pixel.data() + ((size_t)(minY + y) * w + minX) * 4;
+                                BYTE* dst = ritagliato.data() + (size_t)y * outW * 4;
+                                memcpy(dst, src, (size_t)outW * 4);
+                            }
+                            const D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                                D2D1_BITMAP_OPTIONS_NONE,
+                                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+                            dc->CreateBitmap(D2D1::SizeU(outW, outH), ritagliato.data(),
+                                             outW * 4, &bp, &risultato);
+                        }
+                    }
+                }
+            }
+        }
+        if (convertitore) convertitore->Release();
+        if (ritaglio) ritaglio->Release();
+        if (fotogramma) fotogramma->Release();
+        if (decodificatore) decodificatore->Release();
+        if (flusso) flusso->Release();
+        if (fabbrica) fabbrica->Release();
+        return risultato;
+    }
+
+    void impostaFileIconaStart(const std::wstring& percorso) {
+        // Se lo stesso percorso e' gia' caricato non si fa lavoro; se il target D2D e' stato ricreato,
+        // il puntatore nullo permette invece di ricaricare l'immagine.
+        if (percorso == fileIconaStart && (percorso.empty() || iconaStartPersonale)) return;
+        fileIconaStart = percorso;
+        if (iconaStartPersonale) { iconaStartPersonale->Release(); iconaStartPersonale = nullptr; }
+        if (!fileIconaStart.empty()) iconaStartPersonale = caricaIconaWic(fileIconaStart, 256);
         dirty = true;
+    }
+    void impostaIconeDownloadCestino(const std::wstring& download, const std::wstring& cestino,
+                                    int stileDownload, int stileCestino) {
+        stileDownload = std::clamp(stileDownload, 0, 1);
+        stileCestino = std::clamp(stileCestino, 0, 3);
+        if (download == fileIconaDownload && cestino == fileIconaCestino &&
+            stileDownload == stileIconaDownload && stileCestino == stileIconaCestino &&
+            iconaDownload && iconaCestino && iconaStartMacOS) return;
+
+        fileIconaDownload = download;
+        fileIconaCestino = cestino;
+        stileIconaDownload = stileDownload;
+        stileIconaCestino = stileCestino;
+        if (iconaDownload) { iconaDownload->Release(); iconaDownload = nullptr; }
+        iconaDownloadOriginale = false;
+        if (iconaCestino) { iconaCestino->Release(); iconaCestino = nullptr; }
+        if (iconaStartMacOS) { iconaStartMacOS->Release(); iconaStartMacOS = nullptr; }
+        if (!dc) return;
+
+        wchar_t exe[MAX_PATH] = L"";
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir = exe;
+        const size_t slash = dir.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) dir.resize(slash + 1);
+        const std::wstring defaultMacPng = dir + L"assets\\icons8-mac-logo-480.png";
+        const std::wstring defaultDownloadSvg = dir + L"assets\\downloads-fluent.svg";
+        const std::wstring defaultTrashWin10Svg = dir + L"assets\\icons8-bin-windows-240.svg";
+        const std::wstring defaultTrashWin11Svg = dir + L"assets\\trash-windows11.svg";
+        const std::wstring defaultTrashMacSvg = dir + L"assets\\trash-macos.svg";
+        const std::wstring defaultTrashPng = dir + L"assets\\recycle-bin-fluent-empty.png";
+
+        // Finder start image is embedded so replacing just FluidWin.exe is enough.
+        iconaStartMacOS = caricaIconaWicRisorsa(RISORSA_ICONA_MACOS, 256);
+        if (!iconaStartMacOS) iconaStartMacOS = caricaIconaWic(defaultMacPng, 256);
+
+        // Downloads Default uses the exact green tile extracted from the reference image in pics/.
+        // Custom icons keep the normal square draw behavior.
+        if (stileIconaDownload == 1 && !fileIconaDownload.empty())
+            iconaDownload = caricaIconaFile(fileIconaDownload, 256);
+        if (!iconaDownload && stileIconaDownload == 0) {
+            iconaDownload = caricaIconaDownloadOriginale();
+            iconaDownloadOriginale = (iconaDownload != nullptr);
+        }
+        if (!iconaDownload) iconaDownload = caricaIconaSvgRisorsa(RISORSA_DOWNLOAD_PREDEFINITO, 256);
+        if (!iconaDownload) iconaDownload = caricaIconaSvg(defaultDownloadSvg, 256);
+
+        // Trash style is explicit: Windows 10, Windows 11, macOS, or a user-selected file.
+        if (stileIconaCestino == 3 && !fileIconaCestino.empty())
+            iconaCestino = caricaIconaFile(fileIconaCestino, 256);
+        if (!iconaCestino) {
+            const WORD risorsa = stileIconaCestino == 0 ? RISORSA_CESTINO_WINDOWS10
+                : stileIconaCestino == 2 ? RISORSA_CESTINO_MACOS : RISORSA_CESTINO_WINDOWS11;
+            iconaCestino = caricaIconaSvgRisorsa(risorsa, 256);
+        }
+        if (!iconaCestino) {
+            const std::wstring& fallback = stileIconaCestino == 0 ? defaultTrashWin10Svg
+                : stileIconaCestino == 2 ? defaultTrashMacSvg : defaultTrashWin11Svg;
+            iconaCestino = caricaIconaSvg(fallback, 256);
+        }
+        if (!iconaCestino) iconaCestino = caricaIconaSvgRisorsa(RISORSA_CESTINO_WINDOWS11, 256);
+        if (!iconaCestino) iconaCestino = caricaIcona(defaultTrashPng, 256);
+
+        if (registro) {
+            static const char* const downloadNomi[] = {"Default", "Custom"};
+            static const char* const trashNomi[] = {"Windows 10", "Windows 11", "macOS", "Custom"};
+            char b[192];
+            snprintf(b, sizeof(b), "dock icons: Downloads %s, Trash %s%s",
+                     downloadNomi[stileIconaDownload], trashNomi[stileIconaCestino],
+                     iconaDownload && iconaCestino ? " (loaded)" : " (fallback)");
+            scrivi(b);
+        }
+        dirty = true;
+    }
+
+    void impostaNotchAttivo(bool si) { notch.attivaFeature(si); dirty = true; }
+    void impostaEffettoNotch(int tipo) { notch.impostaEffetto(tipo); }
+    void impostaDimensioneNotch(int percento) { notch.impostaDimensione(percento); }
+    void impostaOraNotch12(bool si) {
+        if (si == notch12Ore) return;
+        notch12Ore = si; aggiornaStato(true);
+    }
+    void impostaAspettoNotch(DWORD sfondo, DWORD testo) { notch.impostaAspetto(sfondo, testo); }
+    void impostaColoriTimerNotch(DWORD colore, DWORD pulsante) { notch.impostaColoriTimer(colore, pulsante); }
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
+        notch.impostaVisualizzatore(stile, reattivo, forza, pesoInizio, pesoCentro, pesoFine);
+    }
+    D2D1_COLOR_F inchiostroUI(bool temaScuro, float a = 0.9f) const {
+        if (coloreTestoUI & 0x01000000)
+            return D2D1::ColorF(((coloreTestoUI >> 16) & 255) / 255.0f,
+                                ((coloreTestoUI >> 8) & 255) / 255.0f,
+                                (coloreTestoUI & 255) / 255.0f, a);
+        const bool sfondoScuro = coloreAuto ? temaScuro : fondoScuro;
+        return sfondoScuro ? D2D1::ColorF(1, 1, 1, 0.92f * a)
+                           : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.9f * a);
     }
     // eseguibile di un'app che il dock conosce (per AppUserModelID o per nome): l'icona vera delle sue notifiche
     std::wstring exeDiApp(const std::wstring& aumid, const std::wstring& nome) const {
@@ -1034,33 +1413,32 @@ private:
     HMONITOR spostamento = nullptr;   // schermo verso cui il dock sta andando (prima scende, poi si sposta e risale)
     HMONITOR bordoAltro = nullptr; double bordoAltroDa = -1;   // mouse sul bordo in basso di un altro schermo, da quando
     bool vuoleNascondersiI = false;   // l'isola sta sempre nascosta, il dock solo sotto le finestre
-    // impostazione: ora e data in fondo al dock, dopo il centro di controllo (larghezzaCoda). Per il mouse fa da
+    // impostazione: solo ora in fondo al dock, dopo il centro di controllo (larghezzaCoda). Per il mouse fa da
     // "isola": isola e rettStato[ORA] sono il suo posto, cosi' etichetta (data lunga) e clic (notifiche) sono quelli di prima
     bool oraNelDock = false;
-    // Testa del dock (1.3.0, notch a scomparsa): all'inizio del dock, speculare a ora e data in fondo, una capsula con la
-    // musica (copertina e barrette), il timer in corso (anello e tempo che resta) e i segni di "Tieni sveglio" e "Non
-    // disturbare". Col mouse sopra musica e timer mostrano i loro tasti (vedi statoTesta). Con il notch fisso non c'e'
-    double testaK = 0;                // 0..1: comparsa (la larghezza entra nella disposizione, il dock si allarga)
-    float largTesta = 0;              // larghezza dei contenuti (l'ultima, anche mentre sparisce)
-    bool testaMusica = false, testaTimer = false, testaSveglio = false, testaSilenzio = false;   // cosa mostra (deciso in render)
-    double tSveglio = -10, tSilenzio = -10;   // quando si sono accesi (rimbalzo e onda del segno)
-    double kMus = 0, kTim = 0, vkMus = 0, vkTim = 0;   // 0..1: musica e timer allargati coi tasti (mouse sopra), con le velocita' delle molle
-    double vTestaK = 0, pSv = 0, vSv = 0, pSi = 0, vSi = 0, pMu = 0, vMu = 0, pTi = 0, vTi = 0;   // presenze delle parti (molle)
-    float scTesta = 1;                // scala con la lente del dock (come le icone vicine)
-    D2D1_RECT_F rettTesta{}, rettMus{}, rettTim{};   // posti per il mouse: tutta la testa, musica, timer (vuoti se non ci sono)
-    D2D1_RECT_F tastoTesta[5]{};      // indietro, play/pausa, avanti, +1 min, stop
-    int tastoPremuto = -1;            // tasto premuto (-2: la testa fuori dai tasti, -1: niente)
-    double evTesta = 0;
-    ID2D1Bitmap* bTesta = nullptr; UINT versioneTesta = 0xFFFFFFFF;   // copertina del brano
-    double ultimaMusica = -100;       // quando suonava l'ultima volta (in pausa resta qualche secondo)
-    int periodoTesta = 0;             // TIMER_TESTA (ms, 0 spento): 60 con le barrette che ballano, 250 per i secondi del timer
     bool autoNascondi = true;         // impostazione: il dock scende sotto le finestre ingrandite o che lo coprono
     float opacita = 1;                // impostazione: opacita' del fondo del dock (vetro e velo), 0.2..1
     int latoIcone = 42;               // impostazione: lato delle icone a riposo, px a 100%
     int distanzaIcone = 6;            // impostazione: distanza fra le icone, px a 100% (GAP)
-    static constexpr float INGRANDITE = 66.0f / 42.0f;   // icone ingrandite dalla lente: proporzione fissa con quelle a riposo
+    static constexpr float INGRANDITE = 66.0f / 42.0f;   // ingrandimento standard al 100%
+    int ingrandimentoHover = 100;       // percento della lente: 0 = nessun ingrandimento
+    int separatoreAltezza = 70, separatoreOpacita = 22, separatoreSpessore = 1;
+    float fattoreIngrandimentoHover() const {
+        return 1.0f + (INGRANDITE - 1.0f) * (std::clamp(ingrandimentoHover, 0, 150) / 100.0f);
+    }
     bool coloreAuto = true, fondoScuro = false;           // impostazione: colore del fondo (vedi impostaColore)
     D2D1_COLOR_F coloreFondo{};
+    int margineBordo = 8;          // distanza fra il dock e il bordo dello schermo, px a 100%
+    DWORD coloreTestoUI = 0;          // 0 automatico, 0x01RRGGBB personalizzato
+    int materialeVetro = 3;           // 1 none, 2 Mica, 3 Desktop Acrylic, 4 Mica Alt
+    int logoStart = 0;                // 0 Windows, 1 macOS Dock, 2 icona scelta dall'utente
+    int stileIconaDownload = 0, stileIconaCestino = 1;
+    std::wstring fileIconaStart, fileIconaDownload, fileIconaCestino;
+    ID2D1Bitmap1* iconaStartPersonale = nullptr, *iconaStartMacOS = nullptr;
+    ID2D1Bitmap1* iconaDownload = nullptr, *iconaCestino = nullptr;
+    bool iconaDownloadOriginale = false;
+    bool notch12Ore = false;
+    std::wstring testoOraNotch;
     bool spazioRiservato = false;     // impostazione: spazio riservato in basso (appbar)...
     bool appbarOk = false;            // ... e registrato davvero presso Windows
 
@@ -1135,7 +1513,7 @@ private:
     int trascinata = -1;             // indice della voce trascinata
     float presa = 0.5f;              // dove la si e' presa, 0..1 della larghezza dell'icona
     std::vector<std::wstring> ordineFissate;   // collegamenti delle app aggiunte, nell'ordine scelto (vuoto: quello di Windows)
-    RECT rettVetro{}, rettVetroStato{}, rettVetroOra{}, regioneDock{}, regioneIsola{}, regioneEtichetta{};
+    RECT rettVetro{}, rettVetroStato{}, regioneDock{}, regioneIsola{}, regioneEtichetta{};
     D2D1_RECT_F rettEtichetta{};
     // etichetta (una sola, per il dock o per l'isola di stato)
     double etichettaAlfa = 0; std::wstring etichettaTesto; float etichettaCx = 0, etichettaTop = 0;
@@ -1143,14 +1521,15 @@ private:
     // ---- isola di stato ----
     // isola: il centro di controllo (un solo pulsante, con rete e volume a colpo d'occhio) e, a parte, data e ora
     enum { CONTROLLO, ORA, N_STATO };
-    D2D1_RECT_F pillolaControllo{}, pillolaOra{};
     D2D1_RECT_F rettStato[N_STATO]{}, isola{};
     double evidenza[N_STATO]{};      // 0..1, sfondo dell'elemento sotto il mouse
     int statoSopra = -1, statoPremuto = -1;
-    std::wstring testoOra, testoData, testoDataLunga, testoNotch;
+    std::wstring testoOra, testoOraOre, testoOraMinuti, testoOraMeridiem, testoDataLunga, testoNotch;
+    bool oraDodici = false;
     const wchar_t *fontTesto = L"Segoe UI Variable Text", *fontTitoli = L"Segoe UI Variable Display";   // scelti in grafica()
     notch::Notch notch;                  // ora e data in alto al centro, come il notch del Mac e dell'iPhone (notch.h)
-    std::wstring misuratoOra, misuratoData; float larghezzaOra = 0;   // ultima misura dei due testi
+    std::wstring misuratoOra, misuratoOraOre, misuratoOraMinuti, misuratoOraMeridiem;
+    float larghezzaOra = 0;
     float volume = 0; bool muto = false, audioOk = false;
     int rete = 0; std::wstring nomeRete;   // 0 = nessuna, 1 = cavo, 2 = Wi-Fi
     int conteggioTimer = 0;
@@ -1160,7 +1539,7 @@ private:
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     IDXGISwapChain1* sc = nullptr; IDCompositionDevice* dcomp = nullptr; IDCompositionTarget* target = nullptr; IDCompositionVisual* visual = nullptr;
     ID2D1Factory1* f2d = nullptr; ID2D1Device* d2dev = nullptr; ID2D1DeviceContext* dc = nullptr; ID2D1Bitmap1* bersaglio = nullptr;
-    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr, *fmtData = nullptr;
+    IDWriteFactory* fdw = nullptr; IDWriteTextFormat *testo = nullptr, *fmtOra = nullptr, *fmtOraMeridiem = nullptr;
     ID2D1SolidColorBrush* pennello = nullptr;
     ID2D1StrokeStyle* tratto = nullptr;   // estremi arrotondati, per i simboli
 
@@ -1182,7 +1561,7 @@ private:
         SetLayeredWindowAttributes(v, 0, 255, LWA_ALPHA);
         MARGINS mg{-1, -1, -1, -1}; DwmExtendFrameIntoClientArea(v, &mg);
         BOOL scuro = temaScuro(); DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &scuro, sizeof(scuro));
-        int tipo = 3; DwmSetWindowAttribute(v, DWMWA_SYSTEMBACKDROP_TYPE, &tipo, sizeof(tipo));
+        vetro::applicaEffetto(v, materialeVetro);
         raggio::registra(v);   // angoli: quelli dell'impostazione "Angoli" (anche cambiandola dopo)
         BOOL niente = TRUE; DwmSetWindowAttribute(v, DWMWA_TRANSITIONS_FORCEDISABLED, &niente, sizeof(niente));
         return v;
@@ -1250,8 +1629,8 @@ private:
         fontTesto = fTesto; fontTitoli = fTitoli;
         }
         formato(fTesto, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.0f, &testo);
-        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 15.0f, &fmtOra);
-        formato(fTesto, DWRITE_FONT_WEIGHT_NORMAL, 11.5f, &fmtData);
+        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 28.0f, &fmtOra);
+        formato(fTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 19.0f, &fmtOraMeridiem);
         // testi dei pannelli: allineati a sinistra, con "..." se non entrano
         auto sinistra = [&](const wchar_t* font, DWRITE_FONT_WEIGHT peso, float px, IDWriteTextFormat** out) {
             formato(font, peso, px, out); testi::allinea(*out, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -1266,7 +1645,7 @@ private:
         fmtNotizia->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP); fmtNotizia->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
         fmtNotizia->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, 17.0f * dpi, 13.5f * dpi);   // righe fisse: ne entrano esattamente due
         const DWRITE_TRIMMING tr{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-        for (IDWriteTextFormat* f : {fmtNome, fmtSotto, fmtVoce, fmtNotizia}) {
+        for (IDWriteTextFormat* f : {fmtTitolo, fmtNome, fmtSotto, fmtVoce, fmtNotizia}) {
             IDWriteInlineObject* punti = nullptr;
             if (SUCCEEDED(fdw->CreateEllipsisTrimmingSign(f, &punti))) { f->SetTrimming(&tr, punti); punti->Release(); }
         }
@@ -1316,6 +1695,102 @@ private:
                                                              D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
         dc->CreateBitmap(D2D1::SizeU(w, h), px.data(), w * 4, &bp, &out);
         return out;
+    }
+
+    ID2D1Bitmap1* rasterizzaSvg(IStream* flusso, int lato = 256) {
+        if (!dc || !flusso || lato < 16 || lato > 1024) { if (flusso) flusso->Release(); return nullptr; }
+        ID2D1DeviceContext5* dc5 = nullptr;
+        if (FAILED(dc->QueryInterface(IID_PPV_ARGS(&dc5))) || !dc5) { flusso->Release(); return nullptr; }
+        ID2D1SvgDocument* svg = nullptr;
+        const HRESULT creatoSvg = dc5->CreateSvgDocument(flusso, D2D1::SizeF((float)lato, (float)lato), &svg);
+        flusso->Release();
+        if (FAILED(creatoSvg) || !svg) { dc5->Release(); return nullptr; }
+
+        const D2D1_BITMAP_PROPERTIES1 proprieta = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            96.0f, 96.0f);
+        ID2D1Bitmap1* bitmap = nullptr;
+        const HRESULT creatoBitmap = dc->CreateBitmap(D2D1::SizeU((UINT32)lato, (UINT32)lato),
+                                                       nullptr, 0, &proprieta, &bitmap);
+        if (FAILED(creatoBitmap) || !bitmap) { svg->Release(); dc5->Release(); return nullptr; }
+
+        dc->Flush();
+        ID2D1Image* bersaglioPrecedente = nullptr;
+        dc->GetTarget(&bersaglioPrecedente);
+        D2D1_MATRIX_3X2_F trasformazionePrecedente{};
+        dc->GetTransform(&trasformazionePrecedente);
+        dc->SetTarget(bitmap);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        dc->BeginDraw();
+        dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+        dc5->DrawSvgDocument(svg);
+        const HRESULT disegnato = dc->EndDraw();
+        dc->SetTarget(bersaglioPrecedente);
+        dc->SetTransform(trasformazionePrecedente);
+        if (bersaglioPrecedente) bersaglioPrecedente->Release();
+        svg->Release();
+        dc5->Release();
+        if (FAILED(disegnato)) { bitmap->Release(); return nullptr; }
+        return bitmap;
+    }
+
+    // Render SVG files directly through Direct2D so custom dock icons remain crisp.
+    ID2D1Bitmap1* caricaIconaSvg(const std::wstring& percorso, int lato = 256) {
+        if (!dc || percorso.empty() || lato < 16 || lato > 1024) return nullptr;
+        HANDLE file = CreateFileW(percorso.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return nullptr;
+        LARGE_INTEGER dimensione{};
+        if (!GetFileSizeEx(file, &dimensione) || dimensione.QuadPart <= 0 || dimensione.QuadPart > 2 * 1024 * 1024) {
+            CloseHandle(file); return nullptr;
+        }
+        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)dimensione.QuadPart);
+        if (!memoria) { CloseHandle(file); return nullptr; }
+        void* dati = GlobalLock(memoria);
+        DWORD letti = 0;
+        const DWORD richiesti = (DWORD)dimensione.QuadPart;
+        const bool letto = dati && ReadFile(file, dati, richiesti, &letti, nullptr) && letti == richiesti;
+        if (dati) GlobalUnlock(memoria);
+        CloseHandle(file);
+        if (!letto) { GlobalFree(memoria); return nullptr; }
+        IStream* flusso = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
+            GlobalFree(memoria); return nullptr;
+        }
+        return rasterizzaSvg(flusso, lato);
+    }
+
+    ID2D1Bitmap1* caricaIconaSvgRisorsa(WORD id, int lato = 256) {
+        if (!dc || lato < 16 || lato > 1024) return nullptr;
+        HMODULE modulo = GetModuleHandleW(nullptr);
+        HRSRC risorsa = FindResourceW(modulo, MAKEINTRESOURCEW(id), RT_RCDATA);
+        HGLOBAL caricata = risorsa ? LoadResource(modulo, risorsa) : nullptr;
+        const BYTE* dati = caricata ? (const BYTE*)LockResource(caricata) : nullptr;
+        const DWORD dimensione = risorsa ? SizeofResource(modulo, risorsa) : 0;
+        if (!dati || !dimensione || dimensione > 2 * 1024 * 1024) return nullptr;
+        HGLOBAL memoria = GlobalAlloc(GMEM_MOVEABLE, dimensione);
+        if (!memoria) return nullptr;
+        void* copia = GlobalLock(memoria);
+        if (!copia) { GlobalFree(memoria); return nullptr; }
+        memcpy(copia, dati, dimensione);
+        GlobalUnlock(memoria);
+        IStream* flusso = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memoria, TRUE, &flusso)) || !flusso) {
+            GlobalFree(memoria); return nullptr;
+        }
+        return rasterizzaSvg(flusso, lato);
+    }
+
+    ID2D1Bitmap1* caricaIconaFile(const std::wstring& percorso, int lato = 256) {
+        if (percorso.empty()) return nullptr;
+        const size_t punto = percorso.find_last_of(L'.');
+        if (punto != std::wstring::npos) {
+            std::wstring estensione = percorso.substr(punto);
+            for (wchar_t& c : estensione) c = (wchar_t)towlower(c);
+            if (estensione == L".svg") return caricaIconaSvg(percorso, lato);
+        }
+        return caricaIcona(percorso, lato);
     }
 
     Voce* voceDi(HWND h) {
@@ -1924,18 +2399,53 @@ private:
         return 0;
     }
 
-    // ora e data in fondo al dock: separatore e testo (larghezzaOra la misura render quando il testo cambia)
-    // (ai lati l'ora e la data stanno una sopra l'altra nello spessore del dock: lungo il dock conta l'altezza delle due righe)
+    void disegnaLineaSeparatore(float x, float yBase, float scala, float dissolvenza, bool scuro) {
+        const float h = S * scala * (separatoreAltezza / 100.0f);
+        const float cy = yBase - S * scala * 0.5f;
+        const float alfa = (separatoreOpacita / 100.0f) * std::clamp(dissolvenza, 0.0f, 1.0f);
+        if (alfa <= 0.001f || h <= 0.1f) return;
+        const float tr = separatoreSpessore * dpi * scala;
+        pennello->SetColor(D2D1::ColorF(scuro ? 1.0f : 0.0f, scuro ? 1.0f : 0.0f,
+                                        scuro ? 1.0f : 0.0f, alfa));
+        dc->DrawLine({x, cy - h / 2}, {x, cy + h / 2}, pennello, tr);
+    }
+
+    // Text-only dock clock; vertical docks stack hour, minutes and AM/PM on separate lines.
+    void aggiornaLarghezzaOra() {
+        if (misuratoOra == testoOra && misuratoOraOre == testoOraOre &&
+            misuratoOraMinuti == testoOraMinuti && misuratoOraMeridiem == testoOraMeridiem) return;
+        misuratoOra = testoOra; misuratoOraOre = testoOraOre;
+        misuratoOraMinuti = testoOraMinuti; misuratoOraMeridiem = testoOraMeridiem;
+        if (verticale()) {
+            // The vertical tile uses the large type only for the hour and minute.
+            // AM/PM is rendered separately with the small caption format.
+            larghezzaOra = std::max(larghezzaTesto(testoOraOre, fmtOra),
+                                     larghezzaTesto(testoOraMinuti, fmtOra));
+        } else {
+            larghezzaOra = larghezzaTesto(testoOra, fmtOra);
+        }
+    }
+    // Screen-aligned dimensions of the vertical clock tile (the dock canvas is rotated at the sides).
+    float larghezzaOrologioVerticale() const { return 68.0f * dpi; }
+    float altezzaOrologioVerticale() const { return (oraDodici ? 128.0f : 82.0f) * dpi; }
     float larghezzaCoda() const {
         if (!oraNelDock || larghezzaOra <= 0) return 0;
-        return GAP * 2 + 1 + (verticale() ? (2 * 20 * dpi + 6 * dpi) * kOra() : (larghezzaOra + 16 * dpi) * kOra());
+        const float estensione = verticale() ? altezzaOrologioVerticale() * kOra()
+                                             : (larghezzaOra + 12.0f * dpi) * kOra();
+        // Match icon-group separators: one ordinary GAP plus a centered separator zone (2 * GAP + 1).
+        const float spazioSeparatore = GAP * 2.0f + 1.0f;
+        return GAP + spazioSeparatore + estensione;
     }
-    // testa del dock (musica e timer): capsula e separatore, scalati con la comparsa
-    float larghezzaTesta() const { return testaK > 0.001 && largTesta > 0 ? (float)((largTesta + GAP * 2 + 1) * testaK) : 0; }
-    // le due righe dell'ora (~34 px) devono stare nell'altezza delle icone: con icone piccole il testo si rimpicciolisce
-    float scalaOra() const { return std::clamp((S - 6 * dpi) / (34 * dpi), 0.7f, 1.0f); }
-    // ... e ai lati anche la larghezza del testo nello spessore del dock
-    float kOra() const { return verticale() ? std::min(scalaOra(), (S - 2 * dpi) / std::max(1.0f, larghezzaOra + 16 * dpi)) : scalaOra(); }
+    float scalaOra() const {
+        // Clock size follows the dock icon size, while the tile keeps the reference proportions.
+        return std::clamp(S / 42.0f, 0.75f, 1.55f);
+    }
+    float kOra() const {
+        return verticale() ? std::min(scalaOra(),
+                                      (larghezzaOrologioVerticale() - 10.0f * dpi) /
+                                      std::max(1.0f, larghezzaOra))
+                           : scalaOra();
+    }
 
     // x di ogni icona a riposo; lo spazio prima di un'icona cresce e cala con lei
     std::vector<float> posizioniRiposo() const { return disponi(std::vector<float>(voci.size(), S)); }
@@ -1949,10 +2459,8 @@ private:
             tot += sepPrima(i);
             tot += lato[i] * (float)voci[i].scala;
         }
-        tot += larghezzaCoda();   // ora e data in fondo (impostazione): il dock resta centrato con loro
-        const float testa = larghezzaTesta();   // musica e timer all'inizio (notch a scomparsa)
-        tot += testa;
-        float cur = W / 2.0f - tot / 2.0f + testa;
+        tot += larghezzaCoda();   // ora in fondo (impostazione): il dock resta centrato con lei
+        float cur = W / 2.0f - tot / 2.0f;
         for (size_t i = 0; i < voci.size(); i++) {
             if (i > 0) cur += GAP * (float)voci[i].scala;
             cur += sepPrima(i);
@@ -2038,14 +2546,8 @@ private:
         else movimento |= molla(yNascostoI, velNascostoI, 0, 340, 0.42);
         if (vuoleNascondersi && t <= rivelaFino) movimento = true;   // allo scadere della comparsa temporanea deve riscendere
 
-        // ora e data in fondo al dock: si rimisurano solo quando cambia il testo (la larghezza entra nella disposizione)
-        if (oraNelDock && (testoOra != misuratoOra || testoData != misuratoData)) {
-            misuratoOra = testoOra; misuratoData = testoData;
-            larghezzaOra = std::max(larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoData, fmtData));
-        }
+        if (oraNelDock) aggiornaLarghezzaOra();
 
-        // testa del dock (notch a scomparsa): cosa mostra e quanto e' larga, prima della disposizione
-        movimento |= statoTesta(t);
 
         // il dock resta centrato e si allarga attorno alle icone ingrandite
         const auto riposo = posizioniRiposo();
@@ -2089,8 +2591,7 @@ private:
             const float x = presa_ ? std::clamp(mouseX - presa * d, sinistra - d / 2, sinistra + tot - d / 2) : xs[i] + (float)v.dx;
             if (sepPrima(i) > 0) {
                 const float sep = sepPrima(i), sx = xs[i] - (sep + GAP * sc) / 2;
-                pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f * sep / (GAP * 2 + 1)));
-                dc->DrawLine({sx, yb - S * 0.85f}, {sx, yb - S * 0.15f}, pennello, 1.0f);
+                disegnaLineaSeparatore(sx, yb, 1.0f, sep / (GAP * 2 + 1), scuro);
             }
             float salto = 0;
             if (v.rimbalzoT0 >= 0) {
@@ -2112,7 +2613,26 @@ private:
             if (d < 0.5f) continue;
             const float alfa = (premuto < 1 ? 0.8f : 1.0f) * std::min(1.0f, sc * 1.5f);
             dritto((r.left + r.right) / 2, (r.top + r.bottom) / 2);   // (icona e numero dritti anche ai lati e in alto)
-            if (v.icona) dc->DrawBitmap(v.icona, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            if (v.avvio == AVVIO_PILA && iconaDownload) {
+                D2D1_RECT_F downloadRect = r;
+                if (iconaDownloadOriginale) {
+                    const D2D1_SIZE_U px = iconaDownload->GetPixelSize();
+                    const float rapporto = px.width && px.height ? (float)px.height / (float)px.width : 0.8f;
+                    float larghezza = dd;
+                    float altezza = larghezza * rapporto;
+                    if (altezza > dd * 0.82f) {
+                        altezza = dd * 0.82f;
+                        larghezza = rapporto > 0 ? altezza / rapporto : dd;
+                    }
+                    const float cx = (r.left + r.right) * 0.5f;
+                    const float cy = (r.top + r.bottom) * 0.5f;
+                    downloadRect = {cx - larghezza * 0.5f, cy - altezza * 0.5f,
+                                    cx + larghezza * 0.5f, cy + altezza * 0.5f};
+                }
+                dc->DrawBitmap(iconaDownload, downloadRect, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            }
+            else if (v.avvio == AVVIO_CESTINO && iconaCestino) dc->DrawBitmap(iconaCestino, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else if (v.icona) dc->DrawBitmap(v.icona, r, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             else if (v.avvio == AVVIO_LAUNCHER) disegnaIconaApp(r, alfa, scuro);
             else if (v.avvio == AVVIO_CONTROLLO) disegnaIconaControllo(r, alfa, scuro);
             else if (v.avvio == AVVIO_CESTINO) disegnaIconaCestino(r, alfa, scuro, dropSopra == (int)i);
@@ -2143,53 +2663,69 @@ private:
             }
         }
 
-        // ora e data in fondo al dock (impostazione): un separatore, poi l'ora e sotto la data, dopo il centro di controllo
+        // Time-only, text-only clock at the end of the dock.
         if (const float coda = larghezzaCoda(); coda > 0) {
             const float x0 = sinistra + tot - coda;
-            pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f));
-            dc->DrawLine({x0 + GAP + 0.5f, yb - S * 0.85f}, {x0 + GAP + 0.5f, yb - S * 0.15f}, pennello, 1.0f);
-            const D2D1_RECT_F r = {x0 + GAP * 2 + 1, yb - S, x0 + coda, yb};
-            isola = {r.left, fondoT, r.right + PAD, fondoB};   // il suo posto per il mouse (vedi oraNelDock)
-            rettStato[ORA] = r; rettStato[CONTROLLO] = {};
-            const double e = verso(evidenza[ORA], (statoSopra == ORA && mouseDentro) ? 1.0 : 0.0, 0.05);
-            if (e != evidenza[ORA]) movimento = true;
-            evidenza[ORA] = e;
-            const float s = statoPremuto == ORA ? 0.92f : 1.0f;   // si "schiaccia" un poco alla pressione
-            const float k = kOra();                              // icone piccole (e ai lati, testo largo): piu' piccolo (vedi kOra)
+            // Use the same configurable group separator as the lines between dock icons.
+            const float spazioSeparatore = GAP * 2.0f + 1.0f;
+            // Center the separator in the complete GAP + separator zone, just like icon-group separators.
+            disegnaLineaSeparatore(x0 + (GAP + spazioSeparatore) / 2.0f, yb, 1.0f, 1.0f, scuro);
+            const D2D1_RECT_F r = {x0 + GAP + spazioSeparatore, yb - S, x0 + coda, yb};
+            const float press = statoPremuto == ORA ? 0.92f : 1.0f;
+            const float k = kOra();
             const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-            const float h2 = 17 * dpi;                           // altezza di una riga (a grandezza piena)
-            // capsula attorno al testo: la stessa per il fondo e per l'evidenza del mouse
-            const float pw = (larghezzaOra / 2 + 8 * dpi) * k * s, ph = (h2 + 3 * dpi) * k * s;
-            const D2D1_ROUNDED_RECT capsula = {{cx - pw, cy - ph, cx + pw, cy + ph}, std::min(9 * dpi, ph) * raggio::fattore(), std::min(9 * dpi, ph) * raggio::fattore()};
-            dritto(cx, cy);   // (capsula e testo dritti: ai lati stanno nello spessore del dock)
-            // fondo: compare solo quanto il vetro del dock e' trasparente (opacita' nelle impostazioni), cosi' l'ora si legge
-            // anche sopra una finestra chiara; col vetro pieno non c'e'. Lo dice la trasparenza della finestra del vetro
-            {
-                BYTE av = 255; DWORD fl = 0;
-                if (!GetLayeredWindowAttributes(vetro, nullptr, &av, &fl) || !(fl & LWA_ALPHA)) av = 255;
-                const float quanto = std::clamp((1 - av / 255.0f) / 0.8f, 0.0f, 1.0f);
-                if (quanto > 0.02f) {
-                    pennello->SetColor(scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.5f * quanto) : D2D1::ColorF(1, 1, 1, 0.6f * quanto));
-                    dc->FillRoundedRectangle(capsula, pennello);
+            const float metaLarghezza = verticale() ? larghezzaOrologioVerticale() / 2.0f : 0.0f;
+            isola = {r.left,
+                     verticale() ? std::min(fondoT, cy - metaLarghezza) : fondoT,
+                     r.right + PAD,
+                     verticale() ? std::max(fondoB, cy + metaLarghezza) : fondoB};
+            rettStato[ORA] = r; rettStato[CONTROLLO] = {};
+            dritto(cx, cy, press * k);
+            const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
+            if (verticale()) {
+                // Minimal vertical clock: no background tile, just the time and its fine divider.
+                const float tileW = larghezzaOrologioVerticale();
+                const float tileH = altezzaOrologioVerticale();
+                const D2D1_RECT_F tile = {cx - tileW / 2.0f, cy - tileH / 2.0f,
+                                          cx + tileW / 2.0f, cy + tileH / 2.0f};
+
+                const float inset = 5.0f * dpi;
+                // Keep the two large rows close, with a compact sideways colon between them.
+                const float yOraInizio = tile.top + 1.0f * dpi;
+                const float yOraFine = tile.top + 36.0f * dpi;
+                const float yMinutiInizio = tile.top + 38.0f * dpi;
+                const float yMinutiFine = tile.top + (oraDodici ? 72.0f : 81.0f) * dpi;
+
+                pennello->SetColor(ink);
+                const D2D1_RECT_F areaOra = {tile.left + inset, yOraInizio,
+                                             tile.right - inset, yOraFine};
+                dc->DrawText(testoOraOre.c_str(), (UINT32)testoOraOre.size(), fmtOra, areaOra, pennello);
+
+                // A vertical clock stacks the two colon dots horizontally (rotated 90 degrees).
+                const float yDuePunti = (yOraFine + yMinutiInizio) / 2.0f;
+                const float raggioPunto = 1.9f * dpi;
+                const float distanzaPunti = 3.6f * dpi;
+                dc->FillEllipse(D2D1::Ellipse({cx - distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
+                dc->FillEllipse(D2D1::Ellipse({cx + distanzaPunti, yDuePunti}, raggioPunto, raggioPunto), pennello);
+
+                const D2D1_RECT_F areaMinuti = {tile.left + inset, yMinutiInizio,
+                                                tile.right - inset, yMinutiFine};
+                dc->DrawText(testoOraMinuti.c_str(), (UINT32)testoOraMinuti.size(), fmtOra, areaMinuti, pennello);
+
+                if (oraDodici && !testoOraMeridiem.empty()) {
+                    const D2D1_RECT_F areaMeridiem = {tile.left + inset, tile.top + 72.0f * dpi,
+                                                      tile.right - inset, tile.bottom - 5.0f * dpi};
+                    dc->DrawText(testoOraMeridiem.c_str(), (UINT32)testoOraMeridiem.size(),
+                                 fmtOraMeridiem, areaMeridiem, pennello);
                 }
+            } else {
+                pennello->SetColor(ink);
+                const float lt = larghezzaOra / 2 + 6 * dpi;
+                dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra,
+                             {cx - lt, cy - 18 * dpi, cx + lt, cy + 18 * dpi}, pennello);
             }
-            if (e > 0.01) {
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e));
-                dc->FillRoundedRectangle(capsula, pennello);
-            }
-            // testo disegnato a grandezza piena e rimpicciolito attorno al centro (pressione e icone piccole)
-            dritto(cx, cy, s * k);
-            const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f);
-            const float lt = larghezzaOra / 2 + 8 * dpi;
-            pennello->SetColor(ink);
-            dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {cx - lt, cy - h2 - 1 * dpi, cx + lt, cy + 1 * dpi}, pennello);
-            pennello->SetColor({ink.r, ink.g, ink.b, ink.a * 0.72f});
-            dc->DrawText(testoData.c_str(), (UINT32)testoData.size(), fmtData, {cx - lt, cy + 1 * dpi, cx + lt, cy + h2 - 1 * dpi}, pennello);
             piano();
         }
-
-        // testa del dock (musica e timer, notch a scomparsa): all'inizio, prima della prima icona
-        movimento |= disegnaTestaDock(sinistra, yb, scuro, t);
 
         // icona sotto il mouse ricalcolata sulle posizioni appena disegnate (il dock si muove anche col mouse fermo)
         sopra = (mouseDentro && mouseSulDock) ? iconaInPunto(mouseX, mouseY) : -1;
@@ -2208,23 +2744,6 @@ private:
             etichettaTesto = descrizioneStato(statoSopra);
             etichettaCx = (rettStato[statoSopra].left + rettStato[statoSopra].right) / 2; etichettaTop = isola.top - 10 * dpi;
             etichettaVoluta = true;
-        } else if (mouseDentro && inTesta(mouseX, mouseY) && tastoPremuto == -1 && nessunaScheda() && !ant.aperta()) {
-            // testa: titolo e artista del brano, "Timer", o i segni accesi
-            const musica::Brano& br = notch.musicaOra();
-            if (dentro(rettMus, mouseX, mouseY)) {
-                etichettaTesto = br.titolo.empty() ? testi::t(L"Musica", L"Music") : br.artista.empty() ? br.titolo : br.titolo + L" · " + br.artista;
-                etichettaCx = (rettMus.left + rettMus.right) / 2;
-            } else if (dentro(rettTim, mouseX, mouseY)) {
-                etichettaTesto = testi::t(L"Timer", L"Timer");
-                etichettaCx = (rettTim.left + rettTim.right) / 2;
-            } else {
-                etichettaTesto.clear();
-                if (testaSveglio) etichettaTesto = testi::t(L"Tieni sveglio acceso", L"Keep awake on");
-                if (testaSilenzio) etichettaTesto += (etichettaTesto.empty() ? L"" : L" · ") + std::wstring(testi::t(L"Non disturbare acceso", L"Do not disturb on"));
-                etichettaCx = mouseX;
-            }
-            etichettaTop = rettTesta.top - 12 * dpi;
-            etichettaVoluta = !etichettaTesto.empty();
         }
         const double et = verso(etichettaAlfa, etichettaVoluta ? 1.0 : 0.0, 0.025);
         if (et != etichettaAlfa) movimento = true;
@@ -2237,7 +2756,6 @@ private:
         // la regione della finestra limita i clic al dock (con le icone ingrandite) e all'isola di stato
         float regTop = fondoT;
         for (auto& v : voci) regTop = std::min(regTop, v.rett.top);
-        if (rettTesta.right > rettTesta.left) regTop = std::min(regTop, rettTesta.top - 6 * dpi);   // (testa ingrandita con la lente)
         // l'icona trascinata e' disegnata 6 px piu' su del suo rett (che resta quello per il mouse): dentro anche lei
         // (R20261120-013029-S3)
         if (trascinando && trascinata >= 0 && trascinata < (int)voci.size()) regTop = std::min(regTop, voci[trascinata].rett.top - 6 * dpi);
@@ -2263,382 +2781,19 @@ private:
         }
     }
 
-    // ---- testa del dock: musica, timer, tieni sveglio e non disturbare col notch a scomparsa ----
-    // Tre parti, da sinistra: i segni di "Tieni sveglio" (tazzina) e "Non disturbare" (luna), che entrano con un piccolo
-    // rimbalzo e un'onda; la musica (copertina e barrette); il timer (anello e tempo). Col mouse sopra la musica si
-    // allarga con indietro / play-pausa / avanti, il timer con +1 min e stop: si controllano dal dock, senza il notch
-
-    // cosa mostra, presenze, allargamenti, scala con la lente, larghezza, copertina e ritmo del ridisegno; true se anima.
-    // Ogni parte (tazzina, luna, musica, timer) entra ed esce con una molla senza rimbalzo (prima la larghezza cambiava
-    // di colpo all'accendersi di un segno e il dock scattava)
-    bool statoTesta(double t) {
-        const musica::Brano& br = notch.musicaOra();
-        if (br.c && br.suona) ultimaMusica = t;
-        const bool fisso = notch.fisso();
-        // in pausa resta 8 s (e finche' ci sono sopra il mouse o un tasto premuto): pausa e ripresa non fanno ballare il dock
-        const bool sullaMusica = mouseDentro && testaMusica && dentro(rettMus, mouseX, mouseY);
-        testaMusica = !fisso && br.c && (br.suona || t - ultimaMusica < 8 || sullaMusica || (tastoPremuto >= 0 && tastoPremuto <= 2));
-        testaTimer = !fisso && comodita::timerAttivo();
-        const bool sv = !fisso && comodita::sveglio(), si = !fisso && comodita::silenzio();
-        if (sv && !testaSveglio) tSveglio = t;      // (comparsa: rimbalzo e onda)
-        if (si && !testaSilenzio) tSilenzio = t;
-        testaSveglio = sv; testaSilenzio = si;
-        const bool vuole = testaMusica || testaTimer || testaSveglio || testaSilenzio;
-        bool anima = false;
-        // molla critica (niente rimbalzo), ~0,35 s: comparsa della testa e di ogni parte
-        auto entra = [&](double& p, double& v, bool voluto, double k = 120) { anima |= molla(p, v, voluto ? 1.0 : 0.0, k, 1.0, 0.002); };
-        entra(testaK, vTestaK, vuole);
-        entra(pSv, vSv, testaSveglio); entra(pSi, vSi, testaSilenzio);
-        entra(pMu, vMu, testaMusica); entra(pTi, vTi, testaTimer);
-        // allargamenti col mouse sopra (o con un tasto premuto), un poco piu' svelti
-        entra(kMus, vkMus, testaMusica && ((mouseDentro && dentro(rettMus, mouseX, mouseY)) || (tastoPremuto >= 0 && tastoPremuto <= 2)), 200);
-        entra(kTim, vkTim, testaTimer && ((mouseDentro && dentro(rettTim, mouseX, mouseY)) || tastoPremuto == 3 || tastoPremuto == 4), 200);
-        // scala con la lente del dock, come un'icona al suo posto: col mouse vicino cresce insieme alle icone
-        scTesta = 1;
-        if (lente > 0.001 && rettTesta.right > rettTesta.left && mouseDentro) {
-            // distanza dal bordo piu' vicino, 0 sopra la capsula: e' larga, e dal centro (come un'icona) i tasti a destra
-            // la facevano rimpicciolire mentre ci si andava sopra
-            const float raggio = S * 2.6f;
-            const float fuori = std::max({0.0f, rettTesta.left - mouseX, mouseX - rettTesta.right});
-            const float dist = std::min(fuori / raggio, 1.0f);
-            const float kk = (std::cos(dist * (float)M_PI) + 1) / 2;
-            scTesta = 1 + (M / S - 1) * kk * (float)lente;
-        }
-        // larghezza: le parti pesano quanto la loro presenza (si allargano e stringono con la molla)
-        const float d = dpi * scTesta;
-        float w = 0, prima = 0;   // prima: quanto c'e' gia' a sinistra (lo spazio di 12 px compare con la parte)
-        auto parte = [&](double p, float largo) {
-            if (p <= 0.001) return;
-            w += (float)p * largo + 12 * d * (float)p * std::min(1.0f, prima);
-            prima += (float)p;
-        };
-        w += (float)(pSv + pSi) * 20 * d;   // (tazzina e luna una accanto all'altra, senza spazio)
-        prima = std::min(1.0f, (float)(pSv + pSi));
-        parte(pMu, larghezzaMusica());
-        parte(pTi, larghezzaTimer());
-        if (w > 0) largTesta = std::round(w + 20 * d);
-        if (testaK <= 0.001 && !vuole) { rettTesta = rettMus = rettTim = {}; tastoPremuto = -1; }
-        if (t - tSveglio < 0.7 || t - tSilenzio < 0.7) anima = true;   // rimbalzo e onda dei segni
-        // copertina (si rifa' quando cambia il brano)
-        const UINT ver = br.versione ^ (UINT)br.copertina.size();
-        if (testaMusica && ver != versioneTesta) {
-            versioneTesta = ver;
-            if (bTesta) { bTesta->Release(); bTesta = nullptr; }
-            if (br.copertina.size() >= (size_t)musica::LATO * musica::LATO)
-                dc->CreateBitmap(D2D1::SizeU(musica::LATO, musica::LATO), br.copertina.data(), musica::LATO * 4,
-                                 D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &bTesta);
-        }
-        // barrette che ballano: ~16 fotogrammi al secondo; solo il timer: 4 (i secondi). Niente se non si vede
-        const int periodo = testaK <= 0.001 ? 0 : pMu > 0.001 && br.suona ? 60 : pTi > 0.001 ? 250 : 0;
-        if (periodo != periodoTesta) {
-            periodoTesta = periodo;
-            if (periodo) SetTimer(icone, TIMER_TESTA, periodo, nullptr); else KillTimer(icone, TIMER_TESTA);
-        }
-        return anima;
-    }
-    // larghezze piene di musica e timer (con i tasti in proporzione all'allargamento), alla scala attuale
-    float larghezzaMusica() const { const float d = dpi * scTesta; return S * scTesta * 0.62f + 22 * d + (float)kMus * (3 * 26 + 6) * d; }
-    float cifreTimer() {   // larghezza del tempo a grandezza 1 (cifre a larghezza fissa mentre i secondi scorrono)
-        std::wstring z = comodita::durata(comodita::timerResto());
-        for (wchar_t& c : z) if (c >= L'0' && c <= L'9') c = L'0';
-        return larghezzaTesto(z, fmtOra);
-    }
-    float larghezzaTimer() { const float d = dpi * scTesta; return 24 * d + cifreTimer() * scTesta + (float)kTim * (44 + 6 + 26 + 4) * d; }
-
-    static bool dentro(const D2D1_RECT_F& r, float x, float y) { return r.right > r.left && x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
-
-    // (ogni 500 ms da aggiornaStato) brano, pausa, timer, segni o notch fisso cambiati, o pausa da piu' di 8 s
-    UINT firmaTesta = 0xFFFFFFFF;
-    bool testaCambiata() {
-        const musica::Brano& br = notch.musicaOra();
-        // anche col dock giu' (nessun disegno): gli 8 s della pausa contano da quando ha smesso davvero (R20261120-141156-S2)
-        if (br.c && br.suona) ultimaMusica = adesso();
-        const UINT f = (notch.fisso() ? 1u : 0u) | (br.c ? 2u : 0u) | (br.suona ? 4u : 0u) | (comodita::timerAttivo() ? 8u : 0u) |
-                       (comodita::sveglio() ? 16u : 0u) | (comodita::silenzio() ? 32u : 0u) | (br.versione << 6);
-        const bool scaduta = testaMusica && !br.suona && adesso() - ultimaMusica >= 8;
-        if (f == firmaTesta && !scaduta) return false;
-        firmaTesta = f;
-        return true;
-    }
-
-    bool inTesta(float x, float y) const {
-        return rettTesta.right > rettTesta.left && x >= rettTesta.left && x < rettTesta.right && y >= rettTesta.top - 6 * dpi && y <= rettTesta.bottom + PAD;
-    }
-    // tasto della testa sotto il mouse: 0 indietro, 1 play/pausa, 2 avanti, 3 +1 min, 4 stop; -1 nessuno
-    // il punto logico (x, y) e' sul tasto r? Il tasto e' disegnato dritto attorno al suo centro (dritto): si confronta
-    // sullo schermo, cosi' ai lati la pillola "+1 min", larga e bassa, si prende dove la si vede (R20261120-190507-S1)
-    bool sulTasto(const D2D1_RECT_F& r, float x, float y) const {
-        const D2D1_POINT_2F p = fis(x, y), c = fis((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-        return std::abs(p.x - c.x) <= (r.right - r.left) / 2 && std::abs(p.y - c.y) <= (r.bottom - r.top) / 2;
-    }
-    int tastoTestaIn(float x, float y) const {
-        for (int i = 0; i < 5; i++) {
-            // (solo ad allargamento finito: prima i tasti stanno gia' al posto finale, oltre lo spazio concesso, e potevano
-            // finire sopra il timer, R20261120-145131-S1)
-            const bool vale = i <= 2 ? kMus > 0.98 : kTim > 0.98;
-            if (vale && sulTasto(tastoTesta[i], x, y)) return i;
-        }
-        return -1;
-    }
-    void premiTastoTesta(int b) {
-        if (b >= 0 && b <= 2) notch.comandoMusica(b);
-        else if (b == 3) comodita::aggiungiTimer(60000);
-        else if (b == 4) comodita::fermaTimer();
-        dirty = true;
-    }
-
-    // tazzina (tieni sveglio) e luna (non disturbare), come nel notch, col colore del dock
-    void segnoTesta(bool tazza, float cx, float cy, D2D1_COLOR_F ink) {
-        const float d = dpi;
-        pennello->SetColor(ink);
-        if (tazza) {
-            dc->FillRoundedRectangle({{cx - 5 * d, cy - 2 * d, cx + 3 * d, cy + 5 * d}, 1.6f * d, 1.6f * d}, pennello);
-            dc->DrawEllipse({{cx + 4 * d, cy + 1.2f * d}, 2.2f * d, 2.2f * d}, pennello, 1.3f * d);
-            dc->DrawLine({cx - 2.5f * d, cy - 4 * d}, {cx - 2.5f * d, cy - 6.5f * d}, pennello, 1.1f * d);
-            dc->DrawLine({cx + 0.5f * d, cy - 4 * d}, {cx + 0.5f * d, cy - 6.5f * d}, pennello, 1.1f * d);
-            return;
-        }
-        ID2D1EllipseGeometry *a = nullptr, *b = nullptr; ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
-        if (SUCCEEDED(f2d->CreateEllipseGeometry({{cx, cy}, 6 * d, 6 * d}, &a)) && SUCCEEDED(f2d->CreateEllipseGeometry({{cx + 3.6f * d, cy - 2.6f * d}, 5 * d, 5 * d}, &b)) &&
-            SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&s))) {
-            if (SUCCEEDED(a->CombineWithGeometry(b, D2D1_COMBINE_MODE_EXCLUDE, nullptr, s)) && SUCCEEDED(s->Close())) dc->FillGeometry(g, pennello);
-        }
-        if (s) s->Release();
-        if (g) g->Release();
-        if (b) b->Release();
-        if (a) a->Release();
-    }
-
-    // un tasto rotondo della testa (evidenza col mouse sopra, piu' scuro premuto)
-    void fondoTasto(int i, bool scuro, float a) {
-        const D2D1_RECT_F& r = tastoTesta[i];
-        const bool sopraT = mouseDentro && sulTasto(r, mouseX, mouseY);
-        if (!sopraT && tastoPremuto != i) return;
-        const float q = tastoPremuto == i ? 0.22f : 0.12f;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, q * a) : D2D1::ColorF(0, 0, 0, q * 0.6f * a));
-        const float rr = (r.bottom - r.top) / 2;
-        dc->FillRoundedRectangle({r, rr, rr}, pennello);
-    }
-
-    // disegna la testa all'inizio del dock (x0: dove comincia), alla scala della lente (scTesta); true se sta animando.
-    // Ogni parte e' ritagliata alla sua larghezza del momento e sfuma con la sua presenza: entrando e uscendo si scopre
-    // e si copre, senza salti
-    bool disegnaTestaDock(float x0, float yb, bool scuro, double t) {
-        if (larghezzaTesta() <= 0) { rettTesta = rettMus = rettTim = {}; return false; }
-        const float k = (float)std::clamp(testaK, 0.0, 1.0), cw = largTesta * k, sc = scTesta, d = dpi * sc, Ss = S * sc;
-        const D2D1_RECT_F r = {x0, yb - Ss, x0 + cw, yb};
-        rettTesta = r;
-        // separatore fra la testa e la prima icona
-        pennello->SetColor(D2D1::ColorF(scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, scuro ? 1.f : 0.f, 0.22f * k));
-        const float sx = x0 + cw + (GAP + 0.5f) * k;
-        dc->DrawLine({sx, yb - S * 0.85f}, {sx, yb - S * 0.15f}, pennello, 1.0f);
-        // capsula: fondo come ora e data in coda (solo col vetro trasparente), evidenza col mouse sopra
-        const float cy = (r.top + r.bottom) / 2, ph = Ss * 0.42f;
-        const D2D1_ROUNDED_RECT capsula = {{r.left, cy - ph, r.right, cy + ph}, std::min(10 * d, ph) * raggio::fattore(), std::min(10 * d, ph) * raggio::fattore()};
-        const double e = verso(evTesta, (mouseDentro && inTesta(mouseX, mouseY)) ? 1.0 : 0.0, 0.05);
-        bool anima = e != evTesta;
-        evTesta = e;
-        {
-            BYTE av = 255; DWORD fl = 0;
-            if (!GetLayeredWindowAttributes(vetro, nullptr, &av, &fl) || !(fl & LWA_ALPHA)) av = 255;
-            const float quanto = std::clamp((1 - av / 255.0f) / 0.8f, 0.0f, 1.0f);
-            if (quanto > 0.02f) {
-                pennello->SetColor(scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.5f * quanto * k) : D2D1::ColorF(1, 1, 1, 0.6f * quanto * k));
-                dc->FillRoundedRectangle(capsula, pennello);
-            }
-        }
-        if (e > 0.01) {
-            pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e * k) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e * k));
-            dc->FillRoundedRectangle(capsula, pennello);
-        }
-        // contenuti: entrano con la comparsa, tagliati alla capsula mentre si allarga
-        dc->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        const D2D1_COLOR_F ink0 = scuro ? D2D1::ColorF(1, 1, 1, 0.92f * k) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f * k);
-        float x = r.left + 10 * d, prima = 0;
-        // segni: rimbalzo (scala con un poco di oltre) e un'onda che si allarga e sfuma, per 0,7 s dalla comparsa
-        for (int i = 0; i < 2; i++) {
-            const float p = (float)std::clamp(i == 0 ? pSv : pSi, 0.0, 1.0);
-            if (p <= 0.01f) continue;
-            const D2D1_COLOR_F ink = {ink0.r, ink0.g, ink0.b, ink0.a * p};
-            const double et = t - (i == 0 ? tSveglio : tSilenzio);
-            const float cx = x + 10 * d * p;
-            float sp = 1;   // rimbalzo della comparsa
-            if (et < 0.7) {
-                const float u = (float)std::clamp(et / 0.45, 0.0, 1.0), c1 = 1.70158f, c3 = c1 + 1;
-                sp = 0.4f + 0.6f * (1 + c3 * (u - 1) * (u - 1) * (u - 1) + c1 * (u - 1) * (u - 1));   // easeOutBack
-                const float o = (float)std::clamp(et / 0.7, 0.0, 1.0);
-                pennello->SetColor({ink.r, ink.g, ink.b, ink.a * 0.5f * (1 - o)});
-                dc->DrawEllipse({{cx, cy}, (7 + 9 * o) * d, (7 + 9 * o) * d}, pennello, 1.2f * d);
-            }
-            dritto(cx, cy, sc * sp * (0.6f + 0.4f * p));
-            segnoTesta(i == 0, cx, cy, ink);   // (disegnato a grandezza 1 attorno al centro: lo scala la trasformazione)
-            piano();
-            x += 20 * d * p;
-        }
-        prima = std::min(1.0f, (float)(pSv + pSi));
-        if (pMu > 0.001) {
-            const float p = (float)std::clamp(pMu, 0.0, 1.0);
-            x += 12 * d * p * prima;
-            const float x1 = x, largo = larghezzaMusica();
-            const D2D1_COLOR_F ink = {ink0.r, ink0.g, ink0.b, ink0.a * p};
-            dc->PushAxisAlignedClip({x1, r.top, x1 + largo * p, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            const float q = Ss * 0.62f;
-            const D2D1_RECT_F rc = {x, cy - q / 2, x + q, cy + q / 2};
-            dritto((rc.left + rc.right) / 2, cy);   // (copertina dritta)
-            ID2D1BitmapBrush* bb = nullptr;
-            if (bTesta && SUCCEEDED(dc->CreateBitmapBrush(bTesta, &bb)) && bb) {
-                const D2D1_SIZE_F bs = bTesta->GetSize();
-                bb->SetTransform(D2D1::Matrix3x2F::Scale(q / bs.width, q / bs.height) * D2D1::Matrix3x2F::Translation(rc.left, rc.top));
-                bb->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-                bb->SetOpacity(k * p);
-                dc->FillRoundedRectangle({rc, q * 0.22f, q * 0.22f}, bb);
-                bb->Release();
-            } else {   // senza copertina: riquadro con una nota
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.14f * k * p) : D2D1::ColorF(0, 0, 0, 0.10f * k * p));
-                dc->FillRoundedRectangle({rc, q * 0.22f, q * 0.22f}, pennello);
-                const float nx = (rc.left + rc.right) / 2, ny = cy;
-                pennello->SetColor(ink);
-                dc->FillEllipse({{nx - 2.5f * d, ny + 3.5f * d}, 2.6f * d, 2.1f * d}, pennello);
-                dc->DrawLine({nx, ny + 3.5f * d}, {nx, ny - 5.5f * d}, pennello, 1.3f * d);
-                dc->DrawLine({nx, ny - 5.5f * d}, {nx + 4 * d, ny - 3.5f * d}, pennello, 1.3f * d);
-            }
-            piano();
-            // barrette: ballano mentre suona, ferme e basse in pausa (come nel notch)
-            const musica::Brano& br = notch.musicaOra();
-            const float bx = rc.right + 8 * d, lb = 2.4f * d, passo = (14 * d - lb) / 3;
-            dritto(bx + 7 * d, cy);   // (barrette in piedi anche ai lati)
-            pennello->SetColor(ink);
-            for (int i = 0; i < 4; i++) {
-                float kb = 0.25f;
-                if (br.suona) kb = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
-                const float hb = std::max(2.4f * d, 12 * d * kb);
-                dc->FillRoundedRectangle({{bx + i * passo, cy - hb / 2, bx + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pennello);
-            }
-            piano();
-            x = bx + 14 * d;
-            // tasti (col mouse sopra): indietro, play/pausa, avanti; disegnati solo nello spazio gia' concesso
-            const float km = (float)std::clamp(kMus, 0.0, 1.0);
-            dc->PushAxisAlignedClip({x, r.top, x + km * (3 * 26 + 6) * d, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            for (int i = 0; i < 3; i++) {
-                const float tc = x + 6 * d + (13 + 26 * i) * d;
-                tastoTesta[i] = {tc - 12 * d, cy - 12 * d, tc + 12 * d, cy + 12 * d};
-                if (km < 0.02f) continue;
-                fondoTasto(i, scuro, km * k * p);
-                dritto(tc, cy);   // (simboli dritti: ai lati i tasti stanno in colonna)
-                pennello->SetColor({ink.r, ink.g, ink.b, ink.a * km});
-                const float tr = 4.2f * d;
-                auto triangolo = [&](float ax, bool destra) {   // punta a destra o a sinistra
-                    ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
-                    if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
-                        const float dx = destra ? tr : -tr;
-                        sk->BeginFigure({ax - dx, cy - tr}, D2D1_FIGURE_BEGIN_FILLED);
-                        sk->AddLine({ax + dx, cy}); sk->AddLine({ax - dx, cy + tr});
-                        sk->EndFigure(D2D1_FIGURE_END_CLOSED);
-                        if (SUCCEEDED(sk->Close())) dc->FillGeometry(g, pennello);
-                    }
-                    if (sk) sk->Release();
-                    if (g) g->Release();
-                };
-                if (i == 1) {
-                    if (br.suona) {   // pausa: due barre
-                        dc->FillRoundedRectangle({{tc - 4 * d, cy - 5 * d, tc - 1.3f * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
-                        dc->FillRoundedRectangle({{tc + 1.3f * d, cy - 5 * d, tc + 4 * d, cy + 5 * d}, 1 * d, 1 * d}, pennello);
-                    } else triangolo(tc + 1 * d, true);
-                } else {
-                    const bool destra = i == 2;
-                    triangolo(tc + (destra ? -2.5f : 2.5f) * d, destra);
-                    triangolo(tc + (destra ? 2.5f : -2.5f) * d, destra);
-                }
-                piano();
-            }
-            dc->PopAxisAlignedClip();
-            dc->PopAxisAlignedClip();
-            x = x1 + largo * p;
-            rettMus = p > 0.5f ? D2D1_RECT_F{x1 - 6 * d, r.top, x + 6 * d, r.bottom} : D2D1_RECT_F{};
-            prima = std::min(1.0f, prima + p);
-        } else rettMus = {};
-        if (pTi > 0.001) {
-            const float p = (float)std::clamp(pTi, 0.0, 1.0);
-            x += 12 * d * p * prima;
-            const float x1 = x, largo = larghezzaTimer();
-            dc->PushAxisAlignedClip({x1, r.top, x1 + largo * p, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            const D2D1_COLOR_F ink = {ink0.r, ink0.g, ink0.b, ink0.a * p};
-            // anello che si svuota e il tempo che resta, in arancio come nel notch
-            const float rr = 7 * d, ax = x + rr + 2 * d;
-            dritto(ax, cy);   // (l'arco parte sempre dall'alto)
-            pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.22f * k * p) : D2D1::ColorF(0, 0, 0, 0.16f * k * p));
-            dc->DrawEllipse({{ax, cy}, rr, rr}, pennello, 2.2f * d);
-            const float av = std::clamp((float)comodita::timerAvanzamento(), 0.0f, 1.0f);
-            pennello->SetColor(D2D1::ColorF(1.0f, 0.62f, 0.04f, k * p));
-            if (av >= 0.999f) dc->DrawEllipse({{ax, cy}, rr, rr}, pennello, 2.2f * d);
-            else if (av > 0.001f) {
-                ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
-                if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
-                    const float ang = av * 2 * (float)M_PI;
-                    sk->BeginFigure({ax, cy - rr}, D2D1_FIGURE_BEGIN_HOLLOW);
-                    sk->AddArc(D2D1::ArcSegment({ax + rr * std::sin(ang), cy - rr * std::cos(ang)}, {rr, rr}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                                                av > 0.5f ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
-                    sk->EndFigure(D2D1_FIGURE_END_OPEN);
-                    if (SUCCEEDED(sk->Close())) dc->DrawGeometry(g, pennello, 2.2f * d);
-                }
-                if (sk) sk->Release();
-                if (g) g->Release();
-            }
-            piano();
-            // tempo che resta (scritto a grandezza 1 e scalato attorno al suo inizio)
-            const std::wstring cifre = comodita::durata(comodita::timerResto());
-            const float tw = cifreTimer();
-            const float xt = ax + rr + 6 * d;
-            // (dritto attorno al centro della scritta: ai lati sta in mezzo allo spessore del dock)
-            const float tcx = xt + tw * sc / 2;
-            dritto(tcx, cy, sc);
-            dc->DrawText(cifre.c_str(), (UINT32)cifre.size(), fmtOra, {tcx - tw / 2, cy - 10 * dpi, tcx + tw / 2, cy + 10 * dpi}, pennello);
-            piano();
-            x = xt + tw * sc;
-            // tasti (col mouse sopra): +1 min e stop, disegnati solo nello spazio gia' concesso
-            const float kt = (float)std::clamp(kTim, 0.0, 1.0);
-            tastoTesta[3] = {x + 6 * d, cy - 11 * d, x + 50 * d, cy + 11 * d};
-            tastoTesta[4] = {x + 56 * d, cy - 12 * d, x + 80 * d, cy + 12 * d};
-            if (kt > 0.02f) {
-                dc->PushAxisAlignedClip({x, r.top, x + kt * (44 + 6 + 26 + 4) * d, r.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                const D2D1_RECT_F& rp = tastoTesta[3];
-                const bool sopraP = mouseDentro && sulTasto(rp, mouseX, mouseY);
-                dritto((rp.left + rp.right) / 2, cy);   // (pillola e scritta dritte anche ai lati)
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, (tastoPremuto == 3 ? 0.30f : sopraP ? 0.22f : 0.14f) * kt * k * p)
-                                         : D2D1::ColorF(0, 0, 0, (tastoPremuto == 3 ? 0.18f : sopraP ? 0.13f : 0.08f) * kt * k * p));
-                dc->FillRoundedRectangle({rp, 11 * d, 11 * d}, pennello);
-                pennello->SetColor({ink.r, ink.g, ink.b, ink.a * kt});
-                const std::wstring piu = testi::t(L"+1 min", L"+1 min");
-                const float pcx = (rp.left + rp.right) / 2;
-                dritto(pcx, cy, sc);
-                dc->DrawText(piu.c_str(), (UINT32)piu.size(), fmtData, {pcx - 22 * dpi, cy - 11 * dpi, pcx + 22 * dpi, cy + 11 * dpi}, pennello);
-                piano();
-                const D2D1_RECT_F& rs = tastoTesta[4];
-                const float scx = (rs.left + rs.right) / 2;
-                pennello->SetColor(D2D1::ColorF(1.0f, 0.42f, 0.32f, (tastoPremuto == 4 ? 1.0f : 0.85f) * kt * k * p));
-                dc->FillEllipse({{scx, cy}, 11 * d, 11 * d}, pennello);
-                pennello->SetColor(D2D1::ColorF(1, 1, 1, kt * k * p));
-                dc->FillRoundedRectangle({{scx - 3.5f * d, cy - 3.5f * d, scx + 3.5f * d, cy + 3.5f * d}, 1.2f * d, 1.2f * d}, pennello);
-                dc->PopAxisAlignedClip();
-            }
-            dc->PopAxisAlignedClip();
-            x = x1 + largo * p;
-            rettTim = p > 0.5f ? D2D1_RECT_F{x1 - 6 * d, r.top, x + 6 * d, r.bottom} : D2D1_RECT_F{};
-        } else rettTim = {};
-        dc->PopAxisAlignedClip();
-        if (t - tSveglio < 0.7 || t - tSilenzio < 0.7) anima = true;
-        return anima;
-    }
-
     // velo chiaro, bordo luminoso e sottile contorno scuro: stessa forma del vetro sotto
     // fondo di vetro (velo e bordi sopra il vetro acrilico); a: opacita' (quella del dock, impostazione; 1 i pannelli)
     // tinta: colore scelto per il dock (nullptr: chiaro o scuro col tema), piu' coprente perche' si veda
     void disegnaFondo(const D2D1_RECT_F& f, bool scuro, float a = 1, const D2D1_COLOR_F* tinta = nullptr) {
-        pennello->SetColor(tinta ? D2D1::ColorF(tinta->r, tinta->g, tinta->b, 0.62f * a)
-                                 : scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.35f * a) : D2D1::ColorF(1, 1, 1, 0.38f * a));
+        const float velo = materialeVetro == 6 ? 0.25f : materialeVetro == 7 ? 0.12f : tinta ? 0.62f : (scuro ? 0.35f : 0.38f);
+        pennello->SetColor(tinta ? D2D1::ColorF(tinta->r, tinta->g, tinta->b, velo * a)
+                                 : scuro ? D2D1::ColorF(0.12f, 0.12f, 0.14f, velo * a) : D2D1::ColorF(1, 1, 1, velo * a));
         dc->FillRoundedRectangle({f, RAGGIO, RAGGIO}, pennello);
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.14f * a) : D2D1::ColorF(1, 1, 1, 0.75f * a));
-        dc->DrawRoundedRectangle({{f.left + 0.5f, f.top + 0.5f, f.right - 0.5f, f.bottom - 0.5f}, std::max(0.0f, RAGGIO - 0.5f), std::max(0.0f, RAGGIO - 0.5f)}, pennello, 1.0f);
+        if (materialeVetro != 7) {
+            const float bordo = materialeVetro == 6 ? 0.58f : (scuro ? 0.14f : 0.75f);
+            pennello->SetColor(D2D1::ColorF(1, 1, 1, bordo * a));
+            dc->DrawRoundedRectangle({{f.left + 0.5f, f.top + 0.5f, f.right - 0.5f, f.bottom - 0.5f}, std::max(0.0f, RAGGIO - 0.5f), std::max(0.0f, RAGGIO - 0.5f)}, pennello, materialeVetro == 6 ? 1.5f : 1.0f);
+        }
         pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.45f : 0.10f) * a));
         dc->DrawRoundedRectangle({{f.left - 0.5f, f.top - 0.5f, f.right + 0.5f, f.bottom + 0.5f}, RAGGIO + 0.5f, RAGGIO + 0.5f}, pennello, 1.0f);
     }
@@ -2671,7 +2826,7 @@ private:
         dc->FillRoundedRectangle({rr, 7 * dpi * raggio::fattore(), 7 * dpi * raggio::fattore()}, pennello);
         pennello->SetColor(D2D1::ColorF(0, 0, 0, 0.15f * a));
         dc->DrawRoundedRectangle({rr, 7 * dpi * raggio::fattore(), 7 * dpi * raggio::fattore()}, pennello, 1.0f);
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, a) : D2D1::ColorF(0.1f, 0.1f, 0.1f, a));
+        pennello->SetColor(inchiostroUI(scuro, a));
         lay->SetMaxWidth(lw); lay->SetMaxHeight(lh);
         dc->DrawTextLayout({rr.left, rr.top}, lay, pennello);
         piano();
@@ -2686,65 +2841,6 @@ private:
         return tm.widthIncludingTrailingWhitespace;
     }
 
-    // disegna l'isola a destra, alla stessa altezza del dock; restituisce true se sta animando
-    bool disegnaIsola(bool scuro, float top, float bottom) {
-        const float P = 6 * dpi, GAP_ISOLE = 8 * dpi;
-        // larghezza della pillola dell'ora: si rimisura solo quando cambia il testo (prima a ogni fotogramma)
-        if (testoOra != misuratoOra || testoData != misuratoData) {
-            misuratoOra = testoOra; misuratoData = testoData;
-            larghezzaOra = std::max(larghezzaTesto(testoOra, fmtOra), larghezzaTesto(testoData, fmtData));
-        }
-        const float largOra = larghezzaOra + 22 * dpi;
-        const float largControllo = 3 * 30 * dpi;   // simbolo del centro di controllo, rete, volume
-        const float destra = std::round(W - 12 * dpi);
-        pillolaOra = {std::round(destra - 2 * P - largOra), top, destra, bottom};
-        pillolaControllo = {std::round(pillolaOra.left - GAP_ISOLE - 2 * P - largControllo), top, std::round(pillolaOra.left - GAP_ISOLE), bottom};
-        isola = {pillolaControllo.left, top, destra, bottom};
-        rettStato[CONTROLLO] = {pillolaControllo.left + P, top + P, pillolaControllo.right - P, bottom - P};
-        rettStato[ORA] = {pillolaOra.left + P, top + P, pillolaOra.right - P, bottom - P};
-        disegnaFondo(pillolaControllo, scuro);
-        disegnaFondo(pillolaOra, scuro);
-        aggiornaVetro(vetroStato, rettVetroStato, pillolaControllo.left, top, pillolaControllo.right, bottom);
-        aggiornaVetro(vetroOra, rettVetroOra, pillolaOra.left, top, pillolaOra.right, bottom);
-
-        bool movimento = false;
-        const D2D1_COLOR_F inchiostro = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.86f);
-        for (int i = 0; i < N_STATO; i++) {
-            const double e = verso(evidenza[i], (i == statoSopra && mouseDentro) ? 1.0 : 0.0, 0.05);
-            if (e != evidenza[i]) movimento = true;
-            evidenza[i] = e;
-            const float s = (i == statoPremuto) ? 0.92f : 1.0f;   // si "schiaccia" un poco alla pressione, come su iOS
-            const D2D1_RECT_F& r = rettStato[i];
-            const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-            if (e > 0.01) {
-                const float hw = (r.right - r.left) / 2 * s, hh = (r.bottom - r.top) / 2 * s;
-                pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f * (float)e) : D2D1::ColorF(1, 1, 1, 0.55f * (float)e));
-                dc->FillRoundedRectangle({{cx - hw, cy - hh, cx + hw, cy + hh}, std::max(0.0f, RAGGIO - 2 * dpi), std::max(0.0f, RAGGIO - 2 * dpi)}, pennello);
-            }
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(s, s, {cx, cy}));
-            pennello->SetColor(inchiostro);
-            switch (i) {
-                case CONTROLLO: {   // tre simboli in un solo pulsante: centro di controllo, rete, volume
-                    const float passo = (r.right - r.left) / 3;
-                    simboloControllo(r.left + passo * 0.5f, cy);
-                    simboloRete(r.left + passo * 1.5f, cy, inchiostro);
-                    pennello->SetColor(inchiostro);
-                    simboloVolume(r.left + passo * 2.5f, cy);
-                    break;
-                }
-                case ORA: {
-                    const float h2 = 17 * dpi;
-                    dc->DrawText(testoOra.c_str(), (UINT32)testoOra.size(), fmtOra, {r.left, cy - h2 - 1 * dpi, r.right, cy + 1 * dpi}, pennello);
-                    pennello->SetColor({inchiostro.r, inchiostro.g, inchiostro.b, inchiostro.a * 0.72f});
-                    dc->DrawText(testoData.c_str(), (UINT32)testoData.size(), fmtData, {r.left, cy + 1 * dpi, r.right, cy + h2 - 1 * dpi}, pennello);
-                    break;
-                }
-            }
-            dc->SetTransform(D2D1::Matrix3x2F::Identity());
-        }
-        return movimento;
-    }
-
     std::wstring descrizioneStato(int i) const {
         switch (i) {
             case CONTROLLO: {
@@ -2753,7 +2849,7 @@ private:
                 if (muto) return s + testi::t(L" \u00b7 audio disattivato", L" \u00b7 sound off");
                 wchar_t b[32]; swprintf(b, 32, L" \u00b7 volume %d%%", (int)std::lround(volume * 100)); return s + b;
             }
-            case ORA:      return testoDataLunga;
+            case ORA:      return testoOra;
         }
         return L"";
     }
@@ -2843,18 +2939,51 @@ private:
     void aggiornaStato(bool tutto) {
         bool cambiato = false;
         SYSTEMTIME st; GetLocalTime(&st);
-        wchar_t b[96];
-        swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
-        if (testoOra != b) {
-            testoOra = b; cambiato = true;
-            const wchar_t* loc = testi::locale();
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), b, 96, nullptr)) testoData = b;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM yyyy", L"dddd, MMMM d, yyyy"), b, 96, nullptr)) { testoDataLunga = b; if (!testoDataLunga.empty()) testoDataLunga[0] = (wchar_t)towupper(testoDataLunga[0]); }
-            // con un calendario non gregoriano scelto in Windows la data del pannello (sopra il calendario) e' nel suo
-            // (issue #24); ora, data breve del dock e notch restano quelle di sempre
-            if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty()) testoDataLunga = cm.dataLunga;
-            if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM", L"dddd, MMMM d"), b, 96, nullptr)) { testoNotch = b; if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]); }
-            notch.testi(testoOra, testoNotch);   // il notch mostra ora e data
+        wchar_t b[96] = L"", formatoLocale[96] = L"", ore[32] = L"", minuti[32] = L"", meridiem[32] = L"", oraNotch[96] = L"";
+        const wchar_t* loc = testi::locale();
+        const bool formato12 = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, formatoLocale, 96) > 0 &&
+                               wcschr(formatoLocale, L'h') != nullptr && wcschr(formatoLocale, L'H') == nullptr;
+        const wchar_t* formatoOra = formato12 ? L"hh:mm tt" : L"HH:mm";
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formatoOra, b, 96)) {
+            if (formato12) swprintf(b, 96, L"%02d:%02d %s",
+                                    (st.wHour % 12) ? (st.wHour % 12) : 12,
+                                    st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
+            else swprintf(b, 96, L"%02d:%02d", st.wHour, st.wMinute);
+        }
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, formato12 ? L"hh" : L"HH", ore, 32))
+            swprintf(ore, 32, L"%02d",
+                     formato12 ? ((st.wHour % 12) ? (st.wHour % 12) : 12) : st.wHour);
+        if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, L"mm", minuti, 32))
+            swprintf(minuti, 32, L"%02d", st.wMinute);
+        if (formato12 && !GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, L"tt", meridiem, 32))
+            wcscpy(meridiem, st.wHour < 12 ? L"AM" : L"PM");
+        if (testoOra != b || testoOraOre != ore || testoOraMinuti != minuti ||
+            testoOraMeridiem != meridiem || oraDodici != formato12) {
+            testoOra = b; testoOraOre = ore; testoOraMinuti = minuti; testoOraMeridiem = meridiem;
+            oraDodici = formato12; cambiato = true;
+        }
+        const std::wstring giornoPrima = testoNotch;
+        wchar_t giorno[96] = L"", dataLunga[96] = L"";
+        if (GetDateFormatEx(loc, 0, &st, testi::t(L"ddd d MMM", L"ddd, MMM d"), giorno, 96, nullptr)) {
+            testoNotch = giorno;
+            if (!testoNotch.empty()) testoNotch[0] = (wchar_t)towupper(testoNotch[0]);
+        }
+        // Control Center's calendar header still needs the localized long date; it is no longer drawn in the dock.
+        if (GetDateFormatEx(loc, 0, &st, testi::t(L"dddd d MMMM yyyy", L"dddd, MMMM d, yyyy"), dataLunga, 96, nullptr)) {
+            testoDataLunga = dataLunga;
+            if (!testoDataLunga.empty()) testoDataLunga[0] = (wchar_t)towupper(testoDataLunga[0]);
+        }
+        if (const calendario::Mese& cm = calendario::meseUtente(loc); cm.ok && !cm.dataLunga.empty())
+            testoDataLunga = cm.dataLunga;
+        if (notch12Ore) {
+            if (!GetTimeFormatEx(loc, 0, &st, L"hh:mm tt", oraNotch, 96))
+                swprintf(oraNotch, 96, L"%02d:%02d %s",
+                         (st.wHour % 12) ? (st.wHour % 12) : 12,
+                         st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
+        } else swprintf(oraNotch, 96, L"%02d:%02d", st.wHour, st.wMinute);
+        if (testoOraNotch != oraNotch || testoNotch != giornoPrima) {
+            testoOraNotch = oraNotch;
+            notch.testi(testoOraNotch, testoNotch);
         }
         const float v0 = volume; const bool m0 = muto, ok0 = audioOk;
         leggiVolume();
@@ -2862,8 +2991,6 @@ private:
         if (tutto || ++conteggioTimer % 4 == 0) {
             const int r0 = rete; leggiRete(); cambiato |= r0 != rete;
         }
-        // testa del dock: musica e timer cambiano senza che il dock lo sappia (li legge il notch): si ridisegna qui
-        if (testaCambiata()) dirty = true;
         usa(0);   // controllo, widget: la scheda 0
         if (cambiato) { dirty = true; if (pannelloTipo == P_CONTROLLO) pDirty = true; }
         if (pannelloTipo == P_CONTROLLO && !pChiusura) {   // l'uscita audio puo' cambiare (cuffie collegate)
@@ -3150,8 +3277,10 @@ private:
                     bool scuro, D2D1_COLOR_F ink, float margine = 8) {
         const int e = aggiungi(r, a, 0);
         const float rp = std::max(6.0f, raggio::vetro() - 10.0f) * dpi;   // concentrica con l'angolo del pannello
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.05f));
+        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.085f) : D2D1::ColorF(1, 1, 1, 0.72f));
         dc->FillRoundedRectangle({r, rp, rp}, pennello);
+        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.08f) : D2D1::ColorF(0.08f, 0.12f, 0.18f, 0.045f));
+        dc->DrawRoundedRectangle({r, rp, rp}, pennello, 1.0f * dpi);
         evidenzia(e, r, scuro, rp);
         const float cx = r.left + 32 * dpi, cy = (r.top + r.bottom) / 2;
         pennello->SetColor(acceso ? D2D1::ColorF(0.0f, 0.478f, 1.0f, 1.0f) : (scuro ? D2D1::ColorF(1, 1, 1, 0.18f) : D2D1::ColorF(0, 0, 0, 0.10f)));
@@ -3375,7 +3504,7 @@ private:
     // dal bordo, e ai lati oltre il bordo c'e' spesso l'altro schermo (dock a destra del secondario, a sinistra del
     // principale): il vetro ci finiva sopra come una striscia staccata. Tutto fuori: nascosto, segnato con
     // VETRO_FUORI, e rimesso quando rientra (con WS_THICKFRAME Windows non lo farebbe piu' piccolo della misura minima
-    // di una finestra). Solo quelli nascosti cosi' si rimostrano: vetroStato e vetroOra non sono mai visibili
+    // di una finestra). Solo il vetro dello stato e' nascosto cosi' e rimesso quando rientra.
     static constexpr const wchar_t* VETRO_FUORI = L"FluidWin.VetroFuori";
     void aggiornaVetro(HWND h, RECT& ultimo, float l, float t, float r, float b) {
         const RECT pieno = aSchermo({l, t, r, b});   // (sul lato del dock)
@@ -3402,14 +3531,22 @@ private:
     void posizionaVetri() {
         vetroDaRiposizionare = false;
         SetWindowPos(icone, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        for (HWND v : {vetro, vetroStato, vetroOra}) SetWindowPos(v, icone, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        for (HWND v : {vetro, vetroStato}) SetWindowPos(v, icone, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----
-    struct AppL { std::wstring nome, avvio, minuscolo; ID2D1Bitmap1* icona = nullptr; bool provata = false; };
+    struct AppL { std::wstring nome, avvio, minuscolo; ID2D1Bitmap1* icona = nullptr; bool provata = false; bool iconaScura = false; };
+    struct CartellaL {
+        std::wstring nome;
+        int icona = 0;
+        int colore = 0;
+        bool personalizzata = false;
+        std::vector<std::wstring> app;
+    };
     HWND launcher = nullptr, vetroLauncher = nullptr;
     IDXGISwapChain1* scL = nullptr; IDCompositionTarget* targetL = nullptr; IDCompositionVisual* visualL = nullptr;
     IDCompositionEffectGroup* effettoL = nullptr; ID2D1Bitmap1* bersaglioL = nullptr;
+    ID2D1Bitmap1* lPinContorno = nullptr; ID2D1Bitmap1* lPinPieno = nullptr;
     float LW = 0, LH = 0, LEXTRA = 0;      // misure del launcher; sotto, lo spazio fino all'icona da cui esce
     float LHMAX = 0;                       // altezza della sua superficie (LH si adatta allo schermo a ogni apertura)
     HWND primaDelLauncher = nullptr;       // finestra in primo piano prima dell'apertura
@@ -3418,15 +3555,39 @@ private:
     POINT ancora{};                        // icona "App": da qui cresce e qui rientra (coordinate della finestra)
     std::vector<AppL> tutteApp;
     std::vector<int> filtrate;
+    std::vector<int> lPinned;             // preferiti effettivamente installati
+    std::vector<std::wstring> lPinnedManual; // percorsi fissati dall'utente, salvati in LocalAppData
+    std::vector<CartellaL> lCartelle;       // categorie predefinite e cartelle personalizzate
     std::wstring query;
+    bool lVistaLista = true;               // elenco alfabetico come vista predefinita
+    int lModalita = 0;                      // 0 workspace, 1 All Apps, 2 manage folder, 3 new folder, 4 search
+    int lCartellaAperta = -1;                // una sola cartella dell'archivio aperta alla volta
+    int lCartellaGestita = -1;
+    int lCartellaRinomina = -1;
+    std::wstring lNomeNuovaCartella;
+    std::vector<double> lAngoliCartella, lVelAngoliCartella;
+    bool lCartellaMenuAperto = false; // custom D2D context menu
+    int lCartellaMenuIndice = -1, lCartellaMenuHover = -1;
+    float lCartellaMenuX = 0, lCartellaMenuY = 0;
+    ID2D1Bitmap1* lFotoProfilo = nullptr;
+    bool lFotoProfiloTentata = false;
+    std::vector<std::wstring> lAppNuovaCartella;
+    bool lNomeNuovoAttivo = false, lCaretVisibile = false;
+    bool lRicercaAttiva = false, lRicercaCaretVisibile = false;
+    double lScrollCartelle = 0, lScrollCartelleObj = 0, lScrollEditor = 0;
     bool lAperto = false, lChiusura = false, lDirty = false, lAnim = false, lRegione = false, lMouseDentro = false;
     double lScala = 0.15, lVel = 0, lAlfa = 0, lT0 = 0, lChiusoT = -10, lLetto = -1e9;
     double lScroll = 0, lScrollObj = 0;
     // barra di scorrimento: si trascina (la si prende dove si vuole), un clic sul binario salta di una pagina
     bool lTrascinoBarra = false, lSopraBarra = false;
     float lPresaY = 0; double lPresaScroll = 0;
-    int lSel = 0, lSopra = -1;
-    bool lSopraEnergia = false;
+    int lSel = 0, lSopra = -1, lSopraPinned = -1, lSopraCartella = -1;
+    int lSopraAppCartella = -1, lSopraRimuoviAppCartella = -1, lSopraAzione = -1;
+    double lScalaPinnedHover[6] = {1.0,1.0,1.0,1.0,1.0,1.0};
+    bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
+    bool lSopraEsplora = false, lSopraImpostazioni = false;
+    bool lSopraCancelCartella = false, lSopraConfermaCartella = false;
+    bool lSopraRicerca = false, lSopraNomeCartella = false, lSopraCancellaRicerca = false, lSopraIndietro = false, lManoCursor = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
     // l'ultimo tasto, un thread chiede all'indice di Windows; sotto la griglia compare la sezione con i risultati del
     // testo lFileTesto e, in fondo, "Cerca in Esplora file". lFileGen scarta i risultati di un testo vecchio; lFileH e'
@@ -3502,10 +3663,49 @@ private:
     static bool iniziali(const std::wstring& nome, const std::wstring& q);
     static bool sottosequenza(const std::wstring& nome, const std::wstring& q);
     void filtra();
+    void aggiornaPinned();
+    void salvaPinned();
+    void togglePinned(int indiceApp);
+    void caricaCartelle();
+    void salvaCartelle();
+    void inizializzaCartelle();
+    void toggleAppCartella(int indiceApp, int cartella);
+    void rimuoviAppDaCartella(int indiceApp, int cartella);
+    void creaCartella();
+    void apriGestisciCartella(int cartella);
+    void apriMenuCartella(int cartella, POINT pt);
+    void apriRinominaCartella(int cartella);
+    void salvaRinominaCartella();
+    void rimuoviCartella(int cartella);
+    bool caricaFotoProfilo();
+    int lCategoriaPredefinita(const AppL& app) const;
+    int lCategoriaApp(const AppL& app) const;
+    int lIndiceCartella(const std::wstring& avvio) const;
+    std::wstring lNomeCategoria(const AppL& app) const;
+    std::vector<int> lAppCategoria(int categoria) const;
+    float lDividerX() const;
+    float lFooterTop() const;
+    double lCartelleScrollMax() const;
+    double lScrollCartellePerUltima() const;
+    float lCartellaY(int cartella) const;
+    int lCartellaIn(float x, float y) const;
+    int lCartellaNomeIn(float x, float y) const;
+    int lAppCartellaIn(float x, float y) const;
+    int lAppCartellaRimuoviIn(float x, float y) const;
+    int lGestisciAppIn(float x, float y) const;
+    int lNuovaAppIn(float x, float y) const;
+    int lAppElencoIn(float x, float y) const;
+    int lCartellaPiuIn(float x, float y) const;
+    int lCartellaFrecciaIn(float x, float y) const;
 
     float lColonne() const;
     float lCellaW() const;
     float lCellaH() const;
+    float lAllTop() const;
+    float lListaAlto() const;
+    float lListaY(int i) const;
+    D2D1_RECT_F lPinnedCella(int i) const;
+    int lPinnedIn(float x, float y) const;
     D2D1_RECT_F lRettBarra() const;
     D2D1_RECT_F lCursoreBarra() const;
     float lGrigliaTop() const;
@@ -3562,6 +3762,8 @@ private:
     void avviaApp(int i);
 
     D2D1_RECT_F rettEnergia() const;
+    D2D1_RECT_F rettProfilo() const;
+    void avviaAppDiretto(int indiceApp);
 
     void menuApp(int i, POINT pt);
 
@@ -3582,13 +3784,10 @@ private:
     // Con dei file trascinati sopra il coperchio si alza un poco
     void disegnaIconaCestino(const D2D1_RECT_F& r, float alfa, bool scuro, bool sopraDrop) {
         const float d = r.right - r.left;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-        dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-        pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-        dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
+        // Nessuna piastrella bianca: il simbolo usa quasi tutta l'area dell'icona.
         const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-        const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.9f * alfa) : D2D1::ColorF(0.25f, 0.25f, 0.3f, alfa);
-        const float bw = d * 0.20f, top = cy - d * 0.12f, bot = cy + d * 0.27f, sp = std::max(1.2f, d * 0.035f);
+        const D2D1_COLOR_F ink = inchiostroUI(scuro, alfa);
+        const float bw = d * 0.34f, top = cy - d * 0.22f, bot = cy + d * 0.34f, sp = std::max(1.4f, d * 0.045f);
         pennello->SetColor(ink);
         ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
         if (SUCCEEDED(f2d->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&s))) {   // secchio un poco piu' stretto in basso
@@ -3609,14 +3808,11 @@ private:
 
     void disegnaIconaControllo(const D2D1_RECT_F& r, float alfa, bool scuro) {
         const float d = r.right - r.left;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-        dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-        pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-        dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
+        // Simbolo Control Center senza piastrella, allineato alle dimensioni delle altre icone.
         const float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
-        const float lw = d * 0.27f, lh = d * 0.115f, rk = lh * 0.78f;   // mezza larghezza, mezza altezza, pomello
+        const float lw = d * 0.40f, lh = d * 0.16f, rk = lh * 0.78f;
         for (int k = 0; k < 2; k++) {
-            const float y = cy + (k == 0 ? -1 : 1) * d * 0.15f;
+            const float y = cy + (k == 0 ? -1 : 1) * d * 0.21f;
             const D2D1_RECT_F p = {cx - lw, y - lh, cx + lw, y + lh};
             if (k == 0) pennello->SetColor(D2D1::ColorF(0.0f, 0.478f, 1.0f, alfa));
             else pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.28f * alfa) : D2D1::ColorF(0, 0, 0, 0.16f * alfa));
@@ -3726,7 +3922,7 @@ private:
         } else if (!SetForegroundWindow(h)) SwitchToThisWindow(h, TRUE);
     }
 
-    // Clic sulla musica (notch o testa del dock): l'app che sta riproducendo in primo piano. Windows la indica con un
+    // Clic sulla musica nel notch: l'app che sta riproducendo in primo piano. Windows la indica con un
     // AppUserModelID: quello vero per le app di pacchetto e per chi lo dichiara (Firefox), altrimenti il nome dell'exe
     // ("Spotify.exe") o un nome breve ("Chrome", "MSEdge"). Si cerca in ordine: le icone del dock, poi le finestre
     // aperte; senza finestre (app chiusa nell'area di notifica) la si riapre come farebbe Windows. Dei browser si porta
@@ -4167,11 +4363,9 @@ private:
             case WM_MOUSELEAVE:
                 if (d->trascinando) return 0;   // (con la cattura il mouse puo' uscire: il trascinamento continua)
                 d->mouseDentro = false; d->mouseSulDock = false; d->sopra = -1; d->premuta = -1;
-                d->statoSopra = -1; d->statoPremuto = -1; d->tastoPremuto = -1; d->dirty = true;
                 return 0;
             case WM_LBUTTONDOWN: {
                 float x = 0, y = 0; d->logico((float)GET_X_LPARAM(l), (float)GET_Y_LPARAM(l), x, y);
-                if (d->inTesta(x, y)) { d->tastoPremuto = d->tastoTestaIn(x, y); if (d->tastoPremuto < 0) d->tastoPremuto = -2; d->ant.chiudi(); d->dirty = true; return 0; }   // musica e timer
                 if (d->sullIsola(x, y)) d->statoPremuto = d->statoInPunto(x, y);
                 else {
                     d->premuta = d->iconaInPunto(x, y);
@@ -4185,16 +4379,7 @@ private:
                 float x = 0, y = 0; d->logico((float)GET_X_LPARAM(l), (float)GET_Y_LPARAM(l), x, y);
                 if (d->trascinando) { d->fineTrascina(); d->statoPremuto = -1; return 0; }   // (posata: niente clic)
                 if (GetCapture() == h) ReleaseCapture();
-                if (d->tastoPremuto != -1) {   // testa: il tasto premuto, se il mouse e' ancora sopra
-                    const int b = d->tastoPremuto;
-                    d->tastoPremuto = -1;
-                    if (b >= 0 && d->tastoTestaIn(x, y) == b) d->premiTastoTesta(b);
-                    // sulla musica ma fuori dai tasti (copertina, titolo): l'app che sta riproducendo
-                    else if (b == -2 && d->testaMusica && dentro(d->rettMus, x, y) && d->tastoTestaIn(x, y) < 0) d->apriAppMusica(d->notch.musicaOra().aumid);
-                    d->premuta = -1; d->statoPremuto = -1; d->dirty = true;
-                    return 0;
-                }
-                if (d->statoPremuto >= 0) {
+                            if (d->statoPremuto >= 0) {
                     const int i = d->statoInPunto(x, y);
                     if (i == d->statoPremuto) d->azioneStato(i);
                 } else {
@@ -4217,7 +4402,6 @@ private:
                 if (w == TIMER_DOPO) { d->suTimerDopo(); return 0; }
                 if (w == TIMER_DESKTOP) { d->passoDesktop(); return 0; }
                 if (w == TIMER_ANTEPRIME) { d->controllaAnteprime(); return 0; }
-                if (w == TIMER_TESTA) { if (d->yNascosto < 1) d->dirty = true; return 0; }   // (dock giu': niente da ridisegnare)
                 if (w == TIMER_INVIO) {
                     KillTimer(h, TIMER_INVIO);
                     // solo se il fuoco e' davvero sulla barra di Windows: l'Invio non deve finire in un'altra app

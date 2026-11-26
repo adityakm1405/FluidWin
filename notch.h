@@ -3,15 +3,15 @@
 // A riposo mostra ora e giorno. Si trasforma, con una molla, per mostrare:
 //  - il volume, mentre si premono i tasti (al posto dell'indicatore di vetro, osd.h);
 //  - le notifiche, che escono dal notch (al posto del banner di vetro, banner.h);
-//  - la musica in riproduzione (musica.h): copertina e barrette accanto all'ora; col mouse fermo sopra si apre con
-//    titolo, artista e i tasti indietro / play-pausa / avanti.
+//  - la musica in riproduzione (musica.h): il separatore tra ora e data diventa un piccolo visualizzatore; col mouse
+//    fermo sopra si apre con copertina grande, titolo, artista e i tasti indietro / play-pausa / avanti.
 // Il mouse di solito lo attraversa (sta dove si afferrano le finestre ingrandite): diventa cliccabile solo col mouse
 // fermo sopra per un attimo (senza tasti premuti) o mentre mostra una notifica. Un clic sull'ora apre le notifiche.
 // Con un'app a schermo intero (video, presentazioni, giochi) non c'e' (vedi modo()): il volume lo mostra allora
 // l'indicatore di vetro.
 // Notch spento nelle impostazioni (1.3.0, "a scomparsa"): a riposo (ora, musica, timer) sta sopra il bordo dello schermo;
 // per volume, notifiche, avvisi, sveglia del timer e scaffale scende dall'alto e poi risale. Musica e timer li mostra il
-// dock (una capsula all'inizio, con i loro controlli al passaggio del mouse: comandoMusica()).
+// dock (i controlli multimediali restano nel notch).
 //
 // Disegno: una finestra a strati di misura fissa (la piu' grande che serve), la forma disegnata al centro con
 // Direct2D software in un DIB tenuto da parte; ogni fotogramma e' un UpdateLayeredWindow. La trasparenza col mouse
@@ -30,6 +30,29 @@
 #include <functional>
 #include <algorithm>
 #include <cmath>
+#include <atomic>
+#include <thread>
+#include <array>
+#include <cstring>
+#include <audioclient.h>
+#include <ksmedia.h>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
+
+#ifndef __IAudioMeterInformation_INTERFACE_DEFINED__
+#define __IAudioMeterInformation_INTERFACE_DEFINED__
+MIDL_INTERFACE("C02216F6-8C67-4B5B-9D00-D008E73E0064")
+IAudioMeterInformation : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE GetPeakValue(float* pfPeak) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetMeteringChannelCount(UINT* pnChannelCount) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetChannelsPeakValues(UINT32 channelCount, float* peakValues) = 0;
+    virtual HRESULT STDMETHODCALLTYPE QueryHardwareSupport(DWORD* supportMask) = 0;
+};
+#endif
+#ifdef __MINGW32__
+__CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64);
+#endif
 #include "fabbriche.h"
 #include "vetro.h"
 #include "musica.h"
@@ -41,6 +64,183 @@
 #include <shobjidl.h>
 
 namespace notch {
+
+// A centre plateau makes the middle weighting apply to a band of bars, not just one exact midpoint.
+// The transition into and out of that plateau uses smoothstep to avoid visible weighting boundaries.
+inline float pesoVisivoInPosizione(float posizione, float pesoInizio, float pesoCentro, float pesoFine) {
+    posizione = std::clamp(posizione, 0.0f, 1.0f);
+    // Three clearly separated zones: outer thirds use their edge weights, the middle third
+    // uses the centre weight. Short smooth transitions prevent hard visual steps at the borders.
+    constexpr float PRIMO_CONFINE = 1.0f / 3.0f;
+    constexpr float SECONDO_CONFINE = 2.0f / 3.0f;
+    constexpr float SEMITRANSIZIONE = 0.055f;
+    auto smooth = [](float t) {
+        t = std::clamp(t, 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    };
+    if (posizione < PRIMO_CONFINE - SEMITRANSIZIONE) return pesoInizio;
+    if (posizione < PRIMO_CONFINE + SEMITRANSIZIONE) {
+        const float t = (posizione - (PRIMO_CONFINE - SEMITRANSIZIONE)) / (2.0f * SEMITRANSIZIONE);
+        return pesoInizio + (pesoCentro - pesoInizio) * smooth(t);
+    }
+    if (posizione <= SECONDO_CONFINE - SEMITRANSIZIONE) return pesoCentro;
+    if (posizione < SECONDO_CONFINE + SEMITRANSIZIONE) {
+        const float t = (posizione - (SECONDO_CONFINE - SEMITRANSIZIONE)) / (2.0f * SEMITRANSIZIONE);
+        return pesoCentro + (pesoFine - pesoCentro) * smooth(t);
+    }
+    return pesoFine;
+}
+
+// Analizzatore audio loopback WASAPI con FFT: bands are frequency bins, not delayed peak samples.
+class MisuratoreAudio {
+public:
+    MisuratoreAudio() { for (auto& b : bande) b.store(0.0f); }
+    ~MisuratoreAudio() { ferma(); }
+    void avvia() {
+        if (lavoro.joinable()) return;
+        arresta = false;
+        lavoro = std::thread([this] { ciclo(); });
+    }
+    void ferma() {
+        arresta = true;
+        if (lavoro.joinable()) lavoro.join();
+        disponibile = false;
+        picco = 0.0f;
+        for (auto& b : bande) b.store(0.0f);
+    }
+    float livello() const { return picco.load(); }
+    float banda(int indice, int count) const {
+        count = std::max(1, count);
+        indice = std::clamp(indice, 0, count - 1);
+        const int ix = std::clamp((int)((indice + 0.5f) * BAND_COUNT / count), 0, BAND_COUNT - 1);
+        return bande[ix].load();
+    }
+    bool pronto() const { return disponibile.load(); }
+
+private:
+    static constexpr int FFT_SIZE = 512, BAND_COUNT = 32;
+    std::atomic<bool> arresta{true}, disponibile{false};
+    std::array<std::atomic<float>, BAND_COUNT> bande{};
+    std::atomic<float> picco{0.0f};
+    std::thread lavoro;
+    std::array<float, FFT_SIZE> campioni{};
+    int scrittura = 0, raccolti = 0;
+
+    static float campione(const BYTE* p, const WAVEFORMATEX* f, bool floating) {
+        if (floating && f->wBitsPerSample == 32) {
+            float v = 0; std::memcpy(&v, p, sizeof(v)); return std::clamp(v, -1.0f, 1.0f);
+        }
+        switch (f->wBitsPerSample) {
+        case 8: return ((int)p[0] - 128) / 128.0f;
+        case 16: { short v = 0; std::memcpy(&v, p, 2); return v / 32768.0f; }
+        case 24: {
+            int v = (int)p[0] | ((int)p[1] << 8) | ((int)p[2] << 16);
+            if (v & 0x800000) v |= ~0xFFFFFF;
+            return v / 8388608.0f;
+        }
+        case 32: { int v = 0; std::memcpy(&v, p, 4); return v / 2147483648.0f; }
+        default: return 0.0f;
+        }
+    }
+    void aggiungi(float s) {
+        campioni[scrittura] = s; scrittura = (scrittura + 1) % FFT_SIZE;
+        raccolti = std::min(raccolti + 1, FFT_SIZE);
+        if (raccolti < FFT_SIZE) return;
+        std::array<float, FFT_SIZE> re{}, im{};
+        for (int i = 0; i < FFT_SIZE; ++i) {
+            const float w = 0.5f - 0.5f * std::cos(2.0f * (float)M_PI * i / (FFT_SIZE - 1));
+            re[i] = campioni[(scrittura + i) % FFT_SIZE] * w;
+        }
+        // In-place radix-2 FFT.
+        for (int i = 1, j = 0; i < FFT_SIZE; ++i) {
+            int bit = FFT_SIZE >> 1;
+            for (; j & bit; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+        }
+        for (int len = 2; len <= FFT_SIZE; len <<= 1) {
+            const float ang = -2.0f * (float)M_PI / len;
+            const float wr0 = std::cos(ang), wi0 = std::sin(ang);
+            for (int i = 0; i < FFT_SIZE; i += len) {
+                float wr = 1.0f, wi = 0.0f;
+                for (int j = 0; j < len / 2; ++j) {
+                    const int u = i + j, v = u + len / 2;
+                    const float vr = re[v] * wr - im[v] * wi, vi = re[v] * wi + im[v] * wr;
+                    const float ur = re[u], ui = im[u];
+                    re[u] = ur + vr; im[u] = ui + vi; re[v] = ur - vr; im[v] = ui - vi;
+                    const float nw = wr * wr0 - wi * wi0, ni = wr * wi0 + wi * wr0; wr = nw; wi = ni;
+                }
+            }
+        }
+        const int minBin = 2, maxBin = FFT_SIZE / 2 - 1;
+        for (int b = 0; b < BAND_COUNT; ++b) {
+            const float lo = minBin * std::pow((float)maxBin / minBin, b / (float)BAND_COUNT);
+            const float hi = minBin * std::pow((float)maxBin / minBin, (b + 1) / (float)BAND_COUNT);
+            const int first = std::max(minBin, (int)lo), last = std::max(first, (int)hi);
+            float mag = 0.0f;
+            for (int k = first; k <= last && k <= maxBin; ++k) {
+                const float m = std::sqrt(re[k] * re[k] + im[k] * im[k]) * (2.0f / FFT_SIZE);
+                mag = std::max(mag, m);
+            }
+            // Dynamic range compression with a low noise gate; preserves transients while smoothing decay.
+            const float target = std::clamp((mag - 0.008f) * 22.0f, 0.0f, 1.0f);
+            const float old = bande[b].load(), smooth = target > old ? 0.62f : 0.18f;
+            bande[b] = old + (target - old) * smooth;
+        }
+        float peak = 0.0f;
+        for (const auto& b : bande) peak = std::max(peak, b.load());
+        const float oldPeak = picco.load(), smoothPeak = peak > oldPeak ? 0.65f : 0.16f;
+        picco = oldPeak + (peak - oldPeak) * smoothPeak;
+    }
+    void ciclo() {
+        const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        IMMDeviceEnumerator* enumeratore = nullptr; IMMDevice* dispositivo = nullptr;
+        IAudioClient* client = nullptr; IAudioCaptureClient* capture = nullptr; WAVEFORMATEX* formato = nullptr;
+        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&enumeratore);
+        if (SUCCEEDED(hr) && enumeratore) hr = enumeratore->GetDefaultAudioEndpoint(eRender, eMultimedia, &dispositivo);
+        if (SUCCEEDED(hr) && dispositivo) hr = dispositivo->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client);
+        if (SUCCEEDED(hr) && client) hr = client->GetMixFormat(&formato);
+        bool floating = false;
+        if (formato) {
+            floating = formato->wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
+            if (formato->wFormatTag == WAVE_FORMAT_EXTENSIBLE && formato->cbSize >= 22) {
+                auto* ext = (WAVEFORMATEXTENSIBLE*)formato;
+                const GUID ieeeFloat = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+                floating = IsEqualGUID(ext->SubFormat, ieeeFloat) != FALSE;
+            }
+        }
+        if (SUCCEEDED(hr) && client && formato) hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, formato, nullptr);
+        if (SUCCEEDED(hr) && client) hr = client->GetService(__uuidof(IAudioCaptureClient), (void**)&capture);
+        if (SUCCEEDED(hr) && client) hr = client->Start();
+        if (SUCCEEDED(hr) && capture && formato) disponibile = true;
+        while (!arresta && SUCCEEDED(hr) && capture && formato) {
+            UINT32 frames = 0;
+            if (SUCCEEDED(capture->GetNextPacketSize(&frames)) && frames) {
+                BYTE* data = nullptr; UINT32 n = 0; DWORD flags = 0;
+                if (SUCCEEDED(capture->GetBuffer(&data, &n, &flags, nullptr, nullptr))) {
+                    const int bytes = std::max(1, (int)formato->wBitsPerSample / 8), frameBytes = bytes * std::max(1, (int)formato->nChannels);
+                    for (UINT32 i = 0; i < n; ++i) {
+                        float mono = 0;
+                        if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+                            for (int ch = 0; ch < formato->nChannels; ++ch)
+                                mono += campione(data + (size_t)i * frameBytes + ch * bytes, formato, floating);
+                            mono /= std::max(1, (int)formato->nChannels);
+                        }
+                        aggiungi(mono);
+                    }
+                    capture->ReleaseBuffer(n);
+                }
+            } else Sleep(4);
+        }
+        if (client) client->Stop();
+        if (capture) capture->Release();
+        if (client) client->Release();
+        if (dispositivo) dispositivo->Release();
+        if (enumeratore) enumeratore->Release();
+        if (formato) CoTaskMemFree(formato);
+        if (SUCCEEDED(com)) CoUninitialize();
+    }
+};
 
 // schermo intero: niente, o un'app a schermo intero (video, presentazione, gioco). Prima sotto un video restava
 // visibile e sfumava solo col mouse vicino: coprendo il film dava fastidio, ora sparisce come con i giochi
@@ -75,6 +275,7 @@ public:
     ~Notch() {
         if (fin) RevokeDragDrop(fin);
         svuotaScaffale();
+        misuratoreAudio.ferma();
         lettore.ferma();
         libera();
         for (IDWriteTextFormat* f : formati()) if (f) f->Release();
@@ -90,12 +291,75 @@ public:
     void testi(const std::wstring& ora, const std::wstring& giorno) {
         if (ora == testoOra && giorno == testoGiorno) return;
         testoOra = ora; testoGiorno = giorno;
+        // A notch disattivato resta senza rendering; le stringhe vengono memorizzate e misurate alla riattivazione.
+        if (!visibile) return;
         misuraOra(); bersagli(); ridisegna();
     }
 
+    // 0 = colori predefiniti; 0x01RRGGBB = colore scelto. Nessun lavoro aggiuntivo per fotogramma.
+    void impostaAspetto(DWORD sfondo, DWORD testo) {
+        if (sfondo == impostazioneSfondo && testo == impostazioneTesto) return;
+        impostazioneSfondo = sfondo; impostazioneTesto = testo;
+        auto decodifica = [](DWORD x, D2D1_COLOR_F base) -> D2D1_COLOR_F {
+            if (!(x & 0x01000000)) return base;
+            return D2D1::ColorF(((x >> 16) & 255) / 255.0f, ((x >> 8) & 255) / 255.0f, (x & 255) / 255.0f, 1.0f);
+        };
+        sfondoNotch = decodifica(sfondo, D2D1::ColorF(0, 0, 0, 1));
+        testoNotch = decodifica(testo, D2D1::ColorF(1, 1, 1, 1));
+        if (visibile) ridisegna();
+    }
+    void impostaEffetto(int effetto) {
+        effetto = std::clamp(effetto, 1, 7);
+        if (effetto != materialeNotch) materialeNotch = effetto;
+
+        // La finestra del notch e' layered e usa una superficie con alfa per pixel.
+        // Il backdrop/Accent DWM viene disegnato sul rettangolo HWND, non sulla geometria
+        // della capsula: lascerebbe un grande rettangolo dietro al notch. Il materiale
+        // viene quindi disegnato da Direct2D, ritagliato esattamente sulla forma.
+        vetro::applicaEffetto(fin, 1);
+        if (visibile) ridisegna();
+    }
+    void impostaDimensione(int percento) {
+        percento = std::clamp(percento, 70, 130);
+        const float nuova = percento / 100.0f;
+        if (std::fabs(nuova - scalaDimensione) < 0.001f) return;
+        scalaDimensione = nuova;
+        dpi = dpiFisico * scalaDimensione;
+        superficie(); misuraOra(); bersagli(true);
+        if (visibile) ridisegna();
+    }
+    void impostaColoriMedia(DWORD pulsanti, DWORD vis1, DWORD vis2, bool gradiente) {
+        if (colorePulsanti == pulsanti && coloreBarrette == vis1 && coloreBarretteFine == vis2 && barretteGradiente == gradiente) return;
+        colorePulsanti = pulsanti; coloreBarrette = vis1; coloreBarretteFine = vis2; barretteGradiente = gradiente;
+        if (visibile) ridisegna();
+    }
+    void impostaColoriTimer(DWORD colore, DWORD pulsante) {
+        if (coloreTimerPrincipale == colore && coloreTimerFine == pulsante) return;
+        coloreTimerPrincipale = colore;
+        coloreTimerFine = pulsante;
+        if (visibile) ridisegna();
+    }
+    void impostaVisualizzatore(int stile, bool reattivo, int forza, int pesoInizio, int pesoCentro, int pesoFine) {
+        stile = std::clamp(stile, 0, 2);
+        forza = std::clamp(forza, 50, 200);
+        pesoInizio = std::clamp(pesoInizio, 0, 200);
+        pesoCentro = std::clamp(pesoCentro, 0, 200);
+        pesoFine = std::clamp(pesoFine, 0, 200);
+        if (stile == stileVisualizzatore && reattivo == visualizzatoreReattivo &&
+            forza == forzaVisualizzatore && pesoInizio == visualizzatorePesoInizio &&
+            pesoCentro == visualizzatorePesoCentro && pesoFine == visualizzatorePesoFine) return;
+        stileVisualizzatore = stile; visualizzatoreReattivo = reattivo; forzaVisualizzatore = forza;
+        visualizzatorePesoInizio = pesoInizio; visualizzatorePesoCentro = pesoCentro; visualizzatorePesoFine = pesoFine;
+        aggiornaMisuratoreAudio();
+        if (visibile) ridisegna();
+    }
+    float livelloVisualizzatore() const { return misuratoreAudio.livello(); }
+    float bandaVisualizzatore(int indice, int count) const { return misuratoreAudio.banda(indice, count); }
+    bool attivo() const { return featureEnabled; }
+
     // schermo su cui sta (in alto al centro) e scala del dock
     void posto(const RECT& s, float d) {
-        schermo = s; dpi = d;
+        schermo = s; dpiFisico = d; dpi = dpiFisico * scalaDimensione;
         superficie(); misuraOra(); bersagli(true); ridisegna();
     }
 
@@ -104,6 +368,7 @@ public:
         acceso = si;
         if (si) lettore.avvia();
         visibilita();
+        aggiornaMisuratoreAudio();
     }
 
     // schermo intero: NORMALE, NASCOSTO (qualsiasi app a schermo intero: video, presentazioni, giochi)
@@ -129,25 +394,22 @@ public:
         bersagli(); anima();
         if (!animando) ridisegna();   // (non visibile: niente animazione, solo il disegno)
     }
-    bool fisso() const { return abilitato; }
+    // Spegnimento completo, distinto dalla modalita' "sempre visibile".
+    void attivaFeature(bool si) {
+        if (si == featureEnabled) return;
+        featureEnabled = si;
+        if (!si) { sopra = false; attesa = 0; finisciNotifica(); fineVolume = 0; fineAvviso = 0; }
+        visibilita();
+        if (si && visibile) { bersagli(true); ridisegna(); }
+    }
+    bool fisso() const { return featureEnabled && abilitato; }
     void aggiornaAngoli() { ridisegna(); }   // impostazione "Angoli" cambiata (vedi ridisegna)
     // col dock in alto il notch sta sul bordo in basso (impostazione "Posizione" del dock)
     bool basso = false;
     void inBasso(bool b) { if (b != basso) { basso = b; ridisegna(); } }
 
-    // musica e timer per la capsula del dock (notch a scomparsa)
+    // Metadati della sessione multimediale, usati dalla diagnostica.
     const musica::Brano& musicaOra() const { return brano; }
-    // tasti della musica dalla capsula del dock: 0 indietro, 1 play/pausa, 2 avanti
-    void comandoMusica(int b) {
-        if (b < 0 || b > 2) return;
-        lettore.comando(b == 0 ? musica::Lettore::INDIETRO : b == 1 ? musica::Lettore::PLAY_PAUSA : musica::Lettore::AVANTI);
-        if (b == 1) brano.suona = !brano.suona;   // subito, senza aspettare la prossima lettura
-        // fra poco si rilegge lo stato vero anche se il lettore non ha cambiato versione: un comando rifiutato
-        // lasciava il simbolo al contrario per sempre (R20261121-002056-S11)
-        risincronizzaAlle = adesso() + 1.5;
-        if (visibile && !animando && salita() < 0.5) ridisegna();
-    }
-
     // volume 0..1 dai tasti; false se il notch non si vede (allora lo mostra l'indicatore di vetro)
     bool volume(float liv, bool muto) {
         if (!visibile) return false;
@@ -211,10 +473,22 @@ private:
     }
 
     HWND fin = nullptr;
-    bool acceso = false, visibile = false, abilitato = true;
+    bool acceso = false, visibile = false, abilitato = true, featureEnabled = true, pollingMedia = false;
+    MisuratoreAudio misuratoreAudio;
+    int stileVisualizzatore = 0, forzaVisualizzatore = 100;
+    int visualizzatorePesoInizio = 40, visualizzatorePesoCentro = 100, visualizzatorePesoFine = 40;
+    bool visualizzatoreReattivo = true;
+    float visualizzatoreDa = 0.0f;
+    double tVisualizzatore = -1.0;
+    DWORD impostazioneSfondo = 0, impostazioneTesto = 0;
+    DWORD coloreTimerPrincipale = 0, coloreTimerFine = 0;
+    D2D1_COLOR_F sfondoNotch = D2D1::ColorF(0, 0, 0, 1), testoNotch = D2D1::ColorF(1, 1, 1, 1);
+    int materialeNotch = 3;          // effetto del pannello indipendente da quello del dock
+    DWORD colorePulsanti = 0, coloreBarrette = 0, coloreBarretteFine = 0;
+    bool barretteGradiente = false;
     int modoAtt = NORMALE;
     RECT schermo{};
-    float dpi = 1, fDpi = 0;
+    float dpi = 1, dpiFisico = 1, scalaDimensione = 1, fDpi = 0;
     std::wstring testoOra, testoGiorno;
     const wchar_t *fontTesto = L"Segoe UI Variable Text", *fontTitoli = L"Segoe UI Variable Display";
     IDWriteTextFormat *fOra = nullptr, *fGiorno = nullptr, *fTitolo = nullptr, *fPiccolo = nullptr, *fTesto = nullptr, *fNumero = nullptr, *fGrande = nullptr;
@@ -267,27 +541,62 @@ private:
     int attesa = 0, fuori = 0, pulsanteSopra = -1;
     bool sopraX = false, mouseDentro = false;
     ULONGLONG tCima = 0;
-    // il mouse sopra conta solo col notch fisso: a scomparsa musica e timer li controlla il dock, e passare sopra una
-    // notifica non deve lasciare aperta la musica quando la notifica finisce
-    bool sopraVale() const { return sopra && abilitato; }
-    static bool aRiposo(int s) { return s == ORA || s == MUSICA || s == TIMER; }
+    // Il mouse sopra conta col notch fisso e, a scomparsa, quando c'e' una sessione multimediale:
+    // cosi' il player si espande al passaggio del mouse anche con "Sempre visibile" spento.
+    // Senza una sessione, l'orologio a scomparsa resta controllato dal comportamento automatico.
+    bool sopraVale() const { return sopra && (abilitato || brano.c); }
+    // Con "Sempre visibile" spento si nasconde solo l'orologio statico: una sessione
+    // multimediale resta visibile sia in riproduzione sia in pausa.
+    static bool aRiposo(int s) { return s == ORA || s == TIMER; }
 
     std::vector<IDWriteTextFormat*> formati() const { return {fOra, fGiorno, fTitolo, fPiccolo, fTesto, fNumero, fGrande}; }
 
     static double adesso() { return vetro::secondi(); }
 
+    float fattoreVisualizzatore() const {
+        const float obiettivo = brano.c && brano.suona ? 1.0f : 0.0f;
+        if (tVisualizzatore < 0) return obiettivo;
+        const float p = (float)std::clamp((adesso() - tVisualizzatore) / 0.28, 0.0, 1.0);
+        const float e = p * p * (3.0f - 2.0f * p);
+        return visualizzatoreDa + (obiettivo - visualizzatoreDa) * e;
+    }
+    void iniziaTransizioneVisualizzatore() {
+        visualizzatoreDa = fattoreVisualizzatore();
+        tVisualizzatore = adesso();
+    }
+    void aggiornaMisuratoreAudio() {
+        if (visibile && visualizzatoreReattivo && brano.c && brano.suona) misuratoreAudio.avvia();
+        else misuratoreAudio.ferma();
+    }
+
     void visibilita() {
-        const bool si = acceso && modoAtt != NASCOSTO && fin;   // (spento: a scomparsa, la finestra c'e' lo stesso)
-        if (si == visibile) return;
+        const bool si = acceso && featureEnabled && modoAtt != NASCOSTO && fin;   // auto-hide e spegnimento completo sono indipendenti
+        if (si == visibile) {
+            // Dopo l'uscita da fullscreen, riattiva il polling solo se non e' gia' in corso.
+            if (fin && !si) {
+                const bool poll = acceso && !featureEnabled && modoAtt != NASCOSTO;
+                if (poll && !pollingMedia) { SetTimer(fin, 2, 500, nullptr); pollingMedia = true; }
+                else if (!poll && pollingMedia) { KillTimer(fin, 2); pollingMedia = false; }
+            }
+            aggiornaMisuratoreAudio();
+            return;
+        }
         visibile = si;
+        aggiornaMisuratoreAudio();
         if (si) {
-            KillTimer(fin, 2); SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
+            KillTimer(fin, 2); pollingMedia = false;
+            SetTimer(fin, 2, 50, nullptr);   // mouse, musica, scadenze
             sincronizzaSegni();   // (cambiati mentre era nascosto: controlla non girava)
-            bersagli(true); ridisegna();
+            misuraOra(); bersagli(true); ridisegna();
             ShowWindow(fin, SW_SHOWNOACTIVATE);
             SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         } else {
-            KillTimer(fin, 2); vetro::fermaBattito(fin, 1); animando = false;
+            // Notch spento: niente disegno o animazioni. Il timer lento aggiorna solo i dati musicali del dock.
+            KillTimer(fin, 2); pollingMedia = false;
+            if (acceso && !featureEnabled && modoAtt != NASCOSTO) {
+                SetTimer(fin, 2, 500, nullptr); pollingMedia = true;
+            }
+            vetro::fermaBattito(fin, 1); animando = false;
             sopra = false; attesa = 0; cliccabile(false);
             finisciNotifica(); fineVolume = 0; fineAvviso = 0;
             ShowWindow(fin, SW_HIDE);
@@ -322,14 +631,16 @@ private:
         if (sv && !scaffale.empty()) return SCAFFALE;
         if (sv && brano.c) return APERTO;
         if (comodita::timerAttivo()) return TIMER;
-        if (brano.c && brano.suona) return MUSICA;
+        // Una sessione media presente resta nel notch anche in pausa. Scompare solo quando
+        // il lettore segnala che la sessione e' terminata (brano.c == false).
+        if (brano.c) return MUSICA;
         return ORA;
     }
     // Microfono e webcam in uso: pallini arancione e verde, come su iPhone. Solo col notch acceso: stanno dentro, a destra,
     // in uno spazio che il notch a riposo (ora, musica, timer) si tiene in piu'. Prima stavano fuori, nel vuoto accanto al
     // notch; col notch spento non ci sono (l'utente non li voleva nel dock)
     int nPunti() const {
-        if (!abilitato) return 0;
+        if (!featureEnabled || !abilitato) return 0;
         const sensori::Sensori& se = sensori::Sensori::io();
         return (se.micApp.empty() ? 0 : 1) + (se.camApp.empty() ? 0 : 1);
     }
@@ -345,23 +656,61 @@ private:
         const sensori::Sensori& se = sensori::Sensori::io();
         const float d = dpi, Rv = (W2 + (float)mw.x) / 2;   // (il bordo vero, che con la molla si muove)
         float x0 = Rv - puntiW();                            // inizio dello spazio libero a destra
-        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + (lo + std::round(7 * d) + lg) / 2;   // (fine della data, vedi ora)
+        if (s == ORA) x0 = segnoSilenzio ? Rv - puntiW() - 8 * d : W2 / 2.0f + larghezzaSeparatoreOra() / 2 + spazioOra() + lg;   // dopo la data, che parte dal centro del notch
         float cx = (x0 + Rv) / 2 - (n - 1) * 4 * d;
         if (!se.micApp.empty()) { colore(1.0f, 0.62f, 0.04f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); cx += 8 * d; }
         if (!se.camApp.empty()) { colore(0.2f, 0.84f, 0.29f, a); rt->FillEllipse({{cx, h / 2}, 2.8f * d, 2.8f * d}, pen); }
     }
 
+    struct LayoutTimer {
+        float larghezza = 0.0f;
+        float offsetOrologio = 0.0f;
+        float centroAnello = 0.0f;
+        float xConto = 0.0f;
+        float larghezzaConto = 0.0f;
+    };
+
+    // The timer is laid out around the normal clock/date block. The gaps are measured
+    // from the visible ring edge to the time and from the date to the countdown text.
+    // Keeping both gaps identical avoids the oversized empty area at the right edge.
+    LayoutTimer disposizioneTimer() const {
+        const float d = dpi;
+        const float separatore = larghezzaSeparatoreOra();
+        const float spazio = spazioOra();
+        const float xs = std::round(largoOra / 2.0f - separatore / 2.0f);
+        const float xOra = std::round(xs - spazio - lo);
+        const float xDataFine = std::round(xs + separatore + spazio + lg);
+        const float distanza = 18.0f * d;
+        const float raggioAnello = 6.5f * d;
+        const float margineEsterno = 14.0f * d;
+        const float xAnello = xOra - distanza - raggioAnello;
+        const float xConto = xDataFine + distanza;
+        // Presets max out at one hour; reserve this width so the capsule does not
+        // resize when the countdown changes from mm:ss to h:mm:ss.
+        const float larghezzaConto = fNumero ? larghezza(L"1:00:00", fNumero) : 52.0f * d;
+        const float sinistra = std::min(0.0f, xAnello - raggioAnello);
+        const float destra = std::max(largoOra, xConto + larghezzaConto);
+        const float offset = std::round(margineEsterno - sinistra);
+        return {
+            std::round(destra - sinistra + 2.0f * margineEsterno),
+            offset,
+            std::round(offset + xAnello),
+            std::round(offset + xConto),
+            larghezzaConto
+        };
+    }
+
     void misura(int s, float& w, float& h, float& R) const {
         const float d = dpi;
         switch (s) {
-            case MUSICA:   w = largoOra + 62 * d + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;   // (puntiW: microfono e webcam)
+            case MUSICA:   w = largoOra + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;   // stessa larghezza dell'orologio: niente copertina o visualizzatore laterale
             case APERTO:   w = 372 * d; h = 96 * d; R = 26 * d; break;
             case VOLUME:   w = 292 * d; h = 32 * d; R = 14 * d; break;
             case NOTIFICA: w = 372 * d; h = 78 * d; R = 26 * d; break;
             case SCAFFALE: w = 372 * d; h = 96 * d; R = 26 * d; break;
             // avviso: largo quanto simbolo e testo con un margine uguale ai due lati (vedi AVVISO in disegna)
             case AVVISO:   w = std::clamp(larghezzaAvviso + (AV_SIMBOLO + AV_SPAZIO + 2 * AV_MARGINE) * d, 150 * d, 372 * d); h = 32 * d; R = 14 * d; break;
-            case TIMER:    w = largoOra + 104 * d + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;
+            case TIMER:    w = disposizioneTimer().larghezza + 2 * puntiW() + 2 * segniW(); h = 22 * d; R = 9 * d; break;
             case TIMER_APERTO: w = 312 * d; h = 60 * d; R = 24 * d; break;
             case SUONA:    w = 300 * d; h = 42 * d; R = 20 * d; break;
             default:       w = largoOra; h = 22 * d; R = 9 * d;
@@ -457,15 +806,17 @@ private:
         if (risincronizzaAlle > 0 && t >= risincronizzaAlle) {
             risincronizzaAlle = 0;
             const bool vero = lettore.stato().suona;
-            if (vero != brano.suona) { brano.suona = vero; ridisegnare = true; }
+            if (vero != brano.suona) { iniziaTransizioneVisualizzatore(); brano.suona = vero; ridisegnare = true; }
         }
         if (v != versioneBrano) {
             versioneBrano = v;
             musica::Brano b = lettore.stato();
             if (b.versione != brano.versione || b.copertina.size() != brano.copertina.size()) copertinaNuova = true;
+            if ((b.c && b.suona) != (brano.c && brano.suona)) iniziaTransizioneVisualizzatore();
             brano = std::move(b);
             ridisegnare = true;
         }
+        aggiornaMisuratoreAudio();
         // timer: si ridisegna a ogni secondo che cambia; suona: a ogni giro (il cerchio pulsa)
         if (comodita::timerAttivo()) {
             const ULONGLONG sec = (comodita::timerResto() + 999) / 1000;
@@ -515,8 +866,9 @@ private:
         bersagli();
         if (scena != prima) ridisegnare = false;   // ci pensa l'animazione
         if (ridisegnare && !animando) ridisegna();
-        // le barrette della musica si muovono: si ridisegna solo il loro rettangolino (tutto il notch costava ~3% di CPU)
-        else if (brano.suona && (scena == MUSICA || scena == APERTO) && !animando && salita() < 0.5) ridisegnaBarrette();
+        // The media visualizer keeps updating in both the compact music and timer scenes.
+        else if ((brano.suona || fattoreVisualizzatore() > 0.001f) &&
+                 (scena == MUSICA || scena == TIMER) && !animando && salita() < 0.5) ridisegnaBarrette();
         // ogni 2 s di nuovo in cima (un'app sempre in primo piano aperta dopo poteva coprirlo)
         if (GetTickCount64() - tCima > 2000) { tCima = GetTickCount64(); SetWindowPos(fin, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
     }
@@ -647,7 +999,7 @@ private:
             }
         };
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.5f, &fOra, false);
-        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 9.5f, &fGiorno, false);
+        crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 11.5f, &fGiorno, false);
         crea(fontTitoli, DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.5f, &fTitolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_MEDIUM, 11.0f, &fPiccolo, true);
         crea(fontTesto, DWRITE_FONT_WEIGHT_NORMAL, 12.0f, &fTesto, true);
@@ -660,8 +1012,15 @@ private:
         preparaFormati();
         if (!fOra || !fGiorno) return;
         lo = larghezza(testoOra, fOra); lg = larghezza(testoGiorno, fGiorno);
-        largoOra = std::round(std::max(200 * dpi, lo + 7 * dpi + lg + 48 * dpi));
+        // Separatore fisso al centro: ogni lato ha spazio sufficiente anche quando ora e data hanno larghezze diverse.
+        const float mezzoSep = larghezzaSeparatoreOra() / 2;
+        const float latoOra = lo + spazioOra() + mezzoSep;
+        const float latoData = lg + spazioOra() + mezzoSep;
+        largoOra = std::round(std::max(210 * dpi, 2 * std::max(latoOra, latoData) + 36 * dpi));
     }
+    float spazioOra() const { return std::round(10 * dpi); }
+    float larghezzaSeparatoreOra() const { return std::round(25 * dpi); }
+    float larghezzaBloccoOra() const { return lo + 2 * spazioOra() + larghezzaSeparatoreOra() + lg; }
 
     static float larghezza(const std::wstring& s, IDWriteTextFormat* f) {
         IDWriteTextLayout* l = nullptr; float w = 0;
@@ -681,10 +1040,27 @@ private:
     // ---- disegno ----
 
     void colore(float r, float g, float b, float a) { pen->SetColor(D2D1::ColorF(r, g, b, a)); }
+    D2D1_COLOR_F coloreMedia(DWORD scelto, D2D1_COLOR_F base, float alfa) const {
+        if (!(scelto & 0x01000000)) return {base.r, base.g, base.b, base.a * alfa};
+        return D2D1::ColorF(((scelto >> 16) & 255) / 255.0f, ((scelto >> 8) & 255) / 255.0f,
+                            (scelto & 255) / 255.0f, alfa);
+    }
+    D2D1_COLOR_F coloreTimer(DWORD scelto, float alfa) const {
+        return coloreMedia(scelto, D2D1::ColorF(1.0f, 0.62f, 0.04f, 1.0f), alfa);
+    }
+    D2D1_COLOR_F coloreBarretta(int i, float alfa) const {
+        const D2D1_COLOR_F base = D2D1::ColorF(1, 1, 1, 1);
+        const D2D1_COLOR_F c1 = coloreMedia(coloreBarrette, base, 1);
+        if (!barretteGradiente || !(coloreBarretteFine & 0x01000000)) return {c1.r, c1.g, c1.b, c1.a * alfa};
+        const D2D1_COLOR_F c2 = coloreMedia(coloreBarretteFine, base, 1);
+        const float t = std::clamp(i / 3.0f, 0.0f, 1.0f);
+        return D2D1::ColorF(c1.r + (c2.r - c1.r) * t, c1.g + (c2.g - c1.g) * t,
+                            c1.b + (c2.b - c1.b) * t, alfa);
+    }
 
     void scrivi(const std::wstring& t, IDWriteTextFormat* f, D2D1_RECT_F r, float a) {
         if (!f || t.empty()) return;
-        colore(1, 1, 1, a);
+        colore(testoNotch.r, testoNotch.g, testoNotch.b, a);
         rt->DrawText(t.c_str(), (UINT32)t.size(), f, r, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
 
@@ -773,9 +1149,19 @@ private:
             }
             s->EndFigure(D2D1_FIGURE_END_CLOSED);
             s->Close(); s->Release();
-            if (stile == CLASSICO) colore(0, 0, 0, 1);
-            else colore(0, 0, 0, (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f));
+            float alfaSfondo = materialeNotch == 7 ? 0.16f : materialeNotch == 6 ? 0.34f :
+                               materialeNotch == 5 ? 0.48f : materialeNotch == 3 ? 0.72f :
+                               (materialeNotch == 2 || materialeNotch == 4) ? 0.88f : 1.0f;
+            if (stile != CLASSICO) alfaSfondo *= (stile == VELO ? 0.80f : 0.84f) * std::min(1.0f, apertura * 4.0f);
+            colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, alfaSfondo);
             rt->FillGeometry(g, pen);
+            if (materialeNotch == 6) {
+                colore(1, 1, 1, 0.48f * apertura);
+                rt->DrawGeometry(g, pen, 1.2f * dpi);
+            } else if (materialeNotch == 7) {
+                colore(1, 1, 1, 0.12f * apertura);
+                rt->DrawGeometry(g, pen, 0.8f * dpi);
+            }
             if (stile == ECO || stile == VELO) {
                 const float impulso = stile == ECO ? 1.0f - (float)std::clamp((adesso() - tOnda) / DURATA_ECO, 0.0, 1.0) : 0.0f;
                 colore(0.60f, 0.78f, 0.76f, apertura * (0.27f + 0.14f * impulso));
@@ -813,28 +1199,89 @@ private:
         mostraAlfa();
     }
 
-    // dove stanno le barrette nella scena attuale (coordinate della finestra)
+    // zona del visualizzatore centrale nella scena MUSICA (coordinate della finestra)
     bool zonaBarrette(D2D1_RECT_F& r, D2D1_POINT_2F& o) const {
+        if (scena != MUSICA && scena != TIMER) return false;
         float w, h, R; misura(scena, w, h, R);
-        const float L = sinistra(scena), d = dpi;
-        // (vedi contenutoScena: lo spazio dei pallini e quello di luna e tazzina. Senza segniW il ridisegno parziale
-        // metteva un secondo gruppo di barrette 22 px piu' a destra, sopra la luna: R20261121-002056-S12)
-        if (scena == MUSICA) o = {L + w - puntiW() - segniW() - 25 * d, h / 2};
-        else if (scena == APERTO) o = {L + w - 35 * d, 24 * d};
-        else return false;
+        const float margine = puntiW() + segniW();
+        const float d = dpi;
+        float L = sinistra(scena) + margine;
+        w -= 2 * margine;
+        if (scena == TIMER) {
+            const LayoutTimer layout = disposizioneTimer();
+            L += layout.offsetOrologio;
+            w = largoOra;
+        }
+        const float sep = larghezzaSeparatoreOra();
+        const float centro = std::round(L + w / 2);
+        o = {std::round(centro - sep / 2), h / 2};   // anchored to the clock's actual centre
         o.y += scesa(scena);   // (notch in basso: contro il bordo in basso)
-        r = {std::floor(o.x - 2), std::floor(o.y - 8 * d), std::ceil(o.x + 13 * d + 2), std::ceil(o.y + 8 * d)};
+        r = {std::floor(o.x - 2 * d), std::floor(o.y - 8 * d),
+             std::ceil(o.x + sep + 2 * d), std::ceil(o.y + 8 * d)};
         return true;
     }
 
     void ridisegnaBarrette() {
         D2D1_RECT_F r; D2D1_POINT_2F o;
         if (!rt || !pen || !visibile || !zonaBarrette(r, o)) return;
+        if (bordo() != CLASSICO) { ridisegna(); return; }
+
+        // Aggiorna solo la zona delle barrette, ma ripristina la vera sagoma del notch.
+        // Cancellare con un colore pieno lasciava un rettangolo opaco dietro al visualizzatore.
+        const float f = std::round(6 * dpi);
+        const float w = (float)std::max(2.0, mw.x);
+        const float h = (float)std::max((double)f + 2, mh.x);
+        const float k = raggio::fattore(), fr = f * k;
+        const float R = std::clamp((float)mr.x, 0.0f, std::min(w / 2, h - f)) * k;
+        const float x0 = (W2 - w) / 2, x1 = x0 + w;
+        const float su = (float)salita();
+        const float apertura = std::clamp(1.0f - su / h, 0.0f, 1.0f);
+        const D2D1_MATRIX_3X2_F forma = basso
+            ? D2D1::Matrix3x2F(1, 0, 0, -1, 0, (float)H2 + su)
+            : (su > 0 ? D2D1::Matrix3x2F::Translation(0, -su) : D2D1::Matrix3x2F::Identity());
+
+        ID2D1PathGeometry* g = nullptr;
+        ID2D1GeometrySink* s = nullptr;
+        ID2D1Factory* f2d = fabbriche::d2d();
+        if (!f2d || FAILED(f2d->CreatePathGeometry(&g)) || !g || FAILED(g->Open(&s)) || !s) {
+            if (s) s->Release();
+            if (g) g->Release();
+            ridisegna();
+            return;
+        }
+        s->BeginFigure({x0 - fr, 0}, D2D1_FIGURE_BEGIN_FILLED);
+        if (fr >= 0.5f) s->AddArc({{x0, fr}, {fr, fr}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
+        s->AddLine({x0, h - R});
+        if (R >= 0.5f) s->AddArc({{x0 + R, h}, {R, R}, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
+        s->AddLine({x1 - R, h});
+        if (R >= 0.5f) s->AddArc({{x1, h - R}, {R, R}, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
+        s->AddLine({x1, fr});
+        if (fr >= 0.5f) s->AddArc({{x1 + fr, 0}, {fr, fr}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL});
+        s->EndFigure(D2D1_FIGURE_END_CLOSED);
+        const HRESULT chiudi = s->Close();
+        s->Release(); s = nullptr;
+        if (FAILED(chiudi)) { g->Release(); ridisegna(); return; }
+
         rt->BeginDraw();
         rt->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_ALIASED);
-        rt->Clear(D2D1::ColorF(0, 0, 0, 1));   // li' sotto c'e' solo il nero del notch
-        barrette(o.x, o.y, 13 * dpi, 1);
+        rt->Clear(D2D1::ColorF(0, 0, 0, 0));
+        rt->SetTransform(forma);
+        const float alfaSfondo = materialeNotch == 7 ? 0.16f : materialeNotch == 6 ? 0.34f :
+                                 materialeNotch == 5 ? 0.48f : materialeNotch == 3 ? 0.72f :
+                                 (materialeNotch == 2 || materialeNotch == 4) ? 0.88f : 1.0f;
+        colore(sfondoNotch.r, sfondoNotch.g, sfondoNotch.b, alfaSfondo);
+        rt->FillGeometry(g, pen);
+        if (materialeNotch == 6) {
+            colore(1, 1, 1, 0.48f * apertura);
+            rt->DrawGeometry(g, pen, 1.2f * dpi);
+        } else if (materialeNotch == 7) {
+            colore(1, 1, 1, 0.12f * apertura);
+            rt->DrawGeometry(g, pen, 0.8f * dpi);
+        }
+        rt->SetTransform(D2D1::Matrix3x2F::Identity());
+        separatore(o.x, o.y, larghezzaSeparatoreOra(), 1, fattoreVisualizzatore());
         rt->PopAxisAlignedClip();
+        g->Release();
         if (rt->EndDraw() == (HRESULT)D2DERR_RECREATE_TARGET) { libera(); return; }
         const RECT sporco = {(LONG)r.left, (LONG)r.top, (LONG)r.right, (LONG)r.bottom};
         mostraAlfa(&sporco);
@@ -888,7 +1335,7 @@ private:
         if (s == ORA || s == MUSICA || s == TIMER) { puntiSensori(s, h, a); segni(s == ORA && !scaffale.empty(), h, a); }
         switch (s) {
             case ORA:
-                ora(L, w, h, a);
+                ora(L, w, h, a, true);
                 if (!scaffale.empty()) segnoScaffale(L + 18 * d, h / 2, a);
                 break;
             case AVVISO: {
@@ -904,31 +1351,75 @@ private:
                 scrivi(testoAvviso, fPiccolo, {xt, 0, std::min(xt + tw + 4 * d, L + w - AV_MARGINE * d / 2), h}, a);
                 break;
             }
-            case MUSICA: {
-                ora(L, w, h, a);
-                const float q = 14 * d, y = (h - q) / 2;   // copertina piccola a sinistra, barrette a destra
-                if (bCopertina) immagine(bCopertina, {L + 12 * d, y, L + 12 * d + q, y + q}, 3.5f * d, a);
-                else nota(L + 12 * d + q / 2, h / 2, a);
-                barrette(L + w - 12 * d - 13 * d, h / 2, 13 * d, a);
+            case MUSICA:
+                // La musica sostituisce il separatore centrale con il visualizzatore: niente copertina in miniatura.
+                ora(L, w, h, a, true);
                 break;
-            }
             case APERTO: aperto(L, w, h, a); break;
             case SCAFFALE: scaffaleScena(L, w, h, a); break;
-            case TIMER: {   // ora al centro, anello del timer a sinistra e il tempo che resta a destra, in arancio
-                ora(L, w, h, a);
-                // comparsa: l'anello cresce dal centro e il tempo entra scivolando da destra
-                const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0), e = ka * ka * (3 - 2 * ka);
-                if (e > 0.01f) anello(L + 20 * d, h / 2, 6.5f * d * e, (float)comodita::timerAvanzamento(), a * e);
-                colore(1.0f, 0.62f, 0.04f, a * e);
+            case TIMER: {
+                const LayoutTimer layout = disposizioneTimer();
+                const float clockLeft = L + layout.offsetOrologio;
+                ora(clockLeft, largoOra, h, a, true);
+
+                // The timer ring and countdown sit at the same measured distance from
+                // the clock's first time character and last date character respectively.
+                const float ka = (float)std::clamp((adesso() - tScena - 0.08) / 0.32, 0.0, 1.0);
+                const float e = ka * ka * (3.0f - 2.0f * ka);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerPrincipale, a * e);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
+                if (e > 0.01f)
+                    anello(L + layout.centroAnello, h / 2, 6.5f * d * e,
+                           (float)comodita::timerAvanzamento(), a * e, coloreTimer(coloreTimerPrincipale, a * e));
+
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
-                rt->DrawText(r.c_str(), (UINT32)r.size(), fNumero, {L + w - 70 * d + (1 - e) * 12 * d, 0, L + w - 14 * d + (1 - e) * 12 * d, h}, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+
+                // Match the date baseline (the date uses a small optical -1.5 px correction
+                // relative to the time), not the larger 12-hour clock's text box centre.
+                auto metricheLinea = [&](const std::wstring& testo, IDWriteTextFormat* formato,
+                                         float& altezza, float& lineaBase) {
+                    altezza = lineaBase = 0.0f;
+                    IDWriteTextLayout* layoutTesto = nullptr;
+                    if (!formato || FAILED(fabbriche::testo()->CreateTextLayout(
+                            testo.c_str(), (UINT32)testo.size(), formato, 1000, 100, &layoutTesto)) || !layoutTesto)
+                        return;
+                    DWRITE_LINE_METRICS lm{}; UINT32 quanti = 0;
+                    if (SUCCEEDED(layoutTesto->GetLineMetrics(&lm, 1, &quanti)) && quanti) {
+                        altezza = lm.height;
+                        lineaBase = lm.baseline;
+                    }
+                    layoutTesto->Release();
+                };
+                float hOra = 0.0f, baseOra = 0.0f, hData = 0.0f, baseData = 0.0f;
+                float hConto = 0.0f, baseConto = 0.0f;
+                metricheLinea(testoOra, fOra, hOra, baseOra);
+                metricheLinea(testoGiorno, fGiorno, hData, baseData);
+                metricheLinea(r, fNumero, hConto, baseConto);
+
+                const float yOra = std::round((h - hOra) / 2.0f);
+                const float yData = std::round(yOra + baseOra - baseData - 1.5f * d);
+                const float yConto = std::round(yData + baseData - baseConto);
+                const float ingresso = (1.0f - e) * 12.0f * d;
+
+                const DWRITE_TEXT_ALIGNMENT allineamento = fNumero->GetTextAlignment();
+                fNumero->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                rt->DrawText(r.c_str(), (UINT32)r.size(), fNumero,
+                    {L + layout.xConto + ingresso, yConto,
+                     L + layout.xConto + layout.larghezzaConto + ingresso,
+                     yConto + std::max(hConto, 12.0f * d)},
+                    pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                fNumero->SetTextAlignment(allineamento);
                 break;
             }
             case TIMER_APERTO: {   // timer grande: anello, tempo che resta, +1 min, stop
                 const float cy = h / 2, ka = (float)std::clamp((adesso() - tScena - 0.06) / 0.3, 0.0, 1.0);
                 const float e = ka * ka * (3 - 2 * ka);
-                anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a);
-                colore(1.0f, 0.62f, 0.04f, a);
+                const D2D1_COLOR_F tintaConto = coloreTimer(coloreTimerPrincipale, a);
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
+                anello(L + 34 * d, cy, (8 + 6 * e) * d, (float)comodita::timerAvanzamento(), a,
+                       coloreTimer(coloreTimerPrincipale, a));
+                colore(tintaConto.r, tintaConto.g, tintaConto.b, tintaConto.a);
                 const std::wstring r = comodita::durata(comodita::timerResto());
                 rt->DrawText(r.c_str(), (UINT32)r.size(), fGrande, {L + 60 * d + (1 - e) * 10 * d, 0, L + w - 126 * d, h}, pen, D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 const D2D1_RECT_F rp = tastoTimer(0), rs = tastoTimer(1);
@@ -947,9 +1438,11 @@ private:
             case SUONA: {   // timer finito: cerchio arancio che pulsa
                 const float cx = L + 26 * d, cy = h / 2;
                 const float k = (float)(0.5 + 0.5 * std::sin(adesso() * 7));
-                colore(1.0f, 0.62f, 0.04f, a * (0.25f + 0.25f * k));
+                const D2D1_COLOR_F tintaFine = coloreTimer(coloreTimerFine, a);
+                colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a * (0.25f + 0.25f * k));
                 rt->FillEllipse({{cx, cy}, (11 + 3 * k) * d, (11 + 3 * k) * d}, pen);
-                anello(cx, cy, 7.5f * d, 1, a);
+                colore(tintaFine.r, tintaFine.g, tintaFine.b, tintaFine.a);
+                anello(cx, cy, 7.5f * d, 1, a, tintaFine);
                 scrivi(testi::t(L"Timer finito", L"Timer done"), fTitolo, {L + 50 * d, 0, L + w - 110 * d, h}, a);
                 scrivi(testi::t(L"Clic per fermare", L"Click to stop"), fPiccolo, {L + w - 112 * d, 0, L + w - 16 * d, h}, 0.6f * a);
                 break;
@@ -959,8 +1452,8 @@ private:
         }
     }
 
-    // ora (piu' grande) e giorno su una riga, con la stessa linea di base; sotto il giorno una linea sottile
-    void ora(float L, float w, float h, float a) {
+    // Ora | data sulla stessa linea di base; nella scena MUSICA il separatore diventa un piccolo visualizzatore.
+    void ora(float L, float w, float h, float a, bool visualizzatore = false) {
         IDWriteFactory* fdw = fabbriche::testo();
         auto lineaBase = [&](IDWriteTextFormat* fmt, const std::wstring& t, float& alto) {
             IDWriteTextLayout* l = nullptr; float base = 0; alto = 0;
@@ -970,17 +1463,17 @@ private:
             }
             return base;
         };
-        const float spazio = std::round(7 * dpi);
-        const float xt = std::round(L + (w - (lo + spazio + lg)) / 2);
+        const float spazio = spazioOra(), sep = larghezzaSeparatoreOra();
+        const float xs = std::round(L + w / 2 - sep / 2);  // il separatore resta sempre al centro del notch
+        const float xt = std::round(xs - spazio - lo);
         float altoOra = 0, altoGiorno = 0;
         const float bOra = lineaBase(fOra, testoOra, altoOra), bGiorno = lineaBase(fGiorno, testoGiorno, altoGiorno);
         const float yOra = std::round((h - altoOra) / 2), baseOra = yOra + bOra;
-        const float yGiorno = baseOra - 3 * dpi - bGiorno;
-        scrivi(testoOra, fOra, {xt, yOra, xt + lo + 2, yOra + altoOra}, a);
-        const float xg = xt + lo + spazio;
-        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 2, yGiorno + altoGiorno}, 0.66f * a);
-        colore(1, 1, 1, 0.38f * a);
-        rt->DrawLine({xg, baseOra + 0.5f}, {xg + lg, baseOra + 0.5f}, pen, 1.0f);
+        const float yGiorno = std::round(baseOra - bGiorno - 1.5f * dpi);   // compenso ottico: alza la data per allinearla all'ora
+        const float xg = std::round(xs + sep + spazio);
+        scrivi(testoOra, fOra, {xt, yOra, xt + lo + 3 * dpi, yOra + altoOra}, a);
+        scrivi(testoGiorno, fGiorno, {xg, yGiorno, xg + lg + 4 * dpi, yGiorno + altoGiorno}, 0.98f * a);
+        separatore(xs, h / 2, sep, a, visualizzatore ? fattoreVisualizzatore() : 0.0f);
     }
 
     void lunetta(float cx, float cy, float a) {
@@ -1266,12 +1759,12 @@ private:
         }
     }
 
-    // anello del timer: grigio pieno, arancio la parte gia' passata (da mezzogiorno in senso orario)
-    void anello(float cx, float cy, float r, float k, float a) {
+    // anello del timer: traccia grigia e arco di avanzamento nel colore scelto dall'utente
+    void anello(float cx, float cy, float r, float k, float a, D2D1_COLOR_F tinta) {
         colore(1, 1, 1, 0.22f * a);
         rt->DrawEllipse({{cx, cy}, r, r}, pen, 2.2f * dpi);
         k = std::clamp(k, 0.0f, 1.0f);
-        colore(1.0f, 0.62f, 0.04f, a);
+        colore(tinta.r, tinta.g, tinta.b, tinta.a);
         if (k >= 0.999f) { rt->DrawEllipse({{cx, cy}, r, r}, pen, 2.2f * dpi); return; }
         if (k <= 0.001f) return;
         ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* s = nullptr;
@@ -1320,16 +1813,74 @@ private:
         rt->DrawLine({cx + 0.0f * d, cy - 5.5f * d}, {cx + 4.0f * d, cy - 3.5f * d}, pen, 1.3f * d);
     }
 
-    // barrette che ballano mentre suona (ferme e basse in pausa)
-    void barrette(float x, float cy, float largo, float a) {
-        const float d = dpi, lb = 2.4f * d, passo = (largo - lb) / 3;
+    // Transizione incrociata: la linea si dissolve mentre il visualizzatore nasce esattamente al suo centro.
+    void separatore(float x, float cy, float largo, float a, float mix) {
+        mix = std::clamp(mix, 0.0f, 1.0f);
+        if (mix > 0.001f) barrette(x, cy, largo, a, mix);
+        if (mix < 0.999f) {
+            const float cx = x + largo / 2;
+            colore(testoNotch.r, testoNotch.g, testoNotch.b, 0.72f * a * (1.0f - mix));
+            rt->DrawLine({cx, cy - 4.5f * dpi}, {cx, cy + 4.5f * dpi}, pen, 1.3f * dpi);
+        }
+    }
+
+    // Quattro stili compatti. Quando la reattivita' e' attiva, l'ampiezza segue il picco reale
+    // dell'uscita audio predefinita di Windows; altrimenti resta un'animazione ambientale delicata.
+    // The response envelope is controlled by three user weights: left/start, centre and right/end.
+    void barrette(float x, float cy, float largo, float a, float mix) {
+        const float d = dpi;
         const double t = adesso();
-        for (int i = 0; i < 4; i++) {
-            float k = 0.25f;
-            if (brano.suona) k = (float)(0.35 + 0.65 * std::fabs(std::sin(t * (5.1 + i * 1.7) + i * 1.3)));
-            const float hb = std::max(2.4f * d, 12 * d * k);
-            colore(1, 1, 1, 0.9f * a);
-            rt->FillRoundedRectangle({{x + i * passo, cy - hb / 2, x + i * passo + lb, cy + hb / 2}, lb / 2, lb / 2}, pen);
+        const float forza = forzaVisualizzatore / 100.0f;
+        const float pesoInizio = visualizzatorePesoInizio / 100.0f;
+        const float pesoCentro = visualizzatorePesoCentro / 100.0f;
+        const float pesoFine = visualizzatorePesoFine / 100.0f;
+        const bool audioReale = visualizzatoreReattivo && misuratoreAudio.pronto();
+        auto ampiezza = [&](int bandIndex, int bandCount, int visualIndex, int visualCount) {
+            float raw = 0.0f;
+            if (audioReale) {
+                raw = std::clamp(misuratoreAudio.banda(bandIndex, bandCount) * forza, 0.0f, 1.0f);
+            } else {
+                const float phase = 0.5f + 0.5f * (float)std::sin(t * 2.1 + bandIndex * 0.65);
+                raw = std::clamp((0.22f + 0.78f * phase) * forza, 0.0f, 1.0f);
+            }
+            const float pos = visualCount > 1 ? visualIndex / (float)(visualCount - 1) : 0.5f;
+            const float weight = pesoVisivoInPosizione(pos, pesoInizio, pesoCentro, pesoFine);
+            // Gentle perceptual compression lifts quieter frequency bins so weighting remains visible.
+            const float perceptual = std::pow(std::clamp(raw, 0.0f, 1.0f), 0.72f);
+            return std::clamp(perceptual * weight, 0.0f, 1.0f);
+        };
+        auto tinta = [&](int i, int n) {
+            const int indice = n > 1 ? i * 3 / (n - 1) : 0;
+            const D2D1_COLOR_F col = coloreBarretta(indice, 0.92f * a * mix);
+            colore(col.r, col.g, col.b, col.a);
+        };
+
+        if (stileVisualizzatore == 1) { // Spectral wave: highest amplitude at centre, tapered toward both ends.
+            const int n = 13;
+            float px = x, py = cy;
+            for (int i = 0; i < n; i++) {
+                const float u = i / (float)(n - 1);
+                const float amp = ampiezza(i, n, i, n);
+                const float xx = x + u * largo;
+                const float polarity = (i % 2 == 0) ? 1.0f : -1.0f;
+                const float idleShape = (float)std::sin(t * 2.6 + i * 0.78);
+                const float yy = cy + (audioReale ? polarity * amp : idleShape * amp) * 11.0f * d * mix;
+                tinta(i, n);
+                if (i) rt->DrawLine({px, py}, {xx, yy}, pen, 1.6f * d);
+                px = xx; py = yy;
+            }
+            return;
+        }
+        const int n = 9;
+        const float lb = 2.0f * d, passo = largo / n;
+        for (int i = 0; i < n; i++) {
+            const int bandCount = stileVisualizzatore == 2 ? (n + 1) / 2 : n;
+            const int bandIndex = stileVisualizzatore == 2 ? std::min(i, n - 1 - i) : i;
+            const float amp = ampiezza(bandIndex, bandCount, i, n);
+            const float h = std::max(2.0f * d, (audioReale ? (1.5f + 14.0f * amp) : (1.5f + 10.0f * amp)) * d * mix);
+            const float bx = x + (i + 0.5f) * passo - lb / 2;
+            tinta(i, n);
+            rt->FillRoundedRectangle({{bx, cy - h / 2, bx + lb, cy + h / 2}, lb / 2, lb / 2}, pen);
         }
     }
 
@@ -1342,13 +1893,13 @@ private:
             nota((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2, a);
         }
         const float tx = L + 100 * d, tr = L + w - 22 * d;
-        scrivi(brano.titolo.empty() ? std::wstring(testi::t(L"In riproduzione", L"Now playing")) : brano.titolo, fTitolo, {tx, 14 * d, tr - 22 * d, 34 * d}, a);
+        scrivi(brano.titolo.empty() ? std::wstring(testi::t(L"In riproduzione", L"Now playing")) : brano.titolo, fTitolo, {tx, 14 * d, tr, 34 * d}, a);
         scrivi(brano.artista, fPiccolo, {tx, 34 * d, tr, 50 * d}, 0.62f * a);
-        barrette(tr - 13 * d, 24 * d, 13 * d, a);   // (stessa posizione di zonaBarrette)
         for (int i = 0; i < 3; i++) {
             const D2D1_POINT_2F c = centroTasto(i);
             if (i == pulsanteSopra) { colore(1, 1, 1, 0.16f * a); rt->FillEllipse({c, 17 * d, 17 * d}, pen); }
-            colore(1, 1, 1, a);
+            const D2D1_COLOR_F tintaPulsanti = coloreMedia(colorePulsanti, D2D1::ColorF(1, 1, 1, 1), a);
+            colore(tintaPulsanti.r, tintaPulsanti.g, tintaPulsanti.b, tintaPulsanti.a);
             if (i == 1) {
                 if (brano.suona) {   // pausa
                     rt->FillRoundedRectangle({{c.x - 6 * d, c.y - 8 * d, c.x - 2 * d, c.y + 8 * d}, 1.2f * d, 1.2f * d}, pen);

@@ -294,20 +294,20 @@ inline auto Motore::controlloCompatto() const -> bool {
 #ifdef PROVA_COMPATTO
     return true;
 #endif
-    return std::round((518 + 52 * righeControllo()) * dpi) > altezzaMassimaP(); }
+    return std::round((550 + 52 * righeControllo()) * dpi) > altezzaMassimaP(); }
 // luminosita' e batteria: una riga in piu' solo se il monitor si regola e se c'e' una batteria. Le conta anche
 // controlloCompatto. Su uno schermo cosi' basso che nemmeno la versione compatta ci sta con tutte e due (720p al
 // 125%) la luminosita' lascia il posto alla batteria: sul portatile la si regola anche coi tasti
 inline auto Motore::rigaBatteria() const -> bool { return sensori::Sensori::io().batteria >= 0; }
 inline auto Motore::rigaLuminosita() const -> bool {
     if (sis.luminosita < 0) return false;
-    return !rigaBatteria() || std::round((430 + 48 * 2) * dpi) <= altezzaMassimaP();
+    return !rigaBatteria() || std::round((460 + 48 * 2) * dpi) <= altezzaMassimaP();
 }
 inline auto Motore::righeControllo() const -> int { return (rigaLuminosita() ? 1 : 0) + (rigaBatteria() ? 1 : 0); }
 inline auto Motore::altezzaControllo() const -> float {
     const int righe = righeControllo();
-    if (!controlloCompatto()) return std::round((518 + 52 * righe) * dpi);
-    return std::round((430 + 48 * righe) * dpi);
+    if (!controlloCompatto()) return std::round((550 + 52 * righe) * dpi);
+    return std::round((460 + 48 * righe) * dpi);
 }
 
 inline auto Motore::nascondiPannello() -> void {
@@ -395,13 +395,13 @@ inline auto Motore::renderPannello() -> bool {
         if (x >= 1) { tVista = -1; vistaPrima = P_NESSUNO; } else pAnimazione = true;
     }
 
-    const bool scuro = temaScuro();
-    const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.88f);
+    const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
+    const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
     dc->SetTarget(bersaglioP);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
     const float hv = (float)phVis;
-    disegnaFondo({0.5f, 0.5f, PW - 0.5f, hv - 0.5f}, scuro);
+    disegnaFondo({0.5f, 0.5f, PW - 0.5f, hv - 0.5f}, scuro, opacita, coloreAuto ? nullptr : &coloreFondo);
     elementi.clear();
     dc->PushAxisAlignedClip({0, 0, PW, hv}, D2D1_ANTIALIAS_MODE_ALIASED);
     if (tVista < 0) disegnaVista(pannelloTipo, PH, scuro, ink, D2D1::Matrix3x2F::Identity());
@@ -1202,7 +1202,12 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     const bool cp = controlloCompatto();
     const float th = (cp ? 52 : 64) * dpi, tg = (cp ? 8 : 10) * dpi, sh = (cp ? 40 : 44) * dpi;
     const float m = (cp ? 12 : 16) * dpi, larg = PW - 2 * (16 * dpi), mezzo = (larg - 10 * dpi) / 2;
-    float y = m;
+    const D2D1_COLOR_F tenue = {ink.r, ink.g, ink.b, ink.a * 0.58f};
+    pennello->SetColor(ink);
+    scrivi(testi::t(L"Impostazioni rapide", L"Quick settings"), fmtTitolo, {16*dpi, 5*dpi, PW-16*dpi, 29*dpi});
+    pennello->SetColor(tenue);
+    scrivi(testoDataLunga, fmtSotto, {17*dpi, 28*dpi, PW-16*dpi, 46*dpi});
+    float y = (cp ? 50.0f : 54.0f) * dpi;
     // Wi-Fi: interruttore vero se c'e' la scheda; senza (PC col cavo) lo stato della rete, e il clic apre le impostazioni
     const int wf = sis.wifi, bt = sis.bluetooth;
     if (wf >= 0) piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_RETE, wf == 1, L"Wi-Fi",
@@ -1223,7 +1228,8 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     y += th + tg;
     const bool tScuro = sistema::Sistema::temaScuro();
     piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_TEMA, tScuro, testi::t(L"Tema scuro", L"Dark theme"), tScuro ? testi::t(L"Attivo", L"On") : testi::t(L"Spento", L"Off"), scuro, ink);
-    piastrella({16 * dpi + mezzo + 10 * dpi, y, PW - 16 * dpi, y + th}, A_FLUIDWIN, false, L"FluidWin", testi::t(L"Impostazioni", L"Settings"), scuro, ink);
+    piastrella({16 * dpi + mezzo + 10 * dpi, y, PW - 16 * dpi, y + th}, A_FLUIDWIN, false,
+               testi::t(L"Settings", L"Settings"), testi::t(L"Impostazioni di Windows", L"Windows Settings"), scuro, ink);
     // tieni sveglio e non disturbare (comodita.h): il clic apre il menu delle durate
     y += th + tg;
     piastrella({16 * dpi, y, 16 * dpi + mezzo, y + th}, A_SVEGLIO, comodita::sveglio(), testi::t(L"Non dormire", L"Keep awake"),
@@ -1252,18 +1258,18 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
     pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
     dc->FillRoundedRectangle({rv, rr, rr}, pennello);
     dc->PushAxisAlignedClip({rv.left, rv.top, rv.left + larg * v, rv.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-    pennello->SetColor(D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f));
+    pennello->SetColor(D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f));
     dc->FillRoundedRectangle({rv, rr, rr}, pennello);
     dc->PopAxisAlignedClip();
     const D2D1_RECT_F rm = {rv.left, rv.top, rv.left + 48 * dpi, rv.bottom};
     const int em = aggiungi(rm, A_MUTO, 0);
     const float sm = (em == pPremuto) ? 0.88f : 1.0f;
     dc->SetTransform(D2D1::Matrix3x2F::Scale(sm, sm, {rv.left + 26 * dpi, (rv.top + rv.bottom) / 2}) * baseVista);
-    pennello->SetColor(scuro && v < 0.12f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f));
+    pennello->SetColor(v > 0.12f ? D2D1::ColorF(1,1,1,0.98f) : ink);
     simboloVolume(rv.left + 26 * dpi, (rv.top + rv.bottom) / 2);
     dc->SetTransform(baseVista);
     wchar_t pc[16]; swprintf(pc, 16, muto ? testi::t(L"muto", L"muted") : L"%d%%", (int)std::lround(volume * 100));
-    pennello->SetColor(scuro && v < 0.9f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.7f));
+    pennello->SetColor(ink);
     scrivi(pc, fmtNome, {rv.right - 56 * dpi, rv.top, rv.right - 8 * dpi, rv.bottom});
 
     // luminosita' del monitor (solo se si puo' regolare via DDC/CI)
@@ -1276,13 +1282,13 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
         pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
         dc->FillRoundedRectangle({rl, rr, rr}, pennello);
         dc->PushAxisAlignedClip({rl.left, rl.top, rl.left + larg * vl, rl.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-        pennello->SetColor(D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f));
+        pennello->SetColor(D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f));
         dc->FillRoundedRectangle({rl, rr, rr}, pennello);
         dc->PopAxisAlignedClip();
-        pennello->SetColor(scuro && vl < 0.12f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f));
+        pennello->SetColor(vl > 0.12f ? D2D1::ColorF(1,1,1,0.98f) : ink);
         simboloSole(rl.left + 26 * dpi, (rl.top + rl.bottom) / 2);
         wchar_t pl[16]; swprintf(pl, 16, L"%d%%", lum);
-        pennello->SetColor(scuro && vl < 0.9f ? ink : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.7f));
+        pennello->SetColor(ink);
         scrivi(pl, fmtNome, {rl.right - 56 * dpi, rl.top, rl.right - 8 * dpi, rl.bottom});
     }
 
@@ -1297,8 +1303,8 @@ inline auto Motore::disegnaControllo(bool scuro, D2D1_COLOR_F ink) -> void {
         dc->FillRoundedRectangle({rb, rr, rr}, pennello);
         const bool verde = se.inCarica, rosso = !se.inCarica && se.batteria <= 20;
         const D2D1_COLOR_F pieno = verde ? D2D1::ColorF(0.20f, 0.78f, 0.35f, 1) : rosso ? D2D1::ColorF(1.0f, 0.27f, 0.23f, 1)
-                                         : D2D1::ColorF(1, 1, 1, scuro ? 0.92f : 0.97f);
-        const D2D1_COLOR_F suPieno = (verde || rosso) ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.85f);
+                                         : D2D1::ColorF(0.035f, 0.46f, 0.94f, 0.94f);
+        const D2D1_COLOR_F suPieno = D2D1::ColorF(1, 1, 1, 0.96f);
         dc->PushAxisAlignedClip({rb.left, rb.top, rb.left + riempito, rb.bottom}, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         pennello->SetColor(pieno);
         dc->FillRoundedRectangle({rb, rr, rr}, pennello);
@@ -2150,8 +2156,11 @@ inline auto Motore::luminositaDaMouse(float x) -> void {
 
 // tema cambiato (dal centro di controllo o dalle Impostazioni): i vetri seguono il chiaro/scuro
 inline auto Motore::aggiornaTemaVetri() -> void {
-    BOOL s = temaScuro(true);
-    for (HWND v : {vetro, vetroStato, vetroOra, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+    BOOL s = coloreAuto ? temaScuro(true) : fondoScuro;
+    for (HWND v : {vetro, vetroStato, vetroPannello, altra.vetroPannello, vetroLauncher}) if (v) {
+        DwmSetWindowAttribute(v, DWMWA_USE_IMMERSIVE_DARK_MODE, &s, sizeof(s));
+        vetro::applicaEffetto(v, materialeVetro);
+    }
     dirty = true; pDirty = true; altra.pDirty = true; lDirty = true;
 }
 
@@ -2190,13 +2199,11 @@ inline auto Motore::eseguiPannello(const Elemento& e) -> void {
             sistema::Sistema::impostaTema(!sistema::Sistema::temaScuro());
             aggiornaTemaVetri(); dirty = true; pDirty = true;
             break;
-        case A_FLUIDWIN: {   // le impostazioni crescono dal vetro del pannello (il contenuto qui svanisce sul posto)
-            RECT r{};
-            const bool da = impostazioni && GetWindowRect(vetroPannello, &r) && !IsRectEmpty(&r);
-            if (da) cediPannello(); else chiudiPannello();
-            if (impostazioni) impostazioni(da ? &r : nullptr);
+        case A_FLUIDWIN:
+            // Apri l'app Impostazioni di Windows, non il pannello delle preferenze di FluidWin.
+            chiudiPannello();
+            apriPagina(L"ms-settings:");
             break;
-        }
         case A_TIMER: {
             std::vector<menu::Voce> voci = {menu::titolo(testi::t(L"Timer", L"Timer"))};
             const int minuti[] = {1, 3, 5, 10, 15, 25, 30, 45, 60};

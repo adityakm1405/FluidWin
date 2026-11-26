@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+    <filter id="binShadow" x="-15%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="0.28" />
+    </filter>
+
+    
+    <linearGradient id="bodyHorizontal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#CFD3D8" />
+      <stop offset="14%" stop-color="#ECEEF1" />
+      <stop offset="35%" stop-color="#F7F8FA" />
+      <stop offset="72%" stop-color="#F2F4F7" />
+      <stop offset="90%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#D6DAE0" />
+    </linearGradient>
+
+    
+    <linearGradient id="bodyVertical" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0" />
+      <stop offset="78%" stop-color="#E4E7EC" stop-opacity="0.15" />
+      <stop offset="93%" stop-color="#C8CDD5" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#9FA6B2" stop-opacity="0.75" />
+    </linearGradient>
+
+    
+    <radialGradient id="frostedGlow" cx="38%" cy="78%" r="35%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.85" />
+      <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+
+    
+    <linearGradient id="interiorGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4D8DE" />
+      <stop offset="18%" stop-color="#E7E9ED" />
+      <stop offset="50%" stop-color="#F0F1F4" />
+      <stop offset="82%" stop-color="#E3E6EB" />
+      <stop offset="100%" stop-color="#CDD2D9" />
+    </linearGradient>
+
+    
+    <linearGradient id="interiorDepth" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#B8BEC7" stop-opacity="0.35" />
+      <stop offset="45%" stop-color="#E2E5EA" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.6" />
+    </linearGradient>
+
+    
+    <linearGradient id="rimStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="50%" stop-color="#F5F7FA" />
+      <stop offset="100%" stop-color="#FFFFFF" />
+    </linearGradient>
+  </defs>
+
+  
+  <g filter="url(#binShadow)">
+    
+    <path id="binSilhouette" d="
+      M 37,39
+      C 37,25 78,16 128,16
+      C 178,16 219,25 219,39
+      L 200,213
+      C 198,231 167,242 128,242
+      C 89,242 58,231 56,213
+      Z" fill="url(#bodyHorizontal)" />
+
+    
+    <path d="
+      M 37,39
+      C 37,25 78,16 128,16
+      C 178,16 219,25 219,39
+      L 200,213
+      C 198,231 167,242 128,242
+      C 89,242 58,231 56,213
+      Z" fill="url(#bodyVertical)" />
+
+    
+    <path d="
+      M 37,39
+      C 37,25 78,16 128,16
+      C 178,16 219,25 219,39
+      L 200,213
+      C 198,231 167,242 128,242
+      C 89,242 58,231 56,213
+      Z" fill="url(#frostedGlow)" />
+
+    
+    <ellipse cx="128" cy="39" rx="89.5" ry="21.5" fill="url(#interiorGrad)" />
+    <ellipse cx="128" cy="39" rx="89.5" ry="21.5" fill="url(#interiorDepth)" />
+
+    
+    <ellipse cx="128" cy="39" rx="90.5" ry="22.2" fill="none" stroke="url(#rimStroke)" stroke-width="2.2" />
+
+    
+    <path d="M 38.5,39 C 38.5,27 78.5,18 128,18 C 177.5,18 217.5,27 217.5,39" fill="none" stroke="#B0B6BF" stroke-width="0.75" opacity="0.65" />
+
+    
+    <path d="M 37.5,39.5 C 37.5,52 78,61.5 128,61.5 C 178,61.5 218.5,52 218.5,39.5" fill="none" stroke="#C5CAD3" stroke-width="0.8" opacity="0.5" />
+  </g>
+</svg>

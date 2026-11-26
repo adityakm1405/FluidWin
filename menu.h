@@ -123,8 +123,8 @@ public:
     // Mostra il menu con l'angolo in alto a sinistra in pt (o sopra pt, se versoAlto); restituisce l'id scelto.
     // prepara(sottomenu) viene chiamata prima di aprire un sottomenu preso da un HMENU (la shell li riempie li').
     static UINT mostra(const std::vector<Voce>& voci, POINT pt, HWND proprietario, bool versoAlto = false,
-                       std::function<void(HMENU)> prepara = nullptr) {
-        Menu m(voci, proprietario, prepara);
+                       std::function<void(HMENU)> prepara = nullptr, int temaOverride = -1) {
+        Menu m(voci, proprietario, prepara, temaOverride);
         return m.esegui(pt, versoAlto, nullptr);
     }
 
@@ -138,6 +138,7 @@ private:
     int sopra = -1, W = 0, H = 0;
     float dpi = 1;
     bool scuro = false, fine = false;
+    int temaOverride = -1; // -1 uses Windows theme; 0/1 follows the invoking FluidWin surface
     UINT scelta = 0;
     BYTE alfa = 0;
     Menu* padre = nullptr;
@@ -178,7 +179,8 @@ private:
     // diagnostica (registro): movimenti del mouse ricevuti e loro ritardo, ridisegni e loro durata
     int nMosse = 0, nDisegni = 0; DWORD ritardoTot = 0, ritardoMax = 0; double tDisegni = 0;
 
-    Menu(const std::vector<Voce>& v, HWND p, std::function<void(HMENU)> pr) : voci(v), proprietario(p), prepara(pr) {}
+    Menu(const std::vector<Voce>& v, HWND p, std::function<void(HMENU)> pr, int tema = -1)
+        : voci(v), proprietario(p), prepara(pr), temaOverride(tema) {}
     ~Menu() {
         for (ID2D1Bitmap* b : immagini) if (b) b->Release();
         for (IUnknown* o : std::initializer_list<IUnknown*>{pen, rt, fmt, fmtTitolo}) if (o) o->Release();
@@ -245,7 +247,7 @@ private:
             typedef HRESULT (WINAPI *Fn)(HMONITOR, int, UINT*, UINT*);
             if (auto f = (Fn)GetProcAddress(sh, "GetDpiForMonitor")) if (SUCCEEDED(f(mon, 0, &dx, &dy))) dpi = dx / 96.0f;
         }
-        scuro = temaScuro();
+        scuro = temaOverride < 0 ? temaScuro() : temaOverride != 0;
         fdw = fabbricaTesto();
         if (!fdw) return;
         static const wchar_t* fam = famiglia(fdw);   // (il font scelto non cambia: si cerca una volta sola)
@@ -554,8 +556,17 @@ private:
                 for (float x : {-6.5f, 0.8f}) for (float y : {-6.5f, 0.8f})
                     rt->FillRoundedRectangle({{cx + x * d, cy + y * d, cx + (x + 5.7f) * d, cy + (y + 5.7f) * d}, 1.2f * d, 1.2f * d}, pen);
                 break;
-            case I_BARRA:         // puntina
-                cerchio(1.5f, -3, 3.5f); l(-0.8f, -0.6f, -6.5f, 6.5f); l(-2, -6, 5, 1); break;
+            case I_BARRA:         // puntina classica inclinata
+                spezzata({
+                    {1.7f, -5.7f}, {3.0f, -5.8f}, {4.2f, -5.2f}, {5.5f, -3.9f},
+                    {6.3f, -2.8f}, {6.4f, -2.0f}, {5.5f, -1.1f}, {3.5f, -1.5f},
+                    {1.0f, 1.9f}, {0.1f, 3.0f}, {0.4f, 4.3f}, {1.0f, 5.4f},
+                    {0.5f, 6.4f}, {-0.4f, 6.5f}, {-1.3f, 5.6f}, {-3.1f, 3.8f},
+                    {-6.0f, 6.4f}, {-6.4f, 6.0f}, {-6.0f, 5.2f}, {-4.1f, 3.0f},
+                    {-6.2f, 0.9f}, {-6.1f, 0.0f}, {-5.1f, -0.4f}, {-3.5f, 0.3f},
+                    {-2.4f, 1.1f}, {1.5f, -1.8f}, {2.0f, -3.1f}, {1.2f, -4.8f}
+                }, true);
+                break;
             case I_PERCORSO:      // catena (percorso)
                 rt->SetTransform(D2D1::Matrix3x2F::Rotation(-40, {cx, cy}));
                 rr(-7, -2.5f, 0.5f, 2.5f, 2.5f); rr(-0.5f, -2.5f, 7, 2.5f, 2.5f);
@@ -610,7 +621,7 @@ private:
         auto sv = daHmenu(hs);
         if (sv.empty()) return;
         aperto = i; disegna();
-        Menu s(sv, fin, prepara);
+        Menu s(sv, fin, prepara, temaOverride);
         s.padre = this;
         RECT r; GetWindowRect(fin, &r);
         inSotto = true;   // il sottomenu prende il mouse: per questo menu non e' un motivo per chiudersi
@@ -820,8 +831,8 @@ private:
 };
 
 static UINT mostra(const std::vector<Voce>& voci, POINT pt, HWND proprietario, bool versoAlto = false,
-                   std::function<void(HMENU)> prepara = nullptr) {
-    return Menu::mostra(voci, pt, proprietario, versoAlto, prepara);
+                   std::function<void(HMENU)> prepara = nullptr, int temaOverride = -1) {
+    return Menu::mostra(voci,pt,proprietario,versoAlto,prepara,temaOverride);
 }
 
 } // namespace menu

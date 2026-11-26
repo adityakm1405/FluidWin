@@ -4,6 +4,30 @@
 
 namespace dock {
 
+inline std::wstring codificaQueryWeb(const std::wstring& query) {
+    const int n=WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),nullptr,0,nullptr,nullptr);
+    if(n<=0) return L"";
+    std::string utf8(n,'\0');
+    WideCharToMultiByte(CP_UTF8,0,query.c_str(),(int)query.size(),utf8.data(),n,nullptr,nullptr);
+    const wchar_t* hex=L"0123456789ABCDEF";
+    std::wstring out;
+    for(unsigned char b:utf8) {
+        if((b>='a'&&b<='z')||(b>='A'&&b<='Z')||(b>='0'&&b<='9')||b=='-'||b=='_'||b=='.'||b=='~') out+=(wchar_t)b;
+        else { out+=L'%'; out+=hex[b>>4]; out+=hex[b&15]; }
+    }
+    return out;
+}
+
+// Preferiti del workspace salvati per utente; il file resta fuori dalla cartella del programma.
+inline std::wstring percorsoConfigLauncher() {
+    wchar_t base[MAX_PATH] = L"";
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, base)))
+        return L"launcher.ini";
+    const std::wstring dir = std::wstring(base) + L"\\FluidWin";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\launcher.ini";
+}
+
 // ---- launcher: tutte le app, con la ricerca (tasto Win o icona "App" del dock) ----
 
 inline DWORD WINAPI Motore::threadIcone(LPVOID p) {
@@ -101,7 +125,9 @@ inline auto Motore::raccogliIcone() -> bool {
             for (auto& a : appSfondo) if (a.exe == ip.percorso) a.icona = b;
             pDirty = true; altra.pDirty = true;
         } else if (ip.lato == 96) {    // launcher
-            for (auto& a : tutteApp) if (a.avvio == ip.percorso && !a.icona) { a.icona = b; presa = true; lDirty = true; break; }
+            for (auto& a : tutteApp) if (a.avvio == ip.percorso && !a.icona) {
+                a.icona = b; presa = true; lDirty = true; break;
+            }
         } else if (ip.lato == 48) {    // file e cartelle del launcher (anche "nessuna": non si richiede a ogni ricerca)
             auto& v = iconeFile[ip.percorso];
             if (!v) { v = b; presa = b != nullptr; }
@@ -121,7 +147,7 @@ inline auto Motore::raccogliIcone() -> bool {
 inline auto Motore::launcherDaDisegnare() const -> bool { return lAperto && (lDirty || lAnim); }
 
 inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
-    LW = std::ceil(760 * dpi); LH = LHMAX = std::ceil(580 * dpi); LEXTRA = std::ceil(160 * dpi);
+    LW = std::ceil(740 * dpi); LH = LHMAX = std::ceil(574 * dpi); LEXTRA = std::ceil(160 * dpi);
     WNDCLASSW wl{}; wl.lpfnWndProc = procLauncher; wl.hInstance = inst; wl.lpszClassName = L"FluidWin.Launcher";
     wl.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClassW(&wl);
@@ -154,6 +180,10 @@ inline auto Motore::creaLauncher(HINSTANCE inst) -> bool {
     D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
                                                          D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
     dc->CreateBitmapFromDxgiSurface(sup, &bp, &bersaglioL); sup->Release();
+    if(bersaglioL) {
+        if(!lPinContorno) lPinContorno=caricaIconaSvgRisorsa(210,64);
+        if(!lPinPieno) lPinPieno=caricaIconaSvgRisorsa(211,64);
+    }
     return bersaglioL != nullptr;
 }
 
@@ -180,9 +210,13 @@ inline auto Motore::leggiTutteApp(bool subito) -> void {
 
 inline auto Motore::applicaTutteApp(std::vector<AppL> nuove) -> void {
     // le icone gia' caricate si conservano
-    for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) { a.icona = v.icona; a.provata = v.provata; v.icona = nullptr; break; }
+    for (auto& a : nuove) for (auto& v : tutteApp) if (v.avvio == a.avvio) {
+        a.icona = v.icona; a.provata = v.provata; v.icona = nullptr; break;
+    }
     for (auto& v : tutteApp) if (v.icona) v.icona->Release();
     tutteApp = std::move(nuove);
+    aggiornaPinned();
+    inizializzaCartelle();
     // launcher aperto (l'elenco nuovo arriva mentre si guarda): la scelta e lo scorrimento restano dove sono
     const int sel = lSel; const double scr = lScrollObj;
     filtra();
@@ -253,6 +287,84 @@ inline auto Motore::filtra() -> void {
     lSelFile = -1; lSopraFile = -1;
     if (query.empty()) { lFile.clear(); lFileTesto.clear(); lFileGen++; if (launcher) KillTimer(launcher, TIMER_FILE_L); }
     else if (query != lFileTesto && launcher) SetTimer(launcher, TIMER_FILE_L, 200, nullptr);
+}
+
+// Preferiti nella parte superiore: ogni voce viene risolta tra le app installate reali.
+inline auto Motore::aggiornaPinned() -> void {
+    const std::vector<std::vector<std::wstring>> preferiti = {
+        {L"visual studio code", L"vs code"},
+        {L"figma"},
+        {L"linear"},
+        {L"docker"},
+        {L"raycast"},
+        {L"notion"}
+    };
+    // Il marcatore distingue la prima esecuzione da una lista salvata intenzionalmente vuota.
+    wchar_t salvati[8192] = L"";
+    const std::wstring ini = percorsoConfigLauncher();
+    GetPrivateProfileStringW(L"Workspace",L"Pinned",L"__DEFAULT__",salvati,(DWORD)std::size(salvati),ini.c_str());
+    lPinnedManual.clear();
+    if (wcscmp(salvati,L"__DEFAULT__")==0) {
+        for (const auto& gruppo : preferiti) {
+            for (const auto& app : tutteApp) {
+                const std::wstring& n=app.minuscolo;
+                if (std::any_of(gruppo.begin(),gruppo.end(),[&](const std::wstring& s) {
+                        return n==s || n.find(s)!=std::wstring::npos;
+                    })) {
+                    lPinnedManual.push_back(app.avvio);
+                    break;
+                }
+            }
+        }
+        salvaPinned();
+    } else {
+        std::wstring elenco=salvati;
+        size_t inizio=0;
+        while(inizio<elenco.size()) {
+            const size_t fine=elenco.find(L'|',inizio);
+            const std::wstring percorso=elenco.substr(inizio,fine==std::wstring::npos?std::wstring::npos:fine-inizio);
+            if(!percorso.empty()) lPinnedManual.push_back(percorso);
+            if(fine==std::wstring::npos) break;
+            inizio=fine+1;
+        }
+    }
+    // Hard limit: keep the workspace compact and always leave room for Instant Actions.
+    if(lPinnedManual.size()>6) {
+        lPinnedManual.resize(6);
+        salvaPinned();
+    }
+    lPinned.clear();
+    for(const auto& percorso:lPinnedManual) {
+        for(int i=0;i<(int)tutteApp.size();++i) {
+            if(tutteApp[i].avvio==percorso) { lPinned.push_back(i); break; }
+        }
+    }
+}
+inline auto Motore::salvaPinned() -> void {
+    std::wstring elenco;
+    for(const auto& percorso:lPinnedManual) {
+        if(!elenco.empty()) elenco+=L"|";
+        elenco+=percorso;
+    }
+    const std::wstring ini=percorsoConfigLauncher();
+    WritePrivateProfileStringW(L"Workspace",L"Pinned",elenco.c_str(),ini.c_str());
+}
+inline auto Motore::togglePinned(int indiceApp) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    auto it=std::find(lPinnedManual.begin(),lPinnedManual.end(),percorso);
+    if(it!=lPinnedManual.end()) lPinnedManual.erase(it);
+    else {
+        if(lPinnedManual.size()>=6) {
+            MessageBoxW(launcher,testi::t(L"Puoi fissare al massimo 6 app nel Workspace.",L"You can pin a maximum of 6 apps in the Workspace."),
+                L"FluidWin",MB_OK|MB_ICONINFORMATION);
+            return;
+        }
+        lPinnedManual.push_back(percorso);
+    }
+    salvaPinned();
+    aggiornaPinned();
+    lDirty=true;
 }
 
 // ---- file e cartelle sotto la griglia (issue #14) ----
@@ -407,48 +519,530 @@ inline auto Motore::disegnaFileLauncher(bool scuro, D2D1_COLOR_F ink) -> bool {
     return muove;
 }
 
-// misure della griglia (coordinate del launcher)
-inline auto Motore::lColonne() const -> float { return 6; }
+// Misure e coordinate della nuova area di lavoro, ancorata al dock.
+inline auto Motore::lDividerX() const -> float { return LW * 0.48f; }
+inline auto Motore::lFooterTop() const -> float { return LH - 52 * dpi; }
 
-inline auto Motore::lCellaW() const -> float { return (LW - 48 * dpi) / lColonne(); }
-
-inline auto Motore::lCellaH() const -> float { return 104 * dpi; }
-
-// zona della barra di scorrimento che si puo' prendere col mouse (larga 16 punti: la barra disegnata e' sottile) e
-// il suo cursore adesso
-inline auto Motore::lRettBarra() const -> D2D1_RECT_F { return {LW - 18 * dpi, lGrigliaTop(), LW, lGrigliaBottom()}; }
-
-inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
-    const double mx = lScrollMax();
-    const float alt = lGrigliaBottom() - lGrigliaTop(), tot = alt + (float)mx;
-    const float h = std::max(30 * dpi, alt * alt / tot), y = lGrigliaTop() + (mx > 0 ? (alt - h) * (float)(lScroll / mx) : 0);
-    return {LW - 18 * dpi, y, LW, y + h};
+inline auto Motore::lCategoriaPredefinita(const AppL& app) const -> int {
+    const std::wstring& n = app.minuscolo;
+    auto contiene = [&](std::initializer_list<const wchar_t*> parole) {
+        for (const wchar_t* p : parole) if (n.find(p) != std::wstring::npos) return true;
+        return false;
+    };
+    if (contiene({L"visual studio",L"vs code",L"code",L"unity",L"docker",L"git",L"postman",L"tableplus",L"neovim",L"pycharm",L"intellij",L"android studio",L"node",L"python",L"raycast",L"terminal"})) return 0;
+    if (contiene({L"steam",L"epic games",L"ubisoft",L"ea app",L"battle.net",L"gog galaxy",L"xbox",L"riot client",L"minecraft",L"playnite",L"game",L"discord",L"lutris",L"moonlight",L"retroarch",L"mangohud"})) return 1;
+    if (contiene({L"figma",L"blender",L"photoshop",L"illustrator",L"premiere",L"after effects",L"gimp",L"krita",L"paint.net",L"affinity",L"obs studio",L"davinci",L"audacity",L"darktable"})) return 2;
+    if (contiene({L"chrome",L"firefox",L"edge",L"brave",L"opera",L"slack",L"zoom",L"teams",L"telegram",L"whatsapp",L"thunderbird",L"arc browser"})) return 3;
+    if (contiene({L"word",L"excel",L"powerpoint",L"onenote",L"notion",L"linear",L"obsidian",L"libreoffice",L"outlook",L"office",L"todo",L"calendar",L"calculator"})) return 4;
+    if (contiene({L"settings",L"control panel",L"task manager",L"powershell",L"command prompt",L"windows tools",L"file explorer",L"security",L"defender",L"system"})) return 5;
+    return 4;
 }
 
-inline auto Motore::lGrigliaTop() const -> float { return 84 * dpi; }
-
-// (la sezione dei file, quando c'e', sta sotto e la griglia si accorcia della sua altezza animata)
-inline auto Motore::lGrigliaBottom() const -> float { return LH - 14 * dpi - (float)lFileH; }
-
-inline auto Motore::lScrollMax() const -> double {
-    const int righe = ((int)filtrate.size() + 5) / 6;
-    return std::max(0.0, (double)(righe * lCellaH() - (lGrigliaBottom() - lGrigliaTop())));
+inline auto Motore::lIndiceCartella(const std::wstring& avvio) const -> int {
+    for (int k=0;k<(int)lCartelle.size();++k)
+        if (std::find(lCartelle[k].app.begin(),lCartelle[k].app.end(),avvio)!=lCartelle[k].app.end()) return k;
+    return -1;
+}
+inline auto Motore::lCategoriaApp(const AppL& app) const -> int { return lIndiceCartella(app.avvio); }
+inline auto Motore::lNomeCategoria(const AppL& app) const -> std::wstring {
+    const int k=lCategoriaApp(app);
+    return k>=0 && k<(int)lCartelle.size() ? lCartelle[k].nome : testi::t(L"Non assegnata",L"Unassigned");
+}
+inline auto Motore::lAppCategoria(int categoria) const -> std::vector<int> {
+    std::vector<int> app;
+    if(categoria<0 || categoria>=(int)lCartelle.size()) return app;
+    for(int i=0;i<(int)tutteApp.size();++i)
+        if(std::find(lCartelle[categoria].app.begin(),lCartelle[categoria].app.end(),tutteApp[i].avvio)!=lCartelle[categoria].app.end())
+            app.push_back(i);
+    return app;
 }
 
-inline auto Motore::lCella(int i) const -> D2D1_RECT_F {
-    const float x = 24 * dpi + (i % 6) * lCellaW(), y = lGrigliaTop() + (i / 6) * lCellaH() - (float)lScroll;
-    return {x, y, x + lCellaW(), y + lCellaH()};
+inline auto Motore::salvaCartelle() -> void {
+    const std::wstring ini=percorsoConfigLauncher();
+    WritePrivateProfileStringW(L"Library",L"FolderCount",std::to_wstring(lCartelle.size()).c_str(),ini.c_str());
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const std::wstring sezione=L"Folder"+std::to_wstring(i);
+        const CartellaL& f=lCartelle[i];
+        WritePrivateProfileStringW(sezione.c_str(),L"Name",f.nome.c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Icon",std::to_wstring(f.icona).c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Color",std::to_wstring(f.colore).c_str(),ini.c_str());
+        WritePrivateProfileStringW(sezione.c_str(),L"Custom",f.personalizzata?L"1":L"0",ini.c_str());
+        std::wstring elenco;
+        for(const auto& p:f.app) { if(!elenco.empty()) elenco+=L"|"; elenco+=p; }
+        WritePrivateProfileStringW(sezione.c_str(),L"Apps",elenco.c_str(),ini.c_str());
+    }
+    WritePrivateProfileStringW(nullptr,nullptr,nullptr,ini.c_str());
 }
-
-inline auto Motore::lCellaIn(float x, float y) const -> int {
-    if (y < lGrigliaTop() || y > lGrigliaBottom()) return -1;
-    for (int i = 0; i < (int)filtrate.size(); i++) {
-        const auto r = lCella(i);
-        if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
+inline auto Motore::caricaCartelle() -> void {
+    lCartelle.clear();
+    const std::wstring ini=percorsoConfigLauncher();
+    wchar_t conteggio[32]=L"";
+    GetPrivateProfileStringW(L"Library",L"FolderCount",L"",conteggio,(DWORD)std::size(conteggio),ini.c_str());
+    if(!conteggio[0]) {
+        const wchar_t* nomi[6]={L"Development",L"Gaming",L"Creative",L"Web & Comms",L"Productivity",L"System"};
+        for(int k=0;k<6;++k) {
+            CartellaL f; f.nome=nomi[k]; f.icona=k; f.colore=k; f.personalizzata=false;
+            for(const auto& app:tutteApp) if(lCategoriaPredefinita(app)==k) f.app.push_back(app.avvio);
+            lCartelle.push_back(std::move(f));
+        }
+        salvaCartelle();
+        WritePrivateProfileStringW(L"Library",L"CustomFoldersResetV1",L"1",ini.c_str());
+        return;
+    }
+    const int n=std::clamp(_wtoi(conteggio),0,32);
+    const bool puliziaUnaVolta=GetPrivateProfileIntW(L"Library",L"CustomFoldersResetV1",0,ini.c_str())==0;
+    for(int i=0;i<n;++i) {
+        const std::wstring sezione=L"Folder"+std::to_wstring(i);
+        wchar_t nome[128]=L"",apps[32768]=L"";
+        GetPrivateProfileStringW(sezione.c_str(),L"Name",L"",nome,(DWORD)std::size(nome),ini.c_str());
+        if(!nome[0]) continue;
+        GetPrivateProfileStringW(sezione.c_str(),L"Apps",L"",apps,(DWORD)std::size(apps),ini.c_str());
+        CartellaL f; f.nome=nome;
+        f.icona=std::clamp((int)GetPrivateProfileIntW(sezione.c_str(),L"Icon",i%6,ini.c_str()),0,5);
+        f.colore=std::clamp((int)GetPrivateProfileIntW(sezione.c_str(),L"Color",f.icona,ini.c_str()),0,5);
+        f.personalizzata=GetPrivateProfileIntW(sezione.c_str(),L"Custom",0,ini.c_str())!=0;
+        std::wstring elenco=apps; size_t inizio=0;
+        while(inizio<elenco.size()) {
+            const size_t fine=elenco.find(L'|',inizio);
+            std::wstring p=elenco.substr(inizio,fine==std::wstring::npos?std::wstring::npos:fine-inizio);
+            if(!p.empty()) f.app.push_back(std::move(p));
+            if(fine==std::wstring::npos) break;
+            inizio=fine+1;
+        }
+        if(puliziaUnaVolta && f.personalizzata) continue;
+        lCartelle.push_back(std::move(f));
+    }
+    if(puliziaUnaVolta) {
+        salvaCartelle();
+        WritePrivateProfileStringW(L"Library",L"CustomFoldersResetV1",L"1",ini.c_str());
+    }
+}
+inline auto Motore::inizializzaCartelle() -> void {
+    caricaCartelle();
+    lAngoliCartella.resize(lCartelle.size(),0.0);
+    lVelAngoliCartella.resize(lCartelle.size(),0.0);
+    if(lCartellaAperta>=(int)lCartelle.size()) lCartellaAperta=lCartelle.empty()?-1:0;
+}
+inline auto Motore::toggleAppCartella(int indiceApp, int cartella) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size() || cartella<0 || cartella>=(int)lCartelle.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    const bool eraInQuesta=std::find(lCartelle[cartella].app.begin(),lCartelle[cartella].app.end(),percorso)!=lCartelle[cartella].app.end();
+    for(auto& f:lCartelle) f.app.erase(std::remove(f.app.begin(),f.app.end(),percorso),f.app.end());
+    if(!eraInQuesta) lCartelle[cartella].app.push_back(percorso);
+    salvaCartelle();
+    lDirty=true;
+}
+inline auto Motore::rimuoviAppDaCartella(int indiceApp, int cartella) -> void {
+    if(indiceApp<0 || indiceApp>=(int)tutteApp.size() || cartella<0 || cartella>=(int)lCartelle.size()) return;
+    const std::wstring& percorso=tutteApp[indiceApp].avvio;
+    auto& elenco=lCartelle[cartella].app;
+    const size_t prima=elenco.size();
+    elenco.erase(std::remove(elenco.begin(),elenco.end(),percorso),elenco.end());
+    if(elenco.size()!=prima) {
+        salvaCartelle();
+        lSopraAppCartella=-1;
+        lSopraRimuoviAppCartella=-1;
+        lDirty=true;
+    }
+}
+inline auto Motore::apriGestisciCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartellaGestita=cartella; lModalita=2; lScrollEditor=0; lNomeNuovoAttivo=false; lCaretVisibile=false;
+    if(launcher) KillTimer(launcher,TIMER_CARET_L);
+    lDirty=true;
+}
+inline auto Motore::creaCartella() -> void {
+    std::wstring nome=lNomeNuovaCartella;
+    while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
+    while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
+    if(nome.empty()) { MessageBoxW(launcher,testi::t(L"Inserisci un nome per la cartella.",L"Enter a name for the folder."),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    if(lCartelle.size()>=32) { MessageBoxW(launcher,testi::t(L"Puoi creare fino a 32 cartelle.",L"You can create up to 32 folders."),L"FluidWin",MB_OK|MB_ICONINFORMATION); return; }
+    for(const auto& f:lCartelle) if(!_wcsicmp(f.nome.c_str(),nome.c_str())) {
+        MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists."),L"FluidWin",MB_OK|MB_ICONINFORMATION);
+        return;
+    }
+    CartellaL nuova; nuova.nome=nome; nuova.icona=0; nuova.colore=0; nuova.personalizzata=true;
+    nuova.app=lAppNuovaCartella;
+    for(auto& f:lCartelle) for(const auto& p:nuova.app)
+        f.app.erase(std::remove(f.app.begin(),f.app.end(),p),f.app.end());
+    lCartelle.push_back(std::move(nuova));
+    lAngoliCartella.push_back(0.0);
+    lVelAngoliCartella.push_back(0.0);
+    lCartellaAperta=(int)lCartelle.size()-1;
+    salvaCartelle();
+    lModalita=0; lNomeNuovaCartella.clear(); lAppNuovaCartella.clear(); lScrollEditor=0;
+    lNomeNuovoAttivo=false; lCaretVisibile=false; if(launcher) KillTimer(launcher,TIMER_CARET_L); lDirty=true;
+}
+inline auto Motore::apriRinominaCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartellaRinomina=cartella;
+    lNomeNuovaCartella=lCartelle[cartella].nome;
+    lNomeNuovoAttivo=false; lCaretVisibile=false;
+    if(launcher) KillTimer(launcher,TIMER_CARET_L);
+    lModalita=5; lScrollEditor=0; lDirty=true;
+}
+inline auto Motore::salvaRinominaCartella() -> void {
+    if(lCartellaRinomina<0 || lCartellaRinomina>=(int)lCartelle.size()) return;
+    std::wstring nome=lNomeNuovaCartella;
+    while(!nome.empty() && iswspace(nome.front())) nome.erase(nome.begin());
+    while(!nome.empty() && iswspace(nome.back())) nome.pop_back();
+    if(nome.empty()) return;
+    for(int i=0;i<(int)lCartelle.size();++i)
+        if(i!=lCartellaRinomina && !_wcsicmp(lCartelle[i].nome.c_str(),nome.c_str())) {
+            MessageBoxW(launcher,testi::t(L"Esiste gia' una cartella con questo nome.",L"A folder with this name already exists."),
+                        L"FluidWin",MB_OK|MB_ICONINFORMATION);
+            return;
+        }
+    lCartelle[lCartellaRinomina].nome=nome;
+    salvaCartelle();
+    lCartellaAperta=lCartellaRinomina;
+    lCartellaRinomina=-1; lNomeNuovaCartella.clear(); lNomeNuovoAttivo=false; lCaretVisibile=false;
+    if(launcher) KillTimer(launcher,TIMER_CARET_L);
+    lModalita=0; lDirty=true;
+}
+inline auto Motore::rimuoviCartella(int cartella) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    lCartelle.erase(lCartelle.begin()+cartella);
+    if(cartella<(int)lAngoliCartella.size()) lAngoliCartella.erase(lAngoliCartella.begin()+cartella);
+    if(cartella<(int)lVelAngoliCartella.size()) lVelAngoliCartella.erase(lVelAngoliCartella.begin()+cartella);
+    if(lCartellaAperta==cartella) lCartellaAperta=-1;
+    else if(lCartellaAperta>cartella) --lCartellaAperta;
+    lCartellaGestita=-1; lModalita=0; lScrollCartelle=0; lScrollCartelleObj=0;
+    salvaCartelle(); lDirty=true;
+}
+inline auto Motore::apriMenuCartella(int cartella, POINT pt) -> void {
+    if(cartella<0 || cartella>=(int)lCartelle.size()) return;
+    // Keep the context menu inside the rounded launcher surface.
+    ScreenToClient(launcher,&pt);
+    const float w=184*dpi,h=132*dpi;
+    lCartellaMenuX=std::clamp((float)pt.x,10*dpi,std::max(10*dpi,LW-w-10*dpi));
+    lCartellaMenuY=std::clamp((float)pt.y,64*dpi,std::max(64*dpi,LH-h-10*dpi));
+    lCartellaMenuIndice=cartella;
+    lCartellaMenuHover=-1;
+    lCartellaMenuAperto=true;
+    lDirty=true;
+}
+inline auto Motore::lCartelleScrollMax() const -> double {
+    double totale=0;
+    for(int i=0;i<(int)lCartelle.size();++i)
+        totale+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
+    const double spazioInferiore=16*dpi;
+    return std::max(0.0,totale+spazioInferiore-(lFooterTop()-8*dpi-110*dpi));
+}
+inline auto Motore::lScrollCartellePerUltima() const -> double {
+    if(lCartelle.empty()) return 0.0;
+    const int ultima=(int)lCartelle.size()-1;
+    double top=110*dpi;
+    for(int i=0;i<ultima;++i)
+        top+=(i==lCartellaAperta?218:40)*dpi+7*dpi;
+    const double fondo=top+218*dpi;
+    return std::clamp(fondo-(lFooterTop()-16*dpi),0.0,lCartelleScrollMax());
+}
+inline auto Motore::lCartellaY(int cartella) const -> float {
+    constexpr double PI=3.14159265358979323846;
+    float y=110*dpi-(float)lScrollCartelle;
+    for(int i=0;i<cartella && i<(int)lCartelle.size();++i) {
+        const double angolo=i<(int)lAngoliCartella.size()
+            ?std::clamp(lAngoliCartella[i],0.0,PI):(i==lCartellaAperta?PI:0.0);
+        const double apertura=angolo/PI;
+        y+=(40.0+178.0*apertura)*dpi+7*dpi;
+    }
+    return y;
+}
+inline auto Motore::lCartellaIn(float x, float y) const -> int {
+    // Match the folder card's exact horizontal bounds so the side edges are included too.
+    if(lModalita!=0 || x<lDividerX()+14*dpi || x>=LW-14*dpi) return -1;
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const float top=lCartellaY(i);
+        if(y>=top && y<top+40*dpi) return i;
     }
     return -1;
 }
+inline auto Motore::lCartellaNomeIn(float x, float y) const -> int {
+    // Hover the full folder header strip: name, app count and trailing arrow.
+    // The strip ends at the separator so the expanded app area has its own hover states.
+    return lCartellaIn(x,y);
+}
+inline auto Motore::lCartellaPiuIn(float x, float y) const -> int {
+    const int k=lCartellaIn(x,y);
+    if(k<0) return -1;
+    const float rr=LW-14*dpi, top=lCartellaY(k);
+    return x>=rr-78*dpi && x<rr-48*dpi && y>=top && y<top+40*dpi ? k : -1;
+}
+inline auto Motore::lCartellaFrecciaIn(float x,float y) const -> int {
+    const int k=lCartellaIn(x,y);
+    if(k<0) return -1;
+    const float rr=LW-14*dpi, top=lCartellaY(k);
+    return x>=rr-36*dpi && x<rr && y>=top && y<top+40*dpi ? k : -1;
+}
+inline auto Motore::lAppCartellaIn(float x, float y) const -> int {
+    if(lModalita!=0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
+    const int k=lCartellaAperta;
+    const float top=lCartellaY(k), left=lDividerX()+26*dpi, right=LW-26*dpi;
+    constexpr double PI=3.14159265358979323846;
+    const double angolo=k<(int)lAngoliCartella.size()
+        ?std::clamp(lAngoliCartella[k],0.0,PI):(k==lCartellaAperta?PI:0.0);
+    const float cardBottom=top+(float)(40.0+178.0*angolo/PI)*dpi;
+    const float bodyTop=top+48*dpi, rowPitch=53*dpi, colGap=8*dpi;
+    const float colWidth=(right-left-colGap)*0.5f;
+    if(x<left || x>=right || y<bodyTop || y>=cardBottom || y>=bodyTop+3*rowPitch) return -1;
 
+    const float localX=x-left;
+    int col=-1;
+    if(localX<colWidth) col=0;
+    else if(localX>=colWidth+colGap) col=1;
+    else return -1; // The visible gap between app tiles is not interactive.
+
+    const int row=(int)((y-bodyTop)/rowPitch);
+    const float localY=y-(bodyTop+row*rowPitch);
+    if(localY<2*dpi || localY>=47*dpi) return -1; // 45px tile inside each 53px row pitch.
+    const int slot=row*2+col;
+    const auto app=lAppCategoria(k);
+    return slot>=0 && slot<(int)app.size() && slot<6 ? app[slot] : -1;
+}
+inline auto Motore::lAppCartellaRimuoviIn(float x, float y) const -> int {
+    const int appIndex=lAppCartellaIn(x,y);
+    if(appIndex<0 || lCartellaAperta<0 || lCartellaAperta>=(int)lCartelle.size()) return -1;
+    const auto apps=lAppCategoria(lCartellaAperta);
+    const auto it=std::find(apps.begin(),apps.end(),appIndex);
+    if(it==apps.end()) return -1;
+    const int slot=(int)(it-apps.begin()), col=slot%2, row=slot/2;
+    const float left=lDividerX()+26*dpi, right=LW-26*dpi, colGap=8*dpi;
+    const float cw=(right-left-colGap)*0.5f;
+    const float xx=left+col*(cw+colGap), yy=lCartellaY(lCartellaAperta)+48*dpi+row*53*dpi;
+    return x>=xx+cw-30*dpi && x<xx+cw-5*dpi && y>=yy+2*dpi && y<yy+47*dpi ? appIndex : -1;
+}
+inline auto Motore::lGestisciAppIn(float x, float y) const -> int {
+    if(lModalita!=2 || lCartellaGestita<0 || lCartellaGestita>=(int)lCartelle.size()) return -1;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=180*dpi;
+    const float cardBottom=lFooterTop()-78*dpi;
+    if(x<left || x>=right || y<top || y>=cardBottom) return -1;
+    const float cw=(right-left-10*dpi)*0.5f, rowH=35*dpi;
+    const int col=std::clamp((int)((x-left)/(cw+10*dpi)),0,1);
+    const int row=(int)std::floor((y-top+lScrollEditor)/rowH);
+    const int k=row*2+col;
+    return k>=0 && k<(int)tutteApp.size() ? k : -1;
+}
+inline auto Motore::lNuovaAppIn(float x, float y) const -> int {
+    if(lModalita!=3) return -1;
+    const float left=lDividerX()+28*dpi, right=LW-28*dpi, top=234*dpi;
+    const float bottom=lFooterTop()-82*dpi;
+    if(x<left || x>=right || y<top || y>=bottom) return -1;
+    const float cw=(right-left-10*dpi)*0.5f, rowH=35*dpi;
+    const int col=std::clamp((int)((x-left)/(cw+10*dpi)),0,1);
+    const int row=(int)std::floor((y-top+lScrollEditor)/rowH);
+    const int k=row*2+col;
+    return k>=0 && k<(int)tutteApp.size() ? k : -1;
+}
+inline auto Motore::lAppElencoIn(float x, float y) const -> int { return lModalita==1 ? lCellaIn(x,y) : -1; }
+
+// Misure e coordinate dell'elenco alfabetico, mostrato nella modalita' All Apps.
+inline auto Motore::lColonne() const -> float { return lVistaLista ? 1.0f : 2.0f; }
+inline auto Motore::lCellaW() const -> float {
+    const float sx=lModalita==1?lDividerX()+14*dpi:16*dpi;
+    return lVistaLista ? LW-sx-16*dpi : (LW-sx-32*dpi)/lColonne();
+}
+inline auto Motore::lCellaH() const -> float { return lVistaLista ? 56*dpi : 104*dpi; }
+inline auto Motore::lAllTop() const -> float { return 78*dpi; }
+
+inline auto Motore::lListaY(int i) const -> float {
+    float y=0; wchar_t precedente=0;
+    for(int k=0;k<=i && k<(int)filtrate.size();++k) {
+        const std::wstring& nome=tutteApp[filtrate[k]].nome;
+        const wchar_t lettera=nome.empty()?L'#':(wchar_t)towupper(nome[0]);
+        if(k==0 || lettera!=precedente) { y+=22*dpi; precedente=lettera; }
+        if(k==i) return y;
+        y+=lCellaH();
+    }
+    return y;
+}
+inline auto Motore::lListaAlto() const -> float {
+    float y=0; wchar_t precedente=0;
+    for(int k=0;k<(int)filtrate.size();++k) {
+        const std::wstring& nome=tutteApp[filtrate[k]].nome;
+        const wchar_t lettera=nome.empty()?L'#':(wchar_t)towupper(nome[0]);
+        if(k==0 || lettera!=precedente) { y+=22*dpi; precedente=lettera; }
+        y+=lCellaH();
+    }
+    return y;
+}
+inline auto Motore::caricaFotoProfilo() -> bool {
+    if(lFotoProfiloTentata) return lFotoProfilo!=nullptr;
+    lFotoProfiloTentata=true;
+
+    std::vector<std::wstring> candidati, fallback;
+    auto aggiungiPercorso=[&](const std::wstring& percorso,std::vector<std::wstring>& destinazione) {
+        if(percorso.empty()) return;
+        const DWORD attr=GetFileAttributesW(percorso.c_str());
+        if(attr==INVALID_FILE_ATTRIBUTES || (attr&FILE_ATTRIBUTE_DIRECTORY)) return;
+        if(std::find(destinazione.begin(),destinazione.end(),percorso)==destinazione.end())
+            destinazione.push_back(percorso);
+    };
+
+    // Current Windows account photo: Windows 10/11 registers the image paths per SID.
+    HANDLE token=nullptr;
+    if(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)) {
+        DWORD dimensione=0;
+        GetTokenInformation(token,TokenUser,nullptr,0,&dimensione);
+        if(dimensione>=sizeof(TOKEN_USER)) {
+            std::vector<BYTE> datiToken(dimensione);
+            if(GetTokenInformation(token,TokenUser,datiToken.data(),dimensione,&dimensione)) {
+                const auto* utente=reinterpret_cast<const TOKEN_USER*>(datiToken.data());
+                LPWSTR sidTesto=nullptr;
+                if(ConvertSidToStringSidW(utente->User.Sid,&sidTesto) && sidTesto) {
+                    const std::wstring chiave=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AccountPicture\\Users\\"+std::wstring(sidTesto);
+                    HKEY registro=nullptr;
+                    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,chiave.c_str(),0,KEY_QUERY_VALUE,&registro)==ERROR_SUCCESS) {
+                        // Prefer the highest-resolution image path selected by Windows.
+                        const wchar_t* dimensioni[]={L"Image1080",L"Image448",L"Image424",L"Image240",
+                            L"Image208",L"Image192",L"Image96",L"Image64",L"Image48",L"Image40",L"Image32"};
+                        for(const wchar_t* nomeValore:dimensioni) {
+                            DWORD tipo=0,byteNecessari=0;
+                            if(RegQueryValueExW(registro,nomeValore,nullptr,&tipo,nullptr,&byteNecessari)!=ERROR_SUCCESS ||
+                               (tipo!=REG_SZ && tipo!=REG_EXPAND_SZ) ||
+                               byteNecessari<sizeof(wchar_t) || byteNecessari>32768*sizeof(wchar_t)) continue;
+                            std::vector<wchar_t> buffer(byteNecessari/sizeof(wchar_t)+2,L'\0');
+                            if(RegQueryValueExW(registro,nomeValore,nullptr,&tipo,
+                                reinterpret_cast<LPBYTE>(buffer.data()),&byteNecessari)!=ERROR_SUCCESS) continue;
+                            std::wstring percorso(buffer.data());
+                            if(tipo==REG_EXPAND_SZ && !percorso.empty()) {
+                                std::vector<wchar_t> espanso(32768,L'\0');
+                                const DWORD n=ExpandEnvironmentStringsW(percorso.c_str(),espanso.data(),(DWORD)espanso.size());
+                                if(n>0 && n<=espanso.size()) percorso.assign(espanso.data());
+                            }
+                            aggiungiPercorso(percorso,candidati);
+                        }
+                        RegCloseKey(registro);
+                    }
+                    LocalFree(sidTesto);
+                }
+            }
+        }
+        CloseHandle(token);
+    }
+
+    // Compatibility fallbacks for older and newer per-user AccountPictures directories.
+    auto raccogliCartella=[&](const std::wstring& cartella) {
+        WIN32_FIND_DATAW fd{};
+        HANDLE h=FindFirstFileW((cartella+L"\\*").c_str(),&fd);
+        if(h==INVALID_HANDLE_VALUE) return;
+        do {
+            if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) continue;
+            const std::wstring nome=fd.cFileName;
+            const size_t dot=nome.find_last_of(L'.');
+            if(dot==std::wstring::npos) continue;
+            std::wstring ext=nome.substr(dot);
+            for(auto& ch:ext) ch=(wchar_t)towlower(ch);
+            if(ext==L".png"||ext==L".jpg"||ext==L".jpeg"||ext==L".bmp"||ext==L".jfif")
+                aggiungiPercorso(cartella+L"\\"+nome,fallback);
+        } while(FindNextFileW(h,&fd));
+        FindClose(h);
+    };
+    wchar_t appdata[MAX_PATH]=L"",localappdata[MAX_PATH]=L"";
+    if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,appdata)))
+        raccogliCartella(std::wstring(appdata)+L"\\Microsoft\\Windows\\AccountPictures");
+    if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,localappdata)))
+        raccogliCartella(std::wstring(localappdata)+L"\\Microsoft\\Windows\\AccountPicture");
+
+    std::sort(fallback.begin(),fallback.end(),[](const std::wstring& a,const std::wstring& b) {
+        WIN32_FILE_ATTRIBUTE_DATA da{},db{};
+        GetFileAttributesExW(a.c_str(),GetFileExInfoStandard,&da);
+        GetFileAttributesExW(b.c_str(),GetFileExInfoStandard,&db);
+        return CompareFileTime(&da.ftLastWriteTime,&db.ftLastWriteTime)>0;
+    });
+    for(const auto& p:fallback) aggiungiPercorso(p,candidati);
+    for(const auto& percorso:candidati) {
+        IShellItemImageFactory* fab=nullptr;
+        if(FAILED(SHCreateItemFromParsingName(percorso.c_str(),nullptr,IID_PPV_ARGS(&fab)))||!fab) continue;
+        HBITMAP hb=nullptr;
+        const HRESULT hr=fab->GetImage({128,128},SIIGBF_RESIZETOFIT|SIIGBF_BIGGERSIZEOK,&hb);
+        fab->Release();
+        if(FAILED(hr)||!hb) continue;
+        BITMAP bm{}; GetObject(hb,sizeof(bm),&bm);
+        const int w=bm.bmWidth,hh=bm.bmHeight;
+        if(w<1||hh<1||w>512||hh>512) { DeleteObject(hb); continue; }
+        std::vector<UINT> px((size_t)w*hh);
+        BITMAPINFO bi{}; bi.bmiHeader={sizeof(BITMAPINFOHEADER),w,-hh,1,32,BI_RGB};
+        HDC scr=GetDC(nullptr);
+        const int letti=GetDIBits(scr,hb,0,hh,px.data(),&bi,DIB_RGB_COLORS);
+        ReleaseDC(nullptr,scr); DeleteObject(hb);
+        if(!letti) continue;
+        const float cx=(w-1)*0.5f,cy=(hh-1)*0.5f,rad=std::min(w,hh)*0.5f;
+        for(int yy=0;yy<hh;++yy) for(int xx=0;xx<w;++xx) {
+            UINT& p=px[(size_t)yy*w+xx];
+            const float dx=xx-cx,dy=yy-cy;
+            UINT a=p>>24;
+            if(a==0) a=255;
+            const float distanza=std::sqrt(dx*dx+dy*dy);
+            const float copertura=std::clamp(rad+0.5f-distanza,0.0f,1.0f);
+            a=(UINT)std::lround(a*copertura);
+            UINT rr=(p>>16)&255,gg=(p>>8)&255,bb=p&255;
+            rr=rr*a/255; gg=gg*a/255; bb=bb*a/255;
+            p=(a<<24)|(rr<<16)|(gg<<8)|bb;
+        }
+        lFotoProfilo=bitmapDaPixel(w,hh,px);
+        if(lFotoProfilo) return true;
+    }
+    return false;
+}
+
+inline auto Motore::lPinnedCella(int i) const -> D2D1_RECT_F {
+    const float w=(lDividerX()-40*dpi)/2.0f;
+    const float x=16*dpi+(i%2)*(w+8*dpi);
+    const float y=110*dpi+(i/2)*54*dpi;
+    return {x,y,x+w,y+48*dpi};
+}
+inline auto Motore::lPinnedIn(float x,float y) const -> int {
+    if(lModalita==4 || !query.empty()) return -1;
+    for(int i=0;i<(int)lPinned.size() && i<6;++i) {
+        const D2D1_RECT_F r=lPinnedCella(i);
+        if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
+    }
+    return -1;
+}
+inline auto Motore::lRettBarra() const -> D2D1_RECT_F { return {LW-18*dpi,lGrigliaTop(),LW,lGrigliaBottom()}; }
+inline auto Motore::lCursoreBarra() const -> D2D1_RECT_F {
+    const double mx=lScrollMax();
+    const float alt=lGrigliaBottom()-lGrigliaTop(),tot=alt+(float)mx;
+    const float h=std::max(30*dpi,alt*alt/tot),y=lGrigliaTop()+(mx>0?(alt-h)*(float)(lScroll/mx):0);
+    return {LW-18*dpi,y,LW-18*dpi+1*dpi,y+h};
+}
+inline auto Motore::lGrigliaTop() const -> float {
+    if(lModalita==1) return 146*dpi;
+    if(lModalita==4) return 112*dpi;
+    return lAllTop()+42*dpi;
+}
+inline auto Motore::lGrigliaBottom() const -> float { return lFooterTop()-12*dpi-(float)lFileH; }
+inline auto Motore::lScrollMax() const -> double {
+    const double contenuto=lVistaLista?(double)lListaAlto()
+        :(double)(((int)filtrate.size()+1)/2*lCellaH());
+    return std::max(0.0,contenuto-(lGrigliaBottom()-lGrigliaTop()));
+}
+inline auto Motore::lCella(int i) const -> D2D1_RECT_F {
+    if(lModalita==4) {
+        const float y=lGrigliaTop()+i*68*dpi-(float)lScroll;
+        return {16*dpi,y,std::min(LW*0.5f,LW-16*dpi),y+58*dpi};
+    }
+    if(lVistaLista) {
+        const float sx=lModalita==1?lDividerX()+14*dpi:16*dpi;
+        const float y=lGrigliaTop()+lListaY(i)-(float)lScroll;
+        return {sx,y,LW-16*dpi,y+lCellaH()};
+    }
+    const float sx=lModalita==1?lDividerX()+14*dpi:24*dpi;
+    const float sw=LW-sx-16*dpi;
+    const float cw=(sw-8*dpi)/2.0f;
+    const float x=sx+(i%2)*(cw+8*dpi);
+    const float y=lGrigliaTop()+(i/2)*lCellaH()-(float)lScroll;
+    return {x,y,x+cw,y+lCellaH()};
+}
+inline auto Motore::lCellaIn(float x,float y) const -> int {
+    if((lModalita!=1 && lModalita!=4) || y<lGrigliaTop() || y>lGrigliaBottom()) return -1;
+    for(int i=0;i<(int)filtrate.size();++i) {
+        const auto r=lCella(i);
+        if(x>=r.left && x<r.right && y>=r.top && y<r.bottom) return i;
+    }
+    return -1;
+}
 // prende il primo piano anche quando lo apre il tasto Win (nessun clic arrivato al nostro processo)
 inline auto Motore::prendiFuoco(HWND w) -> void {
     SetForegroundWindow(w);
@@ -481,7 +1075,11 @@ inline auto Motore::apriLauncher() -> void {
     // centro di controllo aperto: prima si chiude lui, poi (TIMER_DOPO) si apre il launcher; mai uno sopra l'altro
     if (!nessunaScheda()) { if (dopo != 1) { chiudiTutte(); apriDopo(1, 0); } return; }
     primaDelLauncher = GetForegroundWindow();
-    query.clear(); filtra(); lSopra = -1; lScroll = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
+    query.clear(); filtra(); lModalita = 0; lCartellaAperta = 0;
+    lRicercaAttiva=false; lRicercaCaretVisibile=false; if(launcher) KillTimer(launcher,TIMER_SEARCH_CARET_L);
+    lSopra = -1; lSopraPinned = -1; lSopraVista = lSopraProfilo = false;
+    lScroll = lScrollObj = 0; lFileH = 0;   // (la sezione dei file riparte chiusa)
+    if(!lFotoProfilo) lFotoProfiloTentata=false;
     lAperto = true; lChiusura = false; lScala = 0.12; lVel = 0; lAlfa = 0; lT0 = adesso(); lRegione = false; lRipreso = false;
     // sopra il dock, al centro; la finestra scende fino all'icona "App". Col dock in alto: sotto, al centro; ai lati:
     // accanto al dock, a meta' altezza. Li' la finestra non arriva all'icona: cresce dal suo bordo piu' vicino all'icona
@@ -492,13 +1090,15 @@ inline auto Motore::apriLauncher() -> void {
     const POINT o = origine();
     const D2D1_POINT_2F bi = fis(0, yBaseRiposo() - S - PAD);   // bordo interno del dock (nella finestra del dock)
     const int stacco = (int)std::round(18 * dpi);
-    int x0 = schermo.left + (int)std::round((schermo.right - schermo.left - LW) / 2), y0 = 0;
+    int x0 = (int)schermo.left + (int)std::round((schermo.right - schermo.left - LW) * 0.5f), y0 = 0;
     if (lato == 0) {
+        x0 = std::clamp(x0, (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         const int y1 = o.y + (int)std::round(bi.y) - stacco;
         // schermi bassi (1366x768 al 125%: ~520 punti sopra il dock): il launcher si accorcia invece di uscire in alto
         LH = std::clamp((float)(y1 - schermo.top) - 12 * dpi, 300 * dpi, LHMAX);
         y0 = y1 - (int)LH;
     } else if (lato == 1) {
+        x0 = std::clamp((int)schermo.left + (int)std::round((schermo.right - schermo.left - LW) * 0.5f), (int)schermo.left + 8, std::max((int)schermo.left + 8, (int)schermo.right - 8 - (int)LW));
         y0 = o.y + (int)std::round(bi.y) + stacco;
         LH = std::clamp((float)(schermo.bottom - y0) - 12 * dpi, 300 * dpi, LHMAX);
     } else {
@@ -567,12 +1167,22 @@ inline auto Motore::avviaApp(int i) -> void {
     ShellExecuteW(nullptr, L"open", a.avvio.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW - 64 * dpi, 22 * dpi, LW - 24 * dpi, 62 * dpi}; }
+inline auto Motore::avviaAppDiretto(int indiceApp) -> void {
+    if (indiceApp < 0 || indiceApp >= (int)tutteApp.size()) return;
+    const std::wstring avvio = tutteApp[indiceApp].avvio;
+    primaDelLauncher = nullptr;
+    chiudiLauncher();
+    ShellExecuteW(nullptr, L"open", avvio.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+inline auto Motore::rettProfilo() const -> D2D1_RECT_F { return {16*dpi, lFooterTop()+6*dpi, 270*dpi, lFooterTop()+46*dpi}; }
+inline auto Motore::rettEnergia() const -> D2D1_RECT_F { return {LW-72*dpi, lFooterTop()+6*dpi, LW-16*dpi, lFooterTop()+46*dpi}; }
 
 // Menu di Windows per l'app (lo stesso dello Start), con in cima "Aggiungi al dock"
-inline auto Motore::menuApp(int i, POINT pt) -> void {
-    if (i < 0 || i >= (int)filtrate.size()) return;
-    const AppL a = tutteApp[filtrate[i]];
+inline auto Motore::menuApp(int indiceApp, POINT pt) -> void {
+    // menuApp riceve sempre l'indice reale in tutteApp, anche dal Workspace fissato.
+    if (indiceApp < 0 || indiceApp >= (int)tutteApp.size()) return;
+    const AppL a = tutteApp[indiceApp];
     IShellItem* it = nullptr;
     if (FAILED(SHCreateItemFromParsingName(a.avvio.c_str(), nullptr, IID_PPV_ARGS(&it)))) return;
     IContextMenu* cm = nullptr;
@@ -589,12 +1199,20 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
     }
     it->Release();
     if (!cm) return;
-    const UINT ID_DOCK = 0x7F00;
+    const UINT ID_DOCK = 0x7F00, ID_PIN_START = 0x7F01;
+    const bool giaFissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),a.avvio)!=lPinnedManual.end();
     HMENU m = CreatePopupMenu();
     if (SUCCEEDED(cm->QueryContextMenu(m, 0, 1, ID_DOCK - 1, CMF_NORMAL))) {
         cm->QueryInterface(IID_PPV_ARGS(&menuShell2)); cm->QueryInterface(IID_PPV_ARGS(&menuShell3));
-        // le voci di Windows, disegnate da noi; in cima il nome dell'app e "Aggiungi al dock"
-        std::vector<menu::Voce> voci = {menu::titolo(a.nome), menu::voce(testi::t(L"Aggiungi al dock", L"Add to dock"), ID_DOCK)};
+        // Le azioni FluidWin vengono prima delle voci shell.
+        auto pinVoce=menu::voce(giaFissata?testi::t(L"Rimuovi da Start Menu",L"Unpin from Start Menu")
+                                          :testi::t(L"Fissa a Start",L"Pin to Start"),ID_PIN_START);
+        pinVoce.simbolo=menu::I_BARRA;
+        std::vector<menu::Voce> voci = {
+            menu::titolo(a.nome),
+            pinVoce,
+            menu::voce(testi::t(L"Aggiungi al dock",L"Add to dock"),ID_DOCK)
+        };
         // "Disinstalla" (la voce di Windows, per le app dello Store e per le altre) in cima, subito visibile
         UINT idDisinstalla = 0;
         for (int i = 0; i < GetMenuItemCount(m) && !idDisinstalla; i++) {
@@ -605,16 +1223,36 @@ inline auto Motore::menuApp(int i, POINT pt) -> void {
         }
         if (idDisinstalla) voci.push_back(menu::voce(testi::t(L"Disinstalla…", L"Uninstall…"), idDisinstalla));
         voci.push_back(menu::separatore());
-        for (auto& v : menu::daHmenu(m)) if (v.id != idDisinstalla || v.separatore) voci.push_back(v);
+        // Windows contributes a separate "Unpin from Start menu" command which only edits
+        // the native Start list. Hide it here: FluidWin's own entry above updates Workspace.ini.
+        for (auto& v : menu::daHmenu(m)) {
+            std::wstring testo=v.testo, verbo;
+            std::transform(testo.begin(),testo.end(),testo.begin(),[](wchar_t ch){return (wchar_t)towlower(ch);});
+            bool unpinShell=testo.find(L"unpin from start")!=std::wstring::npos ||
+                             testo.find(L"rimuovi da start")!=std::wstring::npos;
+            if(v.id && v.id!=(UINT)-1) {
+                wchar_t nomeVerbo[128]=L"";
+                if(SUCCEEDED(cm->GetCommandString(v.id-1,GCS_VERBW,nullptr,(LPSTR)nomeVerbo,128))) {
+                    verbo=nomeVerbo;
+                    std::transform(verbo.begin(),verbo.end(),verbo.begin(),[](wchar_t ch){return (wchar_t)towlower(ch);});
+                    if(verbo.find(L"unpinfromstart")!=std::wstring::npos) unpinShell=true;
+                }
+            }
+            if(unpinShell) continue;
+            if(v.id!=idDisinstalla || v.separatore) voci.push_back(v);
+        }
         // i sottomenu ("Invia a", "Apri con"...) la shell li riempie solo quando stanno per aprirsi
         auto prepara = [this](HMENU s) {
             if (menuShell3) { LRESULT r = 0; menuShell3->HandleMenuMsg2(WM_INITMENUPOPUP, (WPARAM)s, 0, &r); }
             else if (menuShell2) menuShell2->HandleMenuMsg(WM_INITMENUPOPUP, (WPARAM)s, 0);
         };
-        const UINT cmd = menu::mostra(voci, pt, launcher, false, prepara);
+        const int temaMenu=coloreAuto?(temaScuro()?1:0):(fondoScuro?1:0);
+        const UINT cmd = menu::mostra(voci,pt,launcher,false,prepara,temaMenu);
         if (menuShell3) { menuShell3->Release(); menuShell3 = nullptr; }
         if (menuShell2) { menuShell2->Release(); menuShell2 = nullptr; }
-        if (cmd == ID_DOCK) {
+        if (cmd == ID_PIN_START) {
+            togglePinned(indiceApp);
+        } else if (cmd == ID_DOCK) {
             aggiungiAlDock(a.nome, exe, id, a.avvio);
         } else if (cmd > 0) {
             CMINVOKECOMMANDINFOEX ci{}; ci.cbSize = sizeof(ci); ci.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE;
@@ -698,17 +1336,72 @@ inline auto Motore::selezionaVisibile() -> void {
 }
 
 // icona "App" nel dock: il logo di Windows 11 (quattro riquadri azzurri sfumati) su vetro chiaro
+// Icona Start: logo Windows senza il riquadro bianco, oppure una variante Apple.
 inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro) -> void {
     const float d = r.right - r.left;
-    pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.16f * alfa) : D2D1::ColorF(1, 1, 1, 0.82f * alfa));
-    dc->FillRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello);
-    pennello->SetColor(D2D1::ColorF(0, 0, 0, (scuro ? 0.3f : 0.08f) * alfa));
-    dc->DrawRoundedRectangle({r, d * 0.24f, d * 0.24f}, pennello, 1.0f);
-    const float lato = d * 0.50f, fessura = d * 0.028f, q = (lato - fessura) / 2;
-    const float x0 = (r.left + r.right - lato) / 2, y0 = (r.top + r.bottom - lato) / 2;
-    // una sola sfumatura su tutto il logo, dall'azzurro chiaro in alto a sinistra al blu in basso a destra
-    const D2D1_GRADIENT_STOP fermate[2] = {{0, D2D1::ColorF(0.33f, 0.80f, 1.00f, alfa)}, {1, D2D1::ColorF(0.00f, 0.42f, 0.86f, alfa)}};
-    ID2D1GradientStopCollection* fc = nullptr; ID2D1LinearGradientBrush* sf = nullptr;
+    const float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+
+    if (logoStart == 2 && iconaStartPersonale) {
+        // Bitmap personale gia' decodificata e scalata al caricamento: si mantiene il rapporto d'aspetto.
+        const D2D1_SIZE_F bs = iconaStartPersonale->GetSize();
+        const float latoMax = d * 0.89f;
+        const float k = std::min(latoMax / std::max(1.0f, bs.width), latoMax / std::max(1.0f, bs.height));
+        const float w = bs.width * k, h = bs.height * k;
+        const D2D1_RECT_F icona = {cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f};
+        dc->DrawBitmap(iconaStartPersonale, icona, alfa, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        return;
+    }
+
+    if (logoStart == 1 && iconaStartMacOS) {
+        // The Finder PNG has transparent margins; crop those before sizing so its visible artwork
+        // reaches approximately the same visual bounds as the other dock application icons.
+        const D2D1_SIZE_F bs = iconaStartMacOS->GetSize();
+        const D2D1_RECT_F sorgente = {bs.width * 0.085f, bs.height * 0.105f,
+                                      bs.width * 0.915f, bs.height * 0.895f};
+        const float sw = sorgente.right - sorgente.left, sh = sorgente.bottom - sorgente.top;
+        const float scala = std::min(d * 0.92f / std::max(1.0f, sw), d * 0.92f / std::max(1.0f, sh));
+        const float w = sw * scala, h = sh * scala;
+        const D2D1_RECT_F destinazione = {cx - w * 0.5f, cy - h * 0.5f,
+                                          cx + w * 0.5f, cy + h * 0.5f};
+        dc->DrawBitmap(iconaStartMacOS, destinazione, alfa,
+                       D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, &sorgente);
+        return;
+    }
+
+    if (logoStart == 1) {
+        // Fallback if the bundled Finder image is unavailable: previous built-in macOS dock mark.
+        const D2D1_RECT_F base = {cx - d * 0.44f, cy - d * 0.31f, cx + d * 0.44f, cy + d * 0.31f};
+        pennello->SetColor(D2D1::ColorF(0.42f, 0.48f, 0.58f, 0.66f * alfa));
+        dc->FillRoundedRectangle({base, d * 0.15f, d * 0.15f}, pennello);
+        pennello->SetColor(D2D1::ColorF(1, 1, 1, 0.55f * alfa));
+        dc->DrawRoundedRectangle({{base.left + 0.5f, base.top + 0.5f, base.right - 0.5f, base.bottom - 0.5f}, d * 0.15f, d * 0.15f}, pennello, 1.0f);
+        const D2D1_COLOR_F colori[4] = {
+            D2D1::ColorF(0.23f, 0.64f, 0.98f, alfa), D2D1::ColorF(0.95f, 0.42f, 0.34f, alfa),
+            D2D1::ColorF(0.29f, 0.78f, 0.50f, alfa), D2D1::ColorF(0.72f, 0.49f, 0.94f, alfa)
+        };
+        const float latoApp = d * 0.23f, passo = d * 0.25f;
+        for (int i = 0; i < 4; i++) {
+            const float x = cx - d * 0.34f + i * passo;
+            const D2D1_RECT_F app = {x, cy - latoApp * 0.45f, x + latoApp, cy + latoApp * 0.45f};
+            pennello->SetColor(colori[i]);
+            dc->FillRoundedRectangle({app, d * 0.035f, d * 0.035f}, pennello);
+        }
+        // separatore e cestino in miniatura, come la coda del Dock macOS
+        pennello->SetColor(D2D1::ColorF(1, 1, 1, 0.42f * alfa));
+        dc->DrawLine({cx + d * 0.24f, cy - d * 0.20f}, {cx + d * 0.24f, cy + d * 0.20f}, pennello, 0.8f * d);
+        dc->DrawRoundedRectangle({{cx + d * 0.29f, cy - d * 0.10f, cx + d * 0.39f, cy + d * 0.17f}, d * 0.025f, d * 0.025f}, pennello, 1.0f * d);
+        return;
+    }
+
+    // Simbolo Windows 11 alla stessa scala visiva delle icone applicazione, senza piastrella.
+    const float lato = d * 0.86f, fessura = d * 0.045f, q = (lato - fessura) * 0.5f;
+    const float x0 = cx - lato * 0.5f, y0 = cy - lato * 0.5f;
+    const D2D1_GRADIENT_STOP fermate[2] = {
+        {0, D2D1::ColorF(0.33f, 0.80f, 1.00f, alfa)},
+        {1, D2D1::ColorF(0.00f, 0.42f, 0.86f, alfa)}
+    };
+    ID2D1GradientStopCollection* fc = nullptr;
+    ID2D1LinearGradientBrush* sf = nullptr;
     if (SUCCEEDED(dc->CreateGradientStopCollection(fermate, 2, &fc)))
         dc->CreateLinearGradientBrush({{x0, y0}, {x0 + lato, y0 + lato}}, fc, &sf);
     if (!sf) pennello->SetColor(D2D1::ColorF(0.10f, 0.58f, 0.95f, alfa));
@@ -716,7 +1409,8 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
         const float x = x0 + (k % 2) * (q + fessura), y = y0 + (k / 2) * (q + fessura);
         const D2D1_RECT_F p{x, y, x + q, y + q};
         const float ra = d * 0.012f;
-        if (sf) dc->FillRoundedRectangle({p, ra, ra}, sf); else dc->FillRoundedRectangle({p, ra, ra}, pennello);
+        if (sf) dc->FillRoundedRectangle({p, ra, ra}, sf);
+        else dc->FillRoundedRectangle({p, ra, ra}, pennello);
     }
     if (sf) sf->Release();
     if (fc) fc->Release();
@@ -724,9 +1418,12 @@ inline auto Motore::disegnaIconaApp(const D2D1_RECT_F& r, float alfa, bool scuro
 
 // restituisce false se il launcher si e' appena chiuso
 inline auto Motore::renderLauncher() -> bool {
-    // scala con una molla: apre con un piccolo rimbalzo (gelatina), rientra nell'icona rapida e senza
-    // in chiusura lo stesso movimento all'indietro: rientra nell'icona con la molla e sfuma solo nell'ultimo tratto
     bool anim = molla(lScala, lVel, lChiusura ? 0.0 : 1.0, 240, lChiusura ? 0.8 : 0.55, 0.0005);
+    for(int i=0;i<6;++i) {
+        const double obiettivo=(i<(int)lPinned.size() && i==lSopraPinned)?1.045:1.0;
+        const double prossima=verso(lScalaPinnedHover[i],obiettivo,0.075);
+        if(prossima!=lScalaPinnedHover[i]) { lScalaPinnedHover[i]=prossima; anim=true; }
+    }
     if (lChiusura) {
         lAlfa = std::clamp((lScala - 0.10) / 0.30, 0.0, 1.0);
         if (lAlfa <= 0.02 || !anim) { nascondiLauncher(); return false; }
@@ -736,92 +1433,716 @@ inline auto Motore::renderLauncher() -> bool {
     }
     posizionaLauncher();
     if (!lChiusura && !anim && !lRegione) {
-        // aperto: fuori dal launcher (sopra il dock) i clic devono passare
         SetWindowRgn(launcher, CreateRectRgn(0, 0, (int)LW, (int)LH), FALSE); lRegione = true;
     }
-    // sezione dei file: l'altezza insegue quella giusta (compare e sparisce scorrendo, la griglia si accorcia con lei)
     {
         const double fh = verso(lFileH, lFileAlto(), 0.07);
         if (fh != lFileH) {
             lFileH = fh; anim = true;
-            // La griglia si accorcia: l'app scelta con le frecce resta in vista (R20261119-195000-S4; prima solo il
-            // limite dello scorrimento, e poteva finire sotto la sezione). Posizione assoluta, calcolata sull'obiettivo
-            // dello scorrimento e non sulla posizione animata: chiamata a ogni fotogramma, selezionaVisibile sommava
-            // ogni volta il ritardo dell'animazione, e lo scorrimento andava oltre e rimbalzava (R20261119-195720-S2).
-            // Solo per una scelta fatta con la tastiera: rotella e barra hanno la precedenza (R20261119-195720-S1)
-            if (lSelTastiera && !query.empty() && lSelFile < 0 && lSel >= 0 && lSel < (int)filtrate.size()) {
-                const int numeroRiga = lSel / 6;   // (divisione intera voluta: la riga della griglia, 6 app per riga)
-                const double alto = lGrigliaBottom() - lGrigliaTop(), riga = numeroRiga * (double)lCellaH();
-                lScrollObj = std::max(riga + lCellaH() - alto, std::min(lScrollObj, riga));   // (non clamp: con una griglia piu' bassa di una riga il minimo supererebbe il massimo)
-            }
+            if (lSelTastiera && !query.empty() && lSelFile < 0 && lSel >= 0 && lSel < (int)filtrate.size())
+                selezionaVisibile();
             lScrollObj = std::clamp(lScrollObj, 0.0, lScrollMax());
         }
     }
     const double sc = verso(lScroll, lScrollObj, 0.06);
     if (sc != lScroll) { lScroll = sc; anim = true; }
-    raccogliIcone();   // (quelle che arrivano dal thread rimettono lDirty)
+    constexpr double PI_CARTELLE=3.14159265358979323846;
+    if(lAngoliCartella.size()!=lCartelle.size()) lAngoliCartella.resize(lCartelle.size(),0.0);
+    if(lVelAngoliCartella.size()!=lCartelle.size()) lVelAngoliCartella.resize(lCartelle.size(),0.0);
+    for(int i=0;i<(int)lCartelle.size();++i) {
+        const double obiettivo=i==lCartellaAperta?PI_CARTELLE:0.0;
+        // Critically damped spring: smooth acceleration and deceleration with no visible bounce.
+        if(molla(lAngoliCartella[i],lVelAngoliCartella[i],obiettivo,300.0,1.0,0.001))
+            anim=true;
+    }
+    lScrollCartelleObj=std::clamp(lScrollCartelleObj,0.0,lCartelleScrollMax());
+    const double scCartelle=verso(lScrollCartelle,lScrollCartelleObj,0.06);
+    if(scCartelle!=lScrollCartelle) { lScrollCartelle=scCartelle; anim=true; }
+    raccogliIcone();
+    caricaFotoProfilo();
+    // Workspace sections stay fixed; folder chevrons change immediately.
 
-    const bool scuro = temaScuro();
-    const D2D1_COLOR_F ink = scuro ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0.08f, 0.08f, 0.1f, 0.88f);
+    const bool scuro = coloreAuto ? temaScuro() : fondoScuro;
+    const D2D1_COLOR_F ink = inchiostroUI(scuro, 1.0f);
+    const D2D1_COLOR_F tenue = {ink.r, ink.g, ink.b, ink.a * 0.62f};
+    const D2D1_COLOR_F blu = scuro ? D2D1::ColorF(0.32f, 0.64f, 1.0f, 1.0f) : D2D1::ColorF(0.0f, 0.40f, 0.92f, 1.0f);
     dc->SetTarget(bersaglioL);
     dc->BeginDraw();
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
-    disegnaFondo({0.5f, 0.5f, LW - 0.5f, LH - 0.5f}, scuro);
+    disegnaFondo({0.5f, 0.5f, LW - 0.5f, LH - 0.5f}, scuro, opacita, coloreAuto ? nullptr : &coloreFondo);
 
-    // pulsante di accensione (sospendi, riavvia, arresta, blocca, disconnetti) a destra della ricerca
+    // Barra di ricerca universale: la digitazione in qualunque punto della finestra filtra le app.
     {
-        const D2D1_RECT_F re = rettEnergia();
-        const float cx = (re.left + re.right) / 2, cy = (re.top + re.bottom) / 2, rr = (re.bottom - re.top) / 2;
-        pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, lSopraEnergia ? 0.18f : 0.10f) : D2D1::ColorF(1, 1, 1, lSopraEnergia ? 0.85f : 0.6f));
-        dc->FillEllipse({{cx, cy}, rr, rr}, pennello);
-        pennello->SetColor(ink);
-        simboloEnergia(cx, cy);
-    }
-    // campo di ricerca
-    const D2D1_RECT_F rc = {24 * dpi, 22 * dpi, rettEnergia().left - 10 * dpi, 62 * dpi};
-    pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(1, 1, 1, 0.6f));
-    dc->FillRoundedRectangle({rc, 10 * dpi, 10 * dpi}, pennello);
-    pennello->SetColor({ink.r, ink.g, ink.b, 0.55f});
-    const float lx = rc.left + 22 * dpi, ly = (rc.top + rc.bottom) / 2;
-    dc->DrawEllipse({{lx - 2 * dpi, ly - 2 * dpi}, 6 * dpi, 6 * dpi}, pennello, 1.8f * dpi);
-    linea(2.5f, 2.5f, 7, 7, lx, ly);
-    const D2D1_RECT_F rt = {lx + 18 * dpi, rc.top, rc.right - 14 * dpi, rc.bottom};
-    if (query.empty()) scrivi(testi::t(L"Cerca un'app", L"Search for an app"), fmtTitolo, rt);
-    else {
-        pennello->SetColor(ink);
-        scrivi(query, fmtTitolo, rt);
-        // cursore dopo il testo
-        const float lt = larghezzaTesto(query, fmtTitolo);
-        pennello->SetColor(D2D1::ColorF(0.2f, 0.5f, 1.0f, 0.9f));
-        dc->DrawLine({rt.left + lt + 2 * dpi, ly - 9 * dpi}, {rt.left + lt + 2 * dpi, ly + 9 * dpi}, pennello, 1.6f * dpi);
+        const D2D1_RECT_F rc = {16 * dpi, 14 * dpi, LW - 16 * dpi, 54 * dpi};
+        pennello->SetColor(lRicercaAttiva
+            ?(scuro?D2D1::ColorF(0.145f,0.15f,0.17f,0.99f):D2D1::ColorF(0.90f,0.92f,0.95f,0.98f))
+            :(scuro?D2D1::ColorF(0.105f,0.108f,0.12f,0.96f):D2D1::ColorF(0.94f,0.945f,0.955f,0.90f)));
+        dc->FillRoundedRectangle({rc, 13 * dpi, 13 * dpi}, pennello);
+        if(lRicercaAttiva) {
+            pennello->SetColor(D2D1::ColorF(ink.r,ink.g,ink.b,0.24f));
+            dc->DrawRoundedRectangle({rc,13*dpi,13*dpi},pennello,1*dpi);
+        }
+        pennello->SetColor(tenue);
+        const float lx = rc.left + 19 * dpi, ly = (rc.top + rc.bottom) * 0.5f;
+        dc->DrawEllipse({{lx,ly},6*dpi,6*dpi},pennello,1.8f*dpi);
+        linea(2.5f,2.5f,7,7,lx,ly);
+        const D2D1_RECT_F rt = {lx + 18*dpi, rc.top, rc.right - (query.empty()?18.0f:55.0f)*dpi, rc.bottom};
+        if (query.empty()) {
+            D2D1_RECT_F placeholder=rt;
+            if(lRicercaAttiva) placeholder.left+=10*dpi;
+            scrivi(testi::t(L"Cerca app, impostazioni e documenti",L"Search for apps, settings and documents"),fmtTitolo,placeholder);
+        } else {
+            pennello->SetColor(ink);
+            scrivi(query,fmtTitolo,rt);
+            pennello->SetColor(tenue);
+            scrivi(L"×",fmtTitolo,{rc.right-46*dpi,rc.top,rc.right-20*dpi,rc.bottom});
+        }
+        if(lRicercaAttiva && lRicercaCaretVisibile) {
+            const float caretX=rt.left+(query.empty()?0.0f:larghezzaTesto(query,fmtTitolo))+2*dpi;
+            pennello->SetColor(ink);
+            dc->DrawLine({caretX,ly-9*dpi},{caretX,ly+9*dpi},pennello,1.5f*dpi);
+        }
     }
 
-    // griglia delle app
-    dc->PushAxisAlignedClip({0, lGrigliaTop() - 4 * dpi, LW, lGrigliaBottom()}, D2D1_ANTIALIAS_MODE_ALIASED);
-    const float lato = 56 * dpi;
-    for (int i = 0; i < (int)filtrate.size(); i++) {
-        const auto r = lCella(i);
-        if (r.bottom < lGrigliaTop() - lCellaH() || r.top > lGrigliaBottom() + lCellaH()) continue;
-        AppL& a = tutteApp[filtrate[i]];
-        const bool sopra = i == lSopra, scelta = i == lSel && !query.empty() && lSelFile < 0;   // (con una riga dei file scelta, solo quella)
-        if (sopra || scelta) {
-            pennello->SetColor(scuro ? D2D1::ColorF(1, 1, 1, sopra ? 0.12f : 0.08f) : D2D1::ColorF(1, 1, 1, sopra ? 0.55f : 0.4f));
-            const D2D1_RECT_F h = {r.left + 4 * dpi, r.top + 2 * dpi, r.right - 4 * dpi, r.bottom - 2 * dpi};
-            dc->FillRoundedRectangle({h, 8 * dpi, 8 * dpi}, pennello);
-            if (scelta) { pennello->SetColor(D2D1::ColorF(0.2f, 0.5f, 1.0f, 0.7f)); dc->DrawRoundedRectangle({h, 8 * dpi, 8 * dpi}, pennello, 1.5f * dpi); }
+    const D2D1_COLOR_F accenti[6]={
+        D2D1::ColorF(0.10f,0.72f,0.95f,1),D2D1::ColorF(0.72f,0.40f,0.98f,1),
+        D2D1::ColorF(1.00f,0.36f,0.48f,1),D2D1::ColorF(0.10f,0.78f,0.88f,1),
+        D2D1::ColorF(0.12f,0.82f,0.62f,1),D2D1::ColorF(0.91f,0.67f,0.22f,1)};
+    const wchar_t* iconeCartella[6]={L"⌘",L"♟",L"✿",L"◎",L"✓",L"⚙"};
+    const float dx=lDividerX(), leftR=dx-16*dpi, rx=dx+14*dpi, rr=LW-14*dpi;
+    auto disegnaFreccia=[&](float cx,float cy,double angolo,float lato) {
+        const float co=(float)std::cos(angolo),si=(float)std::sin(angolo);
+        auto ruota=[&](float x,float y) { return D2D1::Point2F(cx+x*co-y*si,cy+x*si+y*co); };
+        const auto a=ruota(-lato*0.5f,-lato*0.22f), b=ruota(0,lato*0.28f), d=ruota(lato*0.5f,-lato*0.22f);
+        dc->DrawLine(a,b,pennello,1.65f*dpi);
+        dc->DrawLine(b,d,pennello,1.65f*dpi);
+    };
+
+    // Le pagine Folders, All Apps, Manage Folder Apps e New Library Folder condividono la stessa colonna workspace.
+    if(lModalita!=4) {
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.08f):D2D1::ColorF(0,0,0,0.07f));
+        dc->DrawLine({dx,70*dpi},{dx,lFooterTop()-16*dpi},pennello,1*dpi);
+
+        // Workspace heading shares the typography and muted color of App Library Folders.
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"WORKSPACE",L"WORKSPACE"),fmtTitolo,{16*dpi,72*dpi,dx-104*dpi,104*dpi});
+        scrivi(std::to_wstring(lPinned.size())+L" pinned",fmtNome,{dx-96*dpi,72*dpi,dx-16*dpi,104*dpi});
+        for(int i=0;i<(int)lPinned.size() && i<6;++i) {
+            const D2D1_RECT_F base=lPinnedCella(i);
+            const float scala=(float)lScalaPinnedHover[i];
+            const float cx=(base.left+base.right)*0.5f, cy=(base.top+base.bottom)*0.5f;
+            auto scalaBox=[&](const D2D1_RECT_F& box) -> D2D1_RECT_F {
+                return {cx+(box.left-cx)*scala,cy+(box.top-cy)*scala,
+                        cx+(box.right-cx)*scala,cy+(box.bottom-cy)*scala};
+            };
+            const D2D1_RECT_F r=scalaBox(base);
+            const bool sopra=i==lSopraPinned;
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,sopra?0.13f:0.055f)
+                                     :D2D1::ColorF(1,1,1,sopra?0.82f:0.66f));
+            dc->FillRoundedRectangle({r,11*dpi*scala,11*dpi*scala},pennello);
+            AppL& app=tutteApp[lPinned[i]];
+            const D2D1_RECT_F ri=scalaBox({base.left+8*dpi,base.top+7*dpi,base.left+42*dpi,base.top+41*dpi});
+            if(app.icona) dc->DrawBitmap(app.icona,ri,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            else { pennello->SetColor(tenue); dc->FillRoundedRectangle({ri,7*dpi*scala,7*dpi*scala},pennello); }
+            pennello->SetColor(ink);
+            scrivi(app.nome,fmtVoce,scalaBox({base.left+52*dpi,base.top+3*dpi,base.right-7*dpi,base.bottom-3*dpi}));
         }
-        const float cx = (r.left + r.right) / 2;
-        const D2D1_RECT_F ri = {cx - lato / 2, r.top + 12 * dpi, cx + lato / 2, r.top + 12 * dpi + lato};
-        if (a.icona) dc->DrawBitmap(a.icona, ri, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-        else { pennello->SetColor(D2D1::ColorF(0.5f, 0.5f, 0.55f, 0.5f)); dc->FillRoundedRectangle({ri, lato * 0.22f, lato * 0.22f}, pennello); }
-        pennello->SetColor(ink);
-        scrivi(a.nome, fmtNome, {r.left + 6 * dpi, ri.bottom + 6 * dpi, r.right - 6 * dpi, ri.bottom + 24 * dpi});
+
+        const float ay=LH-268*dpi;
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.075f):D2D1::ColorF(0,0,0,0.07f));
+        dc->DrawLine({16*dpi,ay-15*dpi},{dx-16*dpi,ay-15*dpi},pennello,1*dpi);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"INSTANT ACTIONS",L"INSTANT ACTIONS"),fmtTitolo,{16*dpi,ay,dx-16*dpi,ay+24*dpi});
+        const wchar_t* azioni[4]={L"New Terminal Session",L"Capture Screen Region",L"Task Manager",L"Open Downloads"};
+        for(int k=0;k<4;++k) {
+            const float top=ay+(28.0f+k*36.0f)*dpi;
+            const D2D1_RECT_F base={16*dpi,top,leftR,top+30*dpi};
+            const bool hover=k==lSopraAzione;
+            pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f))
+                                    :(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f)));
+            dc->FillRoundedRectangle({base,9*dpi,9*dpi},pennello);
+            pennello->SetColor(blu);
+            const float ix=base.left+24*dpi, iy=(base.top+base.bottom)*0.5f, sp=1.65f*dpi;
+            if(k==0) { // Terminal window and prompt
+                const D2D1_RECT_F win={ix-8*dpi,iy-7*dpi,ix+8*dpi,iy+7*dpi};
+                dc->DrawRoundedRectangle({win,2*dpi,2*dpi},pennello,sp);
+                dc->DrawLine({ix-7*dpi,iy-2.8f*dpi},{ix+7*dpi,iy-2.8f*dpi},pennello,1.2f*dpi);
+                dc->DrawLine({ix-4.8f*dpi,iy-0.2f*dpi},{ix-2.0f*dpi,iy+2.0f*dpi},pennello,sp);
+                dc->DrawLine({ix-2.0f*dpi,iy+2.0f*dpi},{ix-4.8f*dpi,iy+4.1f*dpi},pennello,sp);
+                dc->DrawLine({ix+0.2f*dpi,iy+4.1f*dpi},{ix+4.2f*dpi,iy+4.1f*dpi},pennello,sp);
+            } else if(k==1) { // Screen-region crop brackets
+                const float l=ix-7*dpi,r=ix+7*dpi,t=iy-6*dpi,b=iy+6*dpi,c=4*dpi;
+                dc->DrawLine({l,t+c},{l,t},pennello,sp); dc->DrawLine({l,t},{l+c,t},pennello,sp);
+                dc->DrawLine({r-c,t},{r,t},pennello,sp); dc->DrawLine({r,t},{r,t+c},pennello,sp);
+                dc->DrawLine({l,b-c},{l,b},pennello,sp); dc->DrawLine({l,b},{l+c,b},pennello,sp);
+                dc->DrawLine({r-c,b},{r,b},pennello,sp); dc->DrawLine({r,b},{r,b-c},pennello,sp);
+            } else if(k==2) { // Task Manager monitor with activity graph
+                const D2D1_RECT_F monitor={ix-8*dpi,iy-7*dpi,ix+8*dpi,iy+5*dpi};
+                dc->DrawRoundedRectangle({monitor,1.7f*dpi,1.7f*dpi},pennello,sp);
+                dc->DrawLine({ix,iy+5*dpi},{ix,iy+8*dpi},pennello,sp);
+                dc->DrawLine({ix-4*dpi,iy+8*dpi},{ix+4*dpi,iy+8*dpi},pennello,sp);
+                dc->DrawLine({ix-5*dpi,iy+2*dpi},{ix-2.5f*dpi,iy-1*dpi},pennello,1.35f*dpi);
+                dc->DrawLine({ix-2.5f*dpi,iy-1*dpi},{ix+0.5f*dpi,iy+1*dpi},pennello,1.35f*dpi);
+                dc->DrawLine({ix+0.5f*dpi,iy+1*dpi},{ix+5*dpi,iy-3*dpi},pennello,1.35f*dpi);
+            } else { // Download arrow entering a tray
+                dc->DrawLine({ix,iy-7*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix-4*dpi,iy-1*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix+4*dpi,iy-1*dpi},{ix,iy+3*dpi},pennello,sp);
+                dc->DrawLine({ix-8*dpi,iy+4*dpi},{ix-8*dpi,iy+7*dpi},pennello,sp);
+                dc->DrawLine({ix-8*dpi,iy+7*dpi},{ix+8*dpi,iy+7*dpi},pennello,sp);
+                dc->DrawLine({ix+8*dpi,iy+7*dpi},{ix+8*dpi,iy+4*dpi},pennello,sp);
+            }
+            pennello->SetColor(ink);
+            scrivi(azioni[k],fmtVoce,{base.left+42*dpi,base.top,base.right-12*dpi,base.bottom});
+        }
     }
-    if (filtrate.empty()) { pennello->SetColor({ink.r, ink.g, ink.b, 0.5f}); scrivi(testi::t(L"Nessuna app trovata", L"No apps found"), fmtNome, {0, lGrigliaTop() + 40 * dpi, LW, lGrigliaTop() + 70 * dpi}); }
-    dc->PopAxisAlignedClip();
-    if (disegnaFileLauncher(scuro, ink)) anim = true;
+
+    auto drawAppIcon=[&](int appIndex,const D2D1_RECT_F& box) {
+        if(appIndex<0 || appIndex>=(int)tutteApp.size()) return;
+        AppL& app=tutteApp[appIndex];
+        if(app.icona) dc->DrawBitmap(app.icona,box,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        else { pennello->SetColor(tenue); dc->FillRoundedRectangle({box,7*dpi,7*dpi},pennello); }
+    };
+    auto drawAppLibraryRow=[&](int appIndex,const D2D1_RECT_F& base,bool managed,bool pinnedControls,bool hover=false) {
+        const AppL& app=tutteApp[appIndex];
+        const D2D1_RECT_F r=base;
+        const float iconSide=30*dpi,iconCx=base.left+22*dpi,iconCy=(base.top+base.bottom)*0.5f;
+        const D2D1_RECT_F tile={iconCx-iconSide*0.5f,iconCy-iconSide*0.5f,
+                                iconCx+iconSide*0.5f,iconCy+iconSide*0.5f};
+        const int cat=lCategoriaApp(app);
+        const float radius=12*dpi;
+        pennello->SetColor(hover?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.105f))
+                                :(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(0,0,0,0.035f)));
+        dc->FillRoundedRectangle({r,radius,radius},pennello);
+        drawAppIcon(appIndex,tile);
+
+        // App name and its folder are stacked only when the app has an assignment.
+        // Unassigned apps retain the original single-line, vertically centered title.
+        pennello->SetColor(D2D1::ColorF(1,1,1,1));
+        const D2D1_RECT_F testoApp={base.left+48*dpi,base.top,base.right-(pinnedControls?48:10)*dpi,base.bottom};
+        if(cat>=0 && cat<(int)lCartelle.size()) {
+            scrivi(app.nome,fmtVoce,{testoApp.left,base.top+2*dpi,testoApp.right,base.top+27*dpi});
+            pennello->SetColor(tenue);
+            scrivi(lCartelle[cat].nome,fmtSotto,{testoApp.left,base.top+24*dpi,testoApp.right,base.bottom-1*dpi});
+        } else {
+            scrivi(app.nome,fmtVoce,testoApp);
+        }
+
+        if(managed) {
+            const bool selected=cat==lCartellaGestita;
+            const D2D1_RECT_F chk={base.left+7*dpi,base.top+14*dpi,base.left+18*dpi,base.top+25*dpi};
+            pennello->SetColor(selected?blu:tenue);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+        }
+        if(pinnedControls) {
+            const bool fissata=std::find(lPinnedManual.begin(),lPinnedManual.end(),app.avvio)!=lPinnedManual.end();
+            ID2D1Bitmap1* iconaPin=fissata?lPinPieno:lPinContorno;
+            if(iconaPin) {
+                const float px=base.right-24*dpi, py=(base.top+base.bottom)*0.5f, lato=14*dpi;
+                const D2D1_RECT_F pinBox={px-lato*0.5f,py-lato*0.5f,px+lato*0.5f,py+lato*0.5f};
+                dc->DrawBitmap(iconaPin,pinBox,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            }
+        }
+    };
+
+    if(lModalita==0) {
+        // Libreria app a fisarmonica, con cartelle personalizzate persistenti.
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"CARTELLE LIBRERIA APP",L"APP LIBRARY FOLDERS"),fmtTitolo,{rx,72*dpi,rr-174*dpi,104*dpi});
+        const D2D1_RECT_F add={rr-166*dpi,73*dpi,rr-91*dpi,103*dpi};
+        const D2D1_RECT_F all={rr-84*dpi,73*dpi,rr,103*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(1,1,1,0.68f));
+        dc->FillRoundedRectangle({add,8*dpi,8*dpi},pennello);
+        dc->FillRoundedRectangle({all,8*dpi,8*dpi},pennello);
+        // Clean compact folder outline with the plus centered inside the folder body.
+        const float folderX=add.left+10*dpi, folderY=(add.top+add.bottom)*0.5f-5.0f*dpi;
+        pennello->SetColor(blu);
+        const D2D1_POINT_2F folderPts[]={
+            {folderX,folderY+9*dpi},{folderX,folderY+2*dpi},
+            {folderX+4.1f*dpi,folderY+2*dpi},{folderX+5.8f*dpi,folderY+4*dpi},
+            {folderX+12*dpi,folderY+4*dpi},{folderX+12*dpi,folderY+9*dpi},
+            {folderX,folderY+9*dpi}
+        };
+        for(int i=0;i<6;++i) dc->DrawLine(folderPts[i],folderPts[i+1],pennello,1.3f*dpi);
+        const float plusX=folderX+6.2f*dpi, plusY=folderY+6.7f*dpi;
+        dc->DrawLine({plusX-1.5f*dpi,plusY},{plusX+1.5f*dpi,plusY},pennello,1.25f*dpi);
+        dc->DrawLine({plusX,plusY-1.5f*dpi},{plusX,plusY+1.5f*dpi},pennello,1.25f*dpi);
+        pennello->SetColor(ink);
+        scrivi(testi::t(L"Cartella",L"Folder"),fmtNome,{add.left+30*dpi,add.top,add.right-3*dpi,add.bottom});
+
+        // Balanced bullet-list glyph: three crisp dots with matching, slightly longer strokes.
+        const float listX=all.left+8.5f*dpi, listY=(all.top+all.bottom)*0.5f;
+        for(int row=0;row<3;++row) {
+            const float yy=listY+(row-1)*4.2f*dpi;
+            dc->FillEllipse({{listX+0.9f*dpi,yy},0.95f*dpi,0.95f*dpi},pennello);
+            dc->DrawLine({listX+4.8f*dpi,yy},{listX+15.0f*dpi,yy},pennello,1.35f*dpi);
+        }
+        scrivi(testi::t(L"Tutte le app",L"All Apps"),fmtNome,{all.left+25*dpi,all.top,all.right-4*dpi,all.bottom});
+
+        dc->PushAxisAlignedClip({rx,104*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        for(int k=0;k<(int)lCartelle.size();++k) {
+            const float fy=lCartellaY(k);
+            const bool aperta=k==lCartellaAperta;
+            const double angolo=k<(int)lAngoliCartella.size()
+                ?std::clamp(lAngoliCartella[k],0.0,PI_CARTELLE):(aperta?PI_CARTELLE:0.0);
+            const double apertura=angolo/PI_CARTELLE;
+            const float h=(float)(40.0+178.0*apertura)*dpi;
+            if(fy+h<104*dpi || fy>lFooterTop()-8*dpi) continue;
+            const D2D1_RECT_F fr={rx,fy,rr,fy+h};
+            pennello->SetColor(aperta?(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(1,1,1,0.78f))
+                                       :(scuro?D2D1::ColorF(1,1,1,0.035f):D2D1::ColorF(1,1,1,0.50f)));
+            dc->FillRoundedRectangle({fr,14*dpi,14*dpi},pennello);
+            if(k==lSopraCartella) {
+                // Highlight the entire header row, from the folder name through the count and arrow.
+                // Keep the bottom edge above the divider; the expanded app area is not part of this hover.
+                // Match the reference: rounded outer top corners, with the header
+                // highlight continuing as a solid strip down to the divider.
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.085f));
+                if(apertura>0.001) {
+                    // One continuous path avoids seams or doubled alpha from overlapping fills:
+                    // rounded top corners, straight sides and a flat lower edge at the divider.
+                    ID2D1PathGeometry* headerGeometry=nullptr;
+                    ID2D1GeometrySink* headerSink=nullptr;
+                    if(SUCCEEDED(f2d->CreatePathGeometry(&headerGeometry)) &&
+                       SUCCEEDED(headerGeometry->Open(&headerSink))) {
+                        const float radius=14*dpi;
+                        headerSink->BeginFigure({fr.left+radius,fy},D2D1_FIGURE_BEGIN_FILLED);
+                        headerSink->AddLine({fr.right-radius,fy});
+                        headerSink->AddArc(D2D1::ArcSegment(
+                            {fr.right,fy+radius},{radius,radius},0,
+                            D2D1_SWEEP_DIRECTION_CLOCKWISE,D2D1_ARC_SIZE_SMALL));
+                        headerSink->AddLine({fr.right,fy+40*dpi});
+                        headerSink->AddLine({fr.left,fy+40*dpi});
+                        headerSink->AddLine({fr.left,fy+radius});
+                        headerSink->AddArc(D2D1::ArcSegment(
+                            {fr.left+radius,fy},{radius,radius},0,
+                            D2D1_SWEEP_DIRECTION_CLOCKWISE,D2D1_ARC_SIZE_SMALL));
+                        headerSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+                        if(SUCCEEDED(headerSink->Close())) dc->FillGeometry(headerGeometry,pennello);
+                        headerSink->Release();
+                    }
+                    if(headerGeometry) headerGeometry->Release();
+                } else {
+                    const D2D1_RECT_F headerRow={fr.left,fy,fr.right,fy+40*dpi};
+                    dc->FillRoundedRectangle({headerRow,14*dpi,14*dpi},pennello);
+                }
+            }
+            if(apertura>0.001) {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f*(float)apertura)
+                                          :D2D1::ColorF(0,0,0,0.045f*(float)apertura));
+                dc->DrawLine({fr.left,fy+40*dpi},{fr.right,fy+40*dpi},pennello,1*dpi);
+            }
+            // Cartelle senza icone: nome sempre allineato a sinistra come nella reference.
+            pennello->SetColor(ink);
+            scrivi(lCartelle[k].nome,fmtTitolo,{fr.left+14*dpi,fy+1*dpi,fr.right-126*dpi,fy+39*dpi});
+            const auto apps=lAppCategoria(k);
+            pennello->SetColor(tenue);
+            scrivi(std::to_wstring(apps.size()),fmtVoce,{fr.right-52*dpi,fy+1*dpi,fr.right-32*dpi,fy+39*dpi});
+            pennello->SetColor(ink);
+            disegnaFreccia(fr.right-16*dpi,fy+20*dpi,angolo,9*dpi);
+            if(apertura>0.001 && h>40*dpi) {
+                const D2D1_RECT_F contenutoCartella={
+                    fr.left+1*dpi,fy+40*dpi,fr.right-1*dpi,std::max(fy+40*dpi,fy+h-1*dpi)
+                };
+                dc->PushAxisAlignedClip(contenutoCartella,D2D1_ANTIALIAS_MODE_ALIASED);
+                for(int j=0;j<(int)apps.size() && j<6;++j) {
+                    const int col=j%2,row=j/2,appIndex=apps[j];
+                    // Compact two-column folder grid matching the blue Start-menu reference.
+                    // Keep the 45px hover row and 8px gutter, with a tighter 12px outer inset.
+                    const float contentLeft=rx+12*dpi,contentRight=rr-12*dpi,colGap=8*dpi;
+                    const float cw=(contentRight-contentLeft-colGap)*0.5f;
+                    const float xx=contentLeft+col*(cw+colGap),yy=fy+48*dpi+row*53*dpi;
+                    const bool hoverApp=appIndex==lSopraAppCartella;
+                    const bool hoverRemove=appIndex==lSopraRimuoviAppCartella;
+                    const D2D1_RECT_F appRow={xx,yy+2*dpi,xx+cw,yy+47*dpi};
+                    if(hoverApp) {
+                        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f));
+                        dc->FillRoundedRectangle({appRow,12*dpi,12*dpi},pennello);
+                    }
+                    const D2D1_RECT_F ir={xx+6*dpi,yy+12*dpi,xx+28*dpi,yy+34*dpi};
+                    // Draw the app's own icon bitmap directly; do not add a synthetic tile behind dark icons.
+                    drawAppIcon(appIndex,ir);
+                    pennello->SetColor(ink);
+                    const float labelRight=xx+cw-(hoverApp?28.0f:8.0f)*dpi;
+                    scrivi(tutteApp[appIndex].nome,fmtTitolo,{xx+38*dpi,yy+2*dpi,labelRight,yy+47*dpi});
+                    if(hoverApp) {
+                        const float crossCx=xx+cw-18*dpi,crossCy=yy+24.5f*dpi,half=3.3f*dpi;
+                        // The small × appears only on this hovered app; no background or hover plate.
+                        pennello->SetColor(hoverRemove?D2D1::ColorF(0.96f,0.24f,0.28f,1.0f)
+                                                       :D2D1::ColorF(ink.r,ink.g,ink.b,0.68f));
+                        dc->DrawLine({crossCx-half,crossCy-half},{crossCx+half,crossCy+half},pennello,1.2f*dpi);
+                        dc->DrawLine({crossCx+half,crossCy-half},{crossCx-half,crossCy+half},pennello,1.2f*dpi);
+                    }
+                }
+                dc->PopAxisAlignedClip();
+            }
+        }
+        dc->PopAxisAlignedClip();
+    }
+    else if(lModalita==1) {
+        // Match the muted Workspace / App Library Folders heading and align to the Folders button.
+        pennello->SetColor(tenue);
+        scrivi(std::wstring(testi::t(L"TUTTE LE APP INSTALLATE",L"ALL INSTALLED APPS"))+L" ("+std::to_wstring(tutteApp.size())+L")",
+               fmtTitolo,{rx,84*dpi,rr-96*dpi,116*dpi});
+        const D2D1_RECT_F folders={rr-84*dpi,85*dpi,rr,115*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        dc->FillRoundedRectangle({folders,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{folders.left+5*dpi,folders.top,folders.right-4*dpi,folders.bottom});
+
+        dc->PushAxisAlignedClip({rx,136*dpi,rr,lFooterTop()-8*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        if(lVistaLista) {
+            wchar_t precedente=0;
+            for(int i=0;i<(int)filtrate.size();++i) {
+                const D2D1_RECT_F riga=lCella(i);
+                if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
+                const AppL& app=tutteApp[filtrate[i]];
+                const wchar_t lettera=app.nome.empty()?L'#':(wchar_t)towupper(app.nome[0]);
+                if(i==0 || lettera!=precedente) {
+                    const float hy=riga.top-22*dpi;
+                    if(hy+19*dpi>=136*dpi) {
+                        pennello->SetColor(tenue);
+                        scrivi(std::wstring(1,lettera),fmtVoce,{rx+4*dpi,hy,rx+27*dpi,hy+18*dpi});
+                    }
+                    precedente=lettera;
+                }
+                // Draw the hovered tile after its neighbours so their paint cannot cover its scaled rounded corners.
+                if(i!=lSopra)
+                    drawAppLibraryRow(filtrate[i],{riga.left,riga.top+4*dpi,riga.right-1*dpi,riga.bottom-4*dpi},false,true,false);
+            }
+            if(lSopra>=0 && lSopra<(int)filtrate.size()) {
+                const D2D1_RECT_F riga=lCella(lSopra);
+                if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi)
+                    drawAppLibraryRow(filtrate[lSopra],{riga.left,riga.top+4*dpi,riga.right-1*dpi,riga.bottom-4*dpi},false,true,true);
+            }
+        } else {
+            // Paint every non-hovered app first; render the scaled hovered app last to preserve all four rounded corners.
+            for(int i=0;i<(int)filtrate.size();++i) {
+                if(i==lSopra) continue;
+                const D2D1_RECT_F riga=lCella(i);
+                if(riga.bottom<136*dpi || riga.top>lFooterTop()-8*dpi) continue;
+                const int index=filtrate[i];
+                const float cx=(riga.left+riga.right)*0.5f,cy=(riga.top+riga.bottom)*0.5f;
+                const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                        riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.055f):D2D1::ColorF(0,0,0,0.035f));
+                dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
+                drawAppIcon(index,tile);
+                const int folderIndex=lCategoriaApp(tutteApp[index]);
+                pennello->SetColor(ink);
+                if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
+                    scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
+                    pennello->SetColor(tenue);
+                    scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+75*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                } else {
+                    scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                }
+            }
+            if(lSopra>=0 && lSopra<(int)filtrate.size()) {
+                const D2D1_RECT_F riga=lCella(lSopra);
+                if(riga.bottom>=136*dpi && riga.top<=lFooterTop()-8*dpi) {
+                    const int index=filtrate[lSopra];
+                    const D2D1_RECT_F tile={riga.left+(riga.right-riga.left-42*dpi)*0.5f,riga.top+8*dpi,
+                                              riga.left+(riga.right-riga.left+42*dpi)*0.5f,riga.top+50*dpi};
+                    pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.105f));
+                    dc->FillRoundedRectangle({riga,10*dpi,10*dpi},pennello);
+                    drawAppIcon(index,tile);
+                    const int folderIndex=lCategoriaApp(tutteApp[index]);
+                    pennello->SetColor(ink);
+                    if(folderIndex>=0 && folderIndex<(int)lCartelle.size()) {
+                        scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+2*dpi,riga.right-4*dpi,riga.top+78*dpi});
+                        pennello->SetColor(tenue);
+                        scrivi(lCartelle[folderIndex].nome,fmtSotto,{riga.left+4*dpi,riga.top+75*dpi,riga.right-4*dpi,riga.bottom-2*dpi});
+                    } else {
+                        scrivi(tutteApp[index].nome,fmtNome,{riga.left+4*dpi,tile.bottom+4*dpi,riga.right-4*dpi,riga.bottom-3*dpi});
+                    }
+                }
+            }
+        }
+        if(filtrate.empty()) {
+            pennello->SetColor(tenue);
+            scrivi(testi::t(L"Nessuna app disponibile",L"No installed apps found"),fmtNome,{rx+8*dpi,150*dpi,rr-8*dpi,184*dpi});
+        }
+        dc->PopAxisAlignedClip();
+    }
+    else if(lModalita==2 && lCartellaGestita>=0 && lCartellaGestita<(int)lCartelle.size()) {
+        const float top=122*dpi,bottom=lFooterTop()-16*dpi;
+        const D2D1_RECT_F pane={rx,top,rr,bottom};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.66f));
+        dc->FillRoundedRectangle({pane,16*dpi,16*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
+        const int count=(int)lAppCategoria(lCartellaGestita).size();
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"GESTISCI APP CARTELLA",L"MANAGE FOLDER APPS"),fmtTitolo,{rx,90*dpi,rr-92*dpi,122*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
+        pennello->SetColor(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f));
+        dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(std::wstring(L"▱  ")+testi::t(L"Cartelle",L"Folders"),fmtNome,{back.left+5*dpi,back.top,back.right-4*dpi,back.bottom});
+        pennello->SetColor(ink);
+        scrivi(lCartelle[lCartellaGestita].nome,fmtVoce,{pane.left+14*dpi,pane.top+5*dpi,pane.right-100*dpi,pane.top+36*dpi});
+        pennello->SetColor(tenue);
+        scrivi(std::to_wstring(count)+testi::t(L" selezionate",L" selected"),fmtNome,{pane.right-92*dpi,pane.top+5*dpi,pane.right-14*dpi,pane.top+36*dpi});
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.09f):D2D1::ColorF(0,0,0,0.065f));
+        dc->DrawLine({pane.left+12*dpi,pane.top+42*dpi},{pane.right-12*dpi,pane.top+42*dpi},pennello,1*dpi);
+
+        dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+48*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+        const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
+        for(int i=0;i<(int)tutteApp.size();++i) {
+            const int col=i%2,row=i/2;
+            const float x=listLeft+col*(cw+10*dpi),y=180*dpi+row*rowH-(float)lScrollEditor;
+            const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
+            if(item.bottom< pane.top+48*dpi || item.top>bottom-57*dpi) continue;
+            const int catApp=lCategoriaApp(tutteApp[i]);
+            const bool selected=catApp==lCartellaGestita;
+            pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
+                                      :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
+            dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+            const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
+            pennello->SetColor(selected?blu:tenue);
+            if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+            else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+            pennello->SetColor(ink);
+            scrivi(tutteApp[i].nome,fmtNome,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+        }
+        dc->PopAxisAlignedClip();
+        const float by=bottom-48*dpi;
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f));
+        dc->FillRoundedRectangle({{pane.left+12*dpi,by,pane.right-12*dpi,bottom-10*dpi},10*dpi,10*dpi},pennello);
+        pennello->SetColor(blu);
+        scrivi(testi::t(L"Fatto",L"Done"),fmtTitolo,{pane.right-86*dpi,by,pane.right-14*dpi,bottom-10*dpi});
+    }
+    else if(lModalita==3 || lModalita==5) {
+        const bool rinomina=lModalita==5;
+        const float top=122*dpi,bottom=lFooterTop()-16*dpi;
+        const D2D1_RECT_F pane={rx,top,rr,bottom};
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.045f):D2D1::ColorF(1,1,1,0.66f));
+        dc->FillRoundedRectangle({pane,16*dpi,16*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawRoundedRectangle({pane,16*dpi,16*dpi},pennello,1*dpi);
+        pennello->SetColor(tenue);
+        scrivi(rinomina?testi::t(L"RINOMINA CARTELLA",L"RENAME FOLDER")
+                       :testi::t(L"NUOVA CARTELLA LIBRERIA",L"NEW LIBRARY FOLDER"),
+               fmtTitolo,{rx,85*dpi,rr-92*dpi,115*dpi});
+        const D2D1_RECT_F back={rr-84*dpi,85*dpi,rr,115*dpi};
+        pennello->SetColor(lSopraIndietro
+            ?(scuro?D2D1::ColorF(0.13f,0.42f,0.66f,0.48f):D2D1::ColorF(0.10f,0.48f,0.78f,0.22f))
+            :(scuro?D2D1::ColorF(0.10f,0.35f,0.55f,0.34f):D2D1::ColorF(0.10f,0.48f,0.78f,0.12f)));
+        dc->FillRoundedRectangle({back,8*dpi,8*dpi},pennello);
+        pennello->SetColor(blu);
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_CENTER);
+        scrivi(std::wstring(L"‹  ")+testi::t(L"Indietro",L"Back"),fmtVoce,back);
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_LEADING);
+
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"NOME CARTELLA",L"FOLDER NAME"),fmtSotto,{pane.left+12*dpi,pane.top+9*dpi,pane.right-12*dpi,pane.top+28*dpi});
+        const D2D1_RECT_F nameBox={pane.left+12*dpi,pane.top+30*dpi,pane.right-12*dpi,pane.top+62*dpi};
+        pennello->SetColor(lNomeNuovoAttivo?(scuro?D2D1::ColorF(1,1,1,0.085f):D2D1::ColorF(0,0,0,0.055f))
+                                               :(scuro?D2D1::ColorF(0.01f,0.02f,0.04f,0.44f):D2D1::ColorF(0,0,0,0.035f)));
+        dc->FillRoundedRectangle({nameBox,9*dpi,9*dpi},pennello);
+        pennello->SetColor(ink);
+        const float nameTextInset=11*dpi+((lNomeNuovoAttivo && lNomeNuovaCartella.empty())?10*dpi:0.0f);
+        scrivi(lNomeNuovaCartella.empty()?testi::t(L"Digita il nome della cartella...",L"Enter a folder name..."):lNomeNuovaCartella,
+               fmtVoce,{nameBox.left+nameTextInset,nameBox.top,nameBox.right-10*dpi,nameBox.bottom});
+        if(lNomeNuovoAttivo && lCaretVisibile) {
+            const float tw=larghezzaTesto(lNomeNuovaCartella,fmtVoce);
+            pennello->SetColor(ink);
+            dc->DrawLine({nameBox.left+11*dpi+tw+2*dpi,nameBox.top+8*dpi},
+                         {nameBox.left+11*dpi+tw+2*dpi,nameBox.bottom-8*dpi},pennello,1.4f*dpi);
+        }
+
+        if(!rinomina) {
+            pennello->SetColor(tenue);
+            scrivi(std::wstring(testi::t(L"SELEZIONA APP",L"SELECT APPS"))+L" ("+std::to_wstring(lAppNuovaCartella.size())+L")",
+                   fmtSotto,{pane.left+12*dpi,pane.top+72*dpi,pane.right-12*dpi,pane.top+94*dpi});
+            dc->PushAxisAlignedClip({pane.left+7*dpi,pane.top+102*dpi,pane.right-7*dpi,bottom-57*dpi},D2D1_ANTIALIAS_MODE_ALIASED);
+            const float listLeft=dx+28*dpi,listRight=rr-14*dpi,cw=(listRight-listLeft-10*dpi)*0.5f,rowH=35*dpi;
+            for(int i=0;i<(int)tutteApp.size();++i) {
+                const int col=i%2,row=i/2;
+                const float x=listLeft+col*(cw+10*dpi),y=234*dpi+row*rowH-(float)lScrollEditor;
+                const D2D1_RECT_F item={x,y,x+cw,y+31*dpi};
+                if(item.bottom<pane.top+102*dpi || item.top>bottom-57*dpi) continue;
+                const bool selected=std::find(lAppNuovaCartella.begin(),lAppNuovaCartella.end(),tutteApp[i].avvio)!=lAppNuovaCartella.end();
+                pennello->SetColor(selected?(scuro?D2D1::ColorF(0.05f,0.31f,0.49f,0.58f):D2D1::ColorF(0.04f,0.49f,0.78f,0.16f))
+                                          :(scuro?D2D1::ColorF(1,1,1,0.025f):D2D1::ColorF(0,0,0,0.025f)));
+                dc->FillRoundedRectangle({item,8*dpi,8*dpi},pennello);
+                const D2D1_RECT_F chk={item.left+9*dpi,item.top+9*dpi,item.left+19*dpi,item.top+19*dpi};
+                pennello->SetColor(selected?blu:tenue);
+                if(selected) dc->FillRoundedRectangle({chk,2*dpi,2*dpi},pennello);
+                else dc->DrawRoundedRectangle({chk,2*dpi,2*dpi},pennello,1*dpi);
+                pennello->SetColor(ink);
+                scrivi(tutteApp[i].nome,fmtVoce,{item.left+27*dpi,item.top,item.right-5*dpi,item.bottom});
+            }
+            dc->PopAxisAlignedClip();
+        }
+        const float by=bottom-48*dpi;
+        const D2D1_RECT_F cancel={pane.right-192*dpi,by,pane.right-106*dpi,bottom-10*dpi};
+        const D2D1_RECT_F save={pane.right-98*dpi,by,pane.right-12*dpi,bottom-10*dpi};
+        pennello->SetColor(lSopraCancelCartella
+            ?(scuro?D2D1::ColorF(1,1,1,0.14f):D2D1::ColorF(0,0,0,0.085f))
+            :(scuro?D2D1::ColorF(1,1,1,0.07f):D2D1::ColorF(0,0,0,0.035f)));
+        dc->FillRoundedRectangle({cancel,9*dpi,9*dpi},pennello);
+        pennello->SetColor(lSopraConfermaCartella
+            ?(scuro?D2D1::ColorF(0.34f,0.63f,0.97f,1.0f):D2D1::ColorF(0.08f,0.44f,0.94f,1.0f))
+            :(scuro?D2D1::ColorF(0.23f,0.50f,0.84f,1.0f):D2D1::ColorF(0.00f,0.33f,0.80f,1.0f)));
+        dc->FillRoundedRectangle({save,9*dpi,9*dpi},pennello);
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_CENTER);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"Annulla",L"Cancel"),fmtVoce,cancel);
+        pennello->SetColor(D2D1::ColorF(0.02f,0.04f,0.08f,1));
+        scrivi(rinomina?testi::t(L"Salva",L"Save"):testi::t(L"Crea",L"Create"),fmtVoce,save);
+        testi::allinea(fmtVoce,DWRITE_TEXT_ALIGNMENT_LEADING);
+    }
+    else {
+        // Vista Spotlight: risultati a schede, come nello screenshot di ricerca.
+        pennello->SetColor(blu);
+        scrivi(std::wstring(testi::t(L"TOP MATCHES",L"TOP MATCHES"))+L" ("+std::to_wstring(filtrate.size())+L")",
+               fmtTitolo,{16*dpi,78*dpi,LW-16*dpi,108*dpi});
+        if(filtrate.empty()) {
+            pennello->SetColor(tenue);
+            scrivi(testi::t(L"Nessuna app trovata",L"No apps found"),fmtNome,{16*dpi,128*dpi,LW-16*dpi,162*dpi});
+            const D2D1_RECT_F web={16*dpi,170*dpi,std::min(LW-16*dpi,460*dpi),212*dpi};
+            pennello->SetColor(scuro?D2D1::ColorF(0.18f,0.34f,0.54f,0.22f):D2D1::ColorF(0.15f,0.42f,0.82f,0.10f));
+            dc->FillRoundedRectangle({web,10*dpi,10*dpi},pennello);
+            pennello->SetColor(blu);
+            scrivi(testi::t(L"Cerca sul Web: ",L"Search the Web for: ")+query,fmtNome,
+                   {web.left+12*dpi,web.top,web.right-12*dpi,web.bottom});
+        } else {
+            for(int i=0;i<(int)filtrate.size() && i<8;++i) {
+                const D2D1_RECT_F riga=lCella(i);
+                const int index=filtrate[i],cat=lCategoriaApp(tutteApp[index]);
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.05f):D2D1::ColorF(1,1,1,0.62f));
+                dc->FillRoundedRectangle({riga,11*dpi,11*dpi},pennello);
+                const D2D1_RECT_F icon={riga.left+11*dpi,riga.top+9*dpi,riga.left+48*dpi,riga.top+46*dpi};
+                drawAppIcon(index,icon);
+                pennello->SetColor(ink);
+                scrivi(tutteApp[index].nome,fmtNome,{riga.left+60*dpi,riga.top+7*dpi,riga.right-104*dpi,riga.top+31*dpi});
+                pennello->SetColor(tenue);
+                scrivi(cat>=0?lCartelle[cat].nome:testi::t(L"Non assegnata",L"Unassigned"),fmtNome,
+                       {riga.left+60*dpi,riga.top+30*dpi,riga.right-104*dpi,riga.bottom-4*dpi});
+                const D2D1_RECT_F launch={riga.right-96*dpi,riga.top+15*dpi,riga.right-10*dpi,riga.bottom-15*dpi};
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.06f):D2D1::ColorF(0,0,0,0.035f));
+                dc->FillRoundedRectangle({launch,7*dpi,7*dpi},pennello);
+                pennello->SetColor(tenue);
+                scrivi(testi::t(L"Avvia  ↵",L"Launch  ↵"),fmtNome,launch);
+            }
+        }
+    }
+
+    // Footer: profilo utente allineato a sinistra; i tre simboli non hanno piastrella finche' non sono in hover.
+    {
+        const float top=lFooterTop();
+        const D2D1_COLOR_F footerColor=scuro?D2D1::ColorF(0.015f,0.025f,0.045f,0.72f):D2D1::ColorF(0.92f,0.94f,0.97f,0.82f);
+        pennello->SetColor(footerColor);
+        dc->FillRoundedRectangle({{0,top,LW,LH},22*dpi,22*dpi},pennello);
+        dc->FillRectangle({0,top,LW,LH-22*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawLine({0,top},{LW,top},pennello,1*dpi);
+
+        const D2D1_RECT_F rp=rettProfilo(),re=rettEnergia();
+        const float ax=rp.left+22*dpi, ay=(rp.top+rp.bottom)*0.5f, radius=17*dpi;
+        pennello->SetColor(D2D1::ColorF(0.16f,0.54f,0.96f,1));
+        dc->FillEllipse({{ax,ay},radius,radius},pennello);
+        if(lFotoProfilo) {
+            const D2D1_RECT_F avatar={ax-radius,ay-radius,ax+radius,ay+radius};
+            dc->DrawBitmap(lFotoProfilo,avatar,1.0f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.27f):D2D1::ColorF(0,0,0,0.13f));
+            dc->DrawEllipse({{ax,ay},radius,radius},pennello,0.9f*dpi);
+        } else {
+            wchar_t utente[128]=L""; DWORD nUtente=128;
+            if(GetUserNameW(utente,&nUtente)&&utente[0]) {
+                std::wstring iniziali(1,(wchar_t)towupper(utente[0]));
+                for(size_t i=1;i<wcslen(utente);++i) if(utente[i]==L' '&&utente[i+1]) { iniziali+=towupper(utente[i+1]); break; }
+                pennello->SetColor(D2D1::ColorF(1,1,1,1));
+                scrivi(iniziali,fmtNome,{ax-radius,ay-radius,ax+radius,ay+radius});
+            }
+        }
+
+        wchar_t utente[128]=L""; DWORD nUtente=128;
+        std::wstring nome=L"User";
+        if(GetUserNameW(utente,&nUtente)&&utente[0]) nome=utente;
+        pennello->SetColor(ink);
+        scrivi(nome,fmtVoce,{rp.left+48*dpi,rp.top+1*dpi,rp.right-4*dpi,rp.top+23*dpi});
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"Spazio di lavoro locale",L"Local Workspace"),fmtSotto,
+               {rp.left+48*dpi,rp.top+21*dpi,rp.right-4*dpi,rp.bottom});
+
+        const D2D1_RECT_F files={LW-184*dpi,top+6*dpi,LW-140*dpi,top+46*dpi};
+        const D2D1_RECT_F settings={LW-128*dpi,top+6*dpi,LW-84*dpi,top+46*dpi};
+        const D2D1_RECT_F power=re;
+        auto hoverTile=[&](const D2D1_RECT_F& r,bool hover) {
+            if(!hover) return;
+            pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.12f):D2D1::ColorF(0,0,0,0.075f));
+            dc->FillRoundedRectangle({r,9*dpi,9*dpi},pennello);
+        };
+        hoverTile(files,lSopraEsplora);
+        hoverTile(settings,lSopraImpostazioni);
+        hoverTile(power,lSopraEnergia);
+
+        // Modern file-folder outline: rounded body with a distinct raised tab.
+        const float fx=(files.left+files.right)*0.5f, fy=(files.top+files.bottom)*0.5f;
+        pennello->SetColor(ink);
+        const D2D1_RECT_F folderBody={fx-10.5f*dpi,fy-4.5f*dpi,fx+10.5f*dpi,fy+8.0f*dpi};
+        dc->DrawRoundedRectangle({folderBody,2.2f*dpi,2.2f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-10*dpi,fy-4.0f*dpi},{fx-10*dpi,fy-7.0f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-10*dpi,fy-7.0f*dpi},{fx-3.5f*dpi,fy-7.0f*dpi},pennello,1.75f*dpi);
+        dc->DrawLine({fx-3.5f*dpi,fy-7.0f*dpi},{fx-0.8f*dpi,fy-4.5f*dpi},pennello,1.75f*dpi);
+
+        // Modern tune/settings glyph: three balanced tracks and staggered circular sliders.
+        const float sx=(settings.left+settings.right)*0.5f, sy=(settings.top+settings.bottom)*0.5f;
+        const float trackHalf=10.5f*dpi, knobRadius=2.35f*dpi;
+        const float trackYs[3]={sy-6.5f*dpi,sy,sy+6.5f*dpi};
+        const float knobXs[3]={sx-3.5f*dpi,sx+4.0f*dpi,sx-1.0f*dpi};
+        for(int i=0;i<3;++i) {
+            dc->DrawLine({sx-trackHalf,trackYs[i]},{sx+trackHalf,trackYs[i]},pennello,1.65f*dpi);
+            pennello->SetColor(footerColor);
+            dc->FillEllipse({{knobXs[i],trackYs[i]},knobRadius+0.65f*dpi,knobRadius+0.65f*dpi},pennello);
+            pennello->SetColor(ink);
+            dc->DrawEllipse({{knobXs[i],trackYs[i]},knobRadius,knobRadius},pennello,1.75f*dpi);
+        }
+
+        // Updated power symbol: a crisp complete ring with a centered vertical stem.
+        const float px=(power.left+power.right)*0.5f, py=(power.top+power.bottom)*0.5f;
+        dc->DrawEllipse({{px,py+1.0f*dpi},8.8f*dpi,8.8f*dpi},pennello,1.9f*dpi);
+        dc->DrawLine({px,py-11.0f*dpi},{px,py+1.0f*dpi},pennello,2.0f*dpi);
+    }
+
+    // Native-looking FluidWin folder menu: matching dark/light surface, rounded edge and restrained hover.
+    if(lCartellaMenuAperto && lCartellaMenuIndice>=0 && lCartellaMenuIndice<(int)lCartelle.size()) {
+        const float mx=lCartellaMenuX,my=lCartellaMenuY,mw=184*dpi,mh=132*dpi;
+        const D2D1_RECT_F panel={mx,my,mx+mw,my+mh};
+        pennello->SetColor(scuro?D2D1::ColorF(0.055f,0.065f,0.085f,0.985f):D2D1::ColorF(0.96f,0.97f,0.985f,0.985f));
+        dc->FillRoundedRectangle({panel,12*dpi,12*dpi},pennello);
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.13f):D2D1::ColorF(0.10f,0.14f,0.20f,0.12f));
+        dc->DrawRoundedRectangle({panel,12*dpi,12*dpi},pennello,1*dpi);
+        pennello->SetColor(tenue);
+        scrivi(testi::t(L"CARTELLA",L"FOLDER"),fmtSotto,{mx+12*dpi,my+4*dpi,mx+mw-12*dpi,my+28*dpi});
+        pennello->SetColor(ink);
+        scrivi(lCartelle[lCartellaMenuIndice].nome,fmtVoce,{mx+12*dpi,my+20*dpi,mx+mw-12*dpi,my+42*dpi});
+        pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0,0,0,0.08f));
+        dc->DrawLine({mx+10*dpi,my+44*dpi},{mx+mw-10*dpi,my+44*dpi},pennello,1*dpi);
+        const wchar_t* etichette[3]={
+            testi::t(L"Rinomina",L"Rename"),
+            testi::t(L"Gestisci app",L"Manage apps"),
+            testi::t(L"Rimuovi",L"Remove")
+        };
+        const wchar_t* simboli[3]={L"✎",L"☷",L"−"};
+        for(int k=0;k<3;++k) {
+            const D2D1_RECT_F row={mx+7*dpi,my+(48+k*27)*dpi,mx+mw-7*dpi,my+(74+k*27)*dpi};
+            if(lCartellaMenuHover==k) {
+                pennello->SetColor(scuro?D2D1::ColorF(1,1,1,0.10f):D2D1::ColorF(0.05f,0.20f,0.38f,0.08f));
+                dc->FillRoundedRectangle({row,7*dpi,7*dpi},pennello);
+            }
+            pennello->SetColor(k==2?D2D1::ColorF(0.92f,0.30f,0.34f,1.0f):ink);
+            scrivi(simboli[k],fmtVoce,{row.left+8*dpi,row.top,row.left+30*dpi,row.bottom});
+            scrivi(etichette[k],fmtVoce,{row.left+36*dpi,row.top,row.right-7*dpi,row.bottom});
+        }
+    }
+
     // barra di scorrimento sottile, solo se serve; col mouse sopra (o trascinandola) si allarga, come su macOS
-    if (lScrollMax() > 0) {
+    if ((lModalita == 1 || lModalita == 4) && lScrollMax() > 0) {
         const D2D1_RECT_F b = lCursoreBarra();
         const bool larga = lSopraBarra || lTrascinoBarra;
         const float w = (larga ? 7.0f : 3.0f) * dpi, x1 = LW - 6 * dpi;
@@ -840,9 +2161,20 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
     const float x = (float)GET_X_LPARAM(l), y = (float)GET_Y_LPARAM(l);
     switch (m) {
         case WM_LBUTTONDOWN: {
+            const bool clickInSearch=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            if(!clickInSearch && d->lRicercaAttiva) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+            }
+            const bool clickInFolderName=(d->lModalita==3 || d->lModalita==5) &&
+                x>=d->lDividerX()+26*d->dpi && x<d->LW-26*d->dpi && y>=152*d->dpi && y<184*d->dpi;
+            if(!clickInFolderName && d->lNomeNuovoAttivo) {
+                d->lNomeNuovoAttivo=false; d->lCaretVisibile=false;
+                KillTimer(h,TIMER_CARET_L); d->lDirty=true;
+            }
             // barra di scorrimento: preso il cursore lo si trascina; un clic sul binario salta di una pagina
             const D2D1_RECT_F b = d->lRettBarra();
-            if (d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
+            if ((d->lModalita == 1 || d->lModalita == 4) && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
                 const D2D1_RECT_F c = d->lCursoreBarra();
                 if (y < c.top || y >= c.bottom) {
                     const double pagina = (b.bottom - b.top) * 0.9;
@@ -856,47 +2188,337 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             return 0;
         }
         case WM_MOUSEMOVE: {
-            if (!d->lMouseDentro) { TRACKMOUSEEVENT tm{sizeof(tm), TME_LEAVE, h, 0}; TrackMouseEvent(&tm); d->lMouseDentro = true; }
-            if (d->lTrascinoBarra) {
-                // la barra segue il mouse 1:1 (niente inseguimento: lScroll = lScrollObj)
-                const double alt = d->lGrigliaBottom() - d->lGrigliaTop(), c = d->lCursoreBarra().bottom - d->lCursoreBarra().top;
-                const double corsa = std::max(1.0, alt - c);
-                d->lScrollObj = d->lScroll = std::clamp(d->lPresaScroll + (y - d->lPresaY) * d->lScrollMax() / corsa, 0.0, d->lScrollMax());
-                d->lDirty = true;
+            if(!d->lMouseDentro) { TRACKMOUSEEVENT tm{sizeof(tm),TME_LEAVE,h,0}; TrackMouseEvent(&tm); d->lMouseDentro=true; }
+            if(d->lCartellaMenuAperto) {
+                int hover=-1;
+                const float mx=d->lCartellaMenuX,my=d->lCartellaMenuY;
+                if(x>=mx+7*d->dpi && x<mx+177*d->dpi && y>=my+48*d->dpi && y<my+129*d->dpi)
+                    hover=(int)((y-(my+48*d->dpi))/(27*d->dpi));
+                if(hover!=d->lCartellaMenuHover || !d->lManoCursor) { d->lCartellaMenuHover=hover; d->lManoCursor=hover>=0; d->lDirty=true; }
+                SetCursor(LoadCursorW(nullptr,hover>=0?IDC_HAND:IDC_ARROW));
                 return 0;
             }
-            {
-                const D2D1_RECT_F b = d->lRettBarra();
-                const bool sb = d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom;
-                if (sb != d->lSopraBarra) { d->lSopraBarra = sb; d->lDirty = true; }
+            if(d->lTrascinoBarra) {
+                const double alt=d->lGrigliaBottom()-d->lGrigliaTop(),c=d->lCursoreBarra().bottom-d->lCursoreBarra().top;
+                const double corsa=std::max(1.0,alt-c);
+                d->lScrollObj=d->lScroll=std::clamp(d->lPresaScroll+(y-d->lPresaY)*d->lScrollMax()/corsa,0.0,d->lScrollMax());
+                d->lDirty=true; return 0;
             }
-            const int s = d->lCellaIn(x, y);
-            if (s != d->lSopra) { d->lSopra = s; d->lDirty = true; }
-            const int sf = d->lFileIn(x, y);
-            if (sf != d->lSopraFile) { d->lSopraFile = sf; d->lDirty = true; }
-            const D2D1_RECT_F re = d->rettEnergia();
-            const bool e = x >= re.left && x < re.right && y >= re.top && y < re.bottom;
-            if (e != d->lSopraEnergia) { d->lSopraEnergia = e; d->lDirty = true; }
+            const D2D1_RECT_F b=d->lRettBarra();
+            const bool sb=(d->lModalita==1 || d->lModalita==4) && d->lScrollMax()>0 &&
+                          x>=b.left && x<b.right && y>=b.top && y<b.bottom;
+            const int s=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
+            const int pin=d->lPinnedIn(x,y);
+            const int cartella=d->lModalita==0?d->lCartellaNomeIn(x,y):-1;
+            const int appCartella=d->lModalita==0?d->lAppCartellaIn(x,y):-1;
+            const int rimuoviApp=d->lModalita==0?d->lAppCartellaRimuoviIn(x,y):-1;
+            int azione=-1;
+            if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
+                const float ay=d->LH-268*d->dpi;
+                for(int k=0;k<4;++k) {
+                    const float top=ay+(28.0f+k*36.0f)*d->dpi;
+                    if(y>=top && y<top+30*d->dpi) { azione=k; break; }
+                }
+            }
+            bool cancelCartella=false, confermaCartella=false;
+            if(d->lModalita==3 || d->lModalita==5) {
+                const float right=d->LW-14*d->dpi;
+                const float bottom=d->lFooterTop()-16*d->dpi,by=bottom-48*d->dpi;
+                const D2D1_RECT_F cancel={right-192*d->dpi,by,right-106*d->dpi,bottom-10*d->dpi};
+                const D2D1_RECT_F save={right-98*d->dpi,by,right-12*d->dpi,bottom-10*d->dpi};
+                cancelCartella=x>=cancel.left && x<cancel.right && y>=cancel.top && y<cancel.bottom;
+                confermaCartella=x>=save.left && x<save.right && y>=save.top && y<save.bottom;
+            }
+            const bool searchBar=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool folderNameField=(d->lModalita==3 || d->lModalita==5) &&
+                x>=d->lDividerX()+26*d->dpi && x<d->LW-26*d->dpi && y>=152*d->dpi && y<184*d->dpi;
+            const bool searchClear=!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool backHover=(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
+            const bool headerButtons=d->lModalita==0 && y>=73*d->dpi && y<103*d->dpi &&
+                ((x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi) || (x>=d->LW-180*d->dpi && x<d->LW-105*d->dpi));
+            const int editorApp=(d->lModalita==3)?d->lNuovaAppIn(x,y):((d->lModalita==2)?d->lGestisciAppIn(x,y):-1);
+            const int fileHit=d->lFileIn(x,y);
+            const bool doneButton=d->lModalita==2 && x>=d->LW-100*d->dpi && x<d->LW-22*d->dpi &&
+                y>=d->lFooterTop()-80*d->dpi && y<d->lFooterTop()-26*d->dpi;
+            const D2D1_RECT_F rp=d->rettProfilo(),re=d->rettEnergia();
+            const bool profilo=x>=rp.left && x<rp.right && y>=rp.top && y<rp.bottom;
+            const bool energia=x>=re.left && x<re.right && y>=re.top && y<re.bottom;
+            const float ft=d->lFooterTop();
+            const bool explorer=x>=d->LW-184*d->dpi && x<d->LW-140*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
+            const bool settings=x>=d->LW-128*d->dpi && x<d->LW-84*d->dpi && y>=ft+6*d->dpi && y<ft+46*d->dpi;
+            const bool handCursor=s>=0 || pin>=0 || cartella>=0 || appCartella>=0 || rimuoviApp>=0 || azione>=0 ||
+                profilo || energia || explorer || settings || cancelCartella || confermaCartella || backHover ||
+                headerButtons || editorApp>=0 || fileHit>=0 || doneButton || searchClear;
+            if(sb!=d->lSopraBarra || s!=d->lSopra || pin!=d->lSopraPinned || cartella!=d->lSopraCartella ||
+               appCartella!=d->lSopraAppCartella || rimuoviApp!=d->lSopraRimuoviAppCartella || azione!=d->lSopraAzione ||
+               profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
+               explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni ||
+               cancelCartella!=d->lSopraCancelCartella || confermaCartella!=d->lSopraConfermaCartella ||
+               searchBar!=d->lSopraRicerca || folderNameField!=d->lSopraNomeCartella ||
+               searchClear!=d->lSopraCancellaRicerca || backHover!=d->lSopraIndietro || handCursor!=d->lManoCursor) {
+                d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin; d->lSopraCartella=cartella;
+                d->lSopraAppCartella=appCartella; d->lSopraRimuoviAppCartella=rimuoviApp; d->lSopraAzione=azione;
+                d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
+                d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
+                d->lSopraCancelCartella=cancelCartella; d->lSopraConfermaCartella=confermaCartella;
+                d->lSopraRicerca=searchBar; d->lSopraNomeCartella=folderNameField;
+                d->lSopraCancellaRicerca=searchClear; d->lSopraIndietro=backHover; d->lManoCursor=handCursor;
+                d->lDirty=true;
+            }
+            if(searchClear || handCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
+            else if(searchBar || folderNameField) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+            else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
             return 0;
         }
-        case WM_MOUSELEAVE: d->lMouseDentro = false; d->lSopra = -1; d->lSopraFile = -1; d->lSopraEnergia = false; d->lSopraBarra = false; d->lDirty = true; return 0;
+        case WM_KILLFOCUS:
+            if(d->lRicercaAttiva || d->lRicercaCaretVisibile) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+            }
+            if(d->lNomeNuovoAttivo) {
+                d->lNomeNuovoAttivo=false; d->lCaretVisibile=false;
+                KillTimer(h,TIMER_CARET_L); d->lDirty=true;
+            }
+            return 0;
+        case WM_SETCURSOR:
+            if(LOWORD(l)==HTCLIENT) {
+                if(d->lSopraCancellaRicerca || d->lManoCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
+                else if(d->lSopraRicerca || d->lSopraNomeCartella) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+                else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
+                return TRUE;
+            }
+            break;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false; d->lSopraRicerca=false; d->lSopraNomeCartella=false; d->lSopraCancellaRicerca=false; d->lSopraIndietro=false; d->lManoCursor=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
+            if (w == TIMER_SEARCH_CARET_L) {
+                if(d->lRicercaAttiva) { d->lRicercaCaretVisibile=!d->lRicercaCaretVisibile; d->lDirty=true; }
+                else { KillTimer(h,TIMER_SEARCH_CARET_L); d->lRicercaCaretVisibile=false; d->lDirty=true; }
+                return 0;
+            }
+            if (w == TIMER_CARET_L) {
+                if ((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo) {
+                    d->lCaretVisibile=!d->lCaretVisibile;
+                    d->lDirty=true;
+                } else {
+                    KillTimer(h,TIMER_CARET_L);
+                    d->lCaretVisibile=false;
+                    d->lDirty=true;
+                }
+                return 0;
+            }
             break;
         case WM_LBUTTONUP: {
-            if (d->lTrascinoBarra) { d->lTrascinoBarra = false; ReleaseCapture(); d->lDirty = true; return 0; }
-            { const D2D1_RECT_F b = d->lRettBarra(); if (d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) return 0; }
-            if (y > d->LH) { d->chiudiLauncher(); return 0; }   // clic sotto (durante l'animazione): chiude
-            if (d->lSopraEnergia) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuEnergia(p); return 0; }
-            const int i = d->lCellaIn(x, y);
-            if (i >= 0) d->avviaApp(i);
-            else { const int k = d->lFileIn(x, y); if (k >= 0) d->apriFile(k); }
+            if(d->lTrascinoBarra) { d->lTrascinoBarra=false; ReleaseCapture(); d->lDirty=true; return 0; }
+            { const D2D1_RECT_F b=d->lRettBarra();
+              if((d->lModalita==1 || d->lModalita==4) && d->lScrollMax()>0 &&
+                 x>=b.left && x<b.right && y>=b.top && y<b.bottom) return 0; }
+            if(d->lCartellaMenuAperto) {
+                int azione=-1;
+                const float mx=d->lCartellaMenuX,my=d->lCartellaMenuY;
+                if(x>=mx+7*d->dpi && x<mx+177*d->dpi && y>=my+48*d->dpi && y<my+129*d->dpi)
+                    azione=(int)((y-(my+48*d->dpi))/(27*d->dpi));
+                const int cartella=d->lCartellaMenuIndice;
+                d->lCartellaMenuAperto=false;
+                d->lCartellaMenuHover=-1;
+                d->lCartellaMenuIndice=-1;
+                if(azione==0) d->apriRinominaCartella(cartella);
+                else if(azione==1) d->apriGestisciCartella(cartella);
+                else if(azione==2) d->rimuoviCartella(cartella);
+                else d->lDirty=true;
+                return 0;
+            }
+            const bool clickSearch=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            if(clickSearch) {
+                if(!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi) {
+                    d->query.clear(); d->filtra(); d->lModalita=0;
+                    d->lSelFile=-1; d->lScroll=d->lScrollObj=0;
+                }
+                d->lRicercaAttiva=true; d->lRicercaCaretVisibile=true;
+                SetTimer(h,TIMER_SEARCH_CARET_L,520,nullptr);
+                if(d->lNomeNuovoAttivo) {
+                    d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L);
+                }
+                d->lDirty=true; return 0;
+            } else if(d->lRicercaAttiva) {
+                d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+            }
+            if(y>d->LH) { d->chiudiLauncher(); return 0; }
+            if(d->lSopraEnergia) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuEnergia(p); return 0; }
+            if(d->lSopraProfilo) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",L"ms-settings:yourinfo",nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
+            }
+
+            const float paneRight=d->LW-14*d->dpi;
+            const float footer=d->lFooterTop();
+            // Footer icons are deliberately unboxed until hover.
+            if(d->lSopraEsplora) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",L"explorer.exe",nullptr,nullptr,SW_SHOWNORMAL); return 0;
+            }
+            if(d->lSopraImpostazioni) {
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                if(d->impostazioni) d->impostazioni(nullptr);
+                else ShellExecuteW(nullptr,L"open",L"ms-settings:",nullptr,nullptr,SW_SHOWNORMAL);
+                return 0;
+            }
+
+            // Torna alla vista folders dalle pagine di libreria secondarie.
+            if((d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) &&
+               x>=paneRight-84*d->dpi && x<paneRight && y>=85*d->dpi && y<115*d->dpi) {
+                d->lModalita=0; d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L); d->lCartellaRinomina=-1;
+                d->lNomeNuovaCartella.clear(); d->lScrollEditor=0; d->lDirty=true; return 0;
+            }
+
+            // Gestione appartenenza app a una cartella.
+            if(d->lModalita==2) {
+                const float bottom=d->lFooterTop()-16*d->dpi,by=bottom-48*d->dpi;
+                if(x>=paneRight-86*d->dpi && x<paneRight-8*d->dpi && y>=by && y<bottom-10*d->dpi) {
+                    d->lModalita=0; d->lScrollEditor=0; d->lDirty=true; return 0;
+                }
+                const int app=d->lGestisciAppIn(x,y);
+                if(app>=0) { d->toggleAppCartella(app,d->lCartellaGestita); return 0; }
+                return 0;
+            }
+
+            // Crea/Rinomina: campo testo, elenco app solo durante la creazione.
+            if(d->lModalita==3 || d->lModalita==5) {
+                const bool rinomina=d->lModalita==5;
+                const float left=d->lDividerX()+14*d->dpi,right=d->LW-14*d->dpi;
+                const float bottom=d->lFooterTop()-16*d->dpi,by=bottom-48*d->dpi;
+                const D2D1_RECT_F nameBox={left+12*d->dpi,152*d->dpi,right-12*d->dpi,184*d->dpi};
+                if(x>=nameBox.left && x<nameBox.right && y>=nameBox.top && y<nameBox.bottom) {
+                    d->lNomeNuovoAttivo=true; d->lCaretVisibile=true;
+                    SetTimer(h,TIMER_CARET_L,520,nullptr);
+                    d->lDirty=true; return 0;
+                }
+                d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L);
+                if(!rinomina) {
+                    const int app=d->lNuovaAppIn(x,y);
+                    if(app>=0) {
+                        const std::wstring& path=d->tutteApp[app].avvio;
+                        auto it=std::find(d->lAppNuovaCartella.begin(),d->lAppNuovaCartella.end(),path);
+                        if(it==d->lAppNuovaCartella.end()) d->lAppNuovaCartella.push_back(path);
+                        else d->lAppNuovaCartella.erase(it);
+                        d->lDirty=true; return 0;
+                    }
+                }
+                const D2D1_RECT_F cancel={right-192*d->dpi,by,right-106*d->dpi,bottom-10*d->dpi};
+                const D2D1_RECT_F save={right-98*d->dpi,by,right-12*d->dpi,bottom-10*d->dpi};
+                if(x>=cancel.left && x<cancel.right && y>=cancel.top && y<cancel.bottom) {
+                    d->lModalita=0; d->lCartellaRinomina=-1; d->lNomeNuovaCartella.clear();
+                    d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L);
+                    d->lAppNuovaCartella.clear(); d->lScrollEditor=0; d->lDirty=true; return 0;
+                }
+                if(x>=save.left && x<save.right && y>=save.top && y<save.bottom) {
+                    if(rinomina) d->salvaRinominaCartella();
+                    else d->creaCartella();
+                    return 0;
+                }
+                return 0;
+            }
+
+            // Pulsante + Folder e All Apps.
+            if(d->lModalita==0 && y>=73*d->dpi && y<103*d->dpi) {
+                if(x>=paneRight-84*d->dpi && x<paneRight) {
+                    d->lModalita=1; d->lScroll=d->lScrollObj=0; d->lSel=0; d->lDirty=true; return 0;
+                }
+                if(x>=paneRight-166*d->dpi && x<paneRight-91*d->dpi) {
+                    d->lNomeNuovaCartella.clear(); d->lAppNuovaCartella.clear();
+                    d->lScrollEditor=0; d->lModalita=3; d->lNomeNuovoAttivo=false; d->lCaretVisibile=false;
+                    KillTimer(h,TIMER_CARET_L);
+                    d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false;
+                    d->lDirty=true; return 0;
+                }
+            }
+
+            if(d->lModalita==0) {
+                // Left click anywhere on a folder row expands/collapses it; context menu is right-click only.
+                const int folder=d->lCartellaIn(x,y);
+                if(folder>=0) {
+                    const int ultima=(int)d->lCartelle.size()-1;
+                    const bool ultimaEraAperta=d->lCartellaAperta==ultima;
+                    d->lCartellaAperta=(d->lCartellaAperta==folder?-1:folder);
+                    if(d->lCartellaAperta==ultima)
+                        d->lScrollCartelleObj=d->lScrollCartellePerUltima();
+                    else if(ultimaEraAperta)
+                        d->lScrollCartelleObj=0.0;
+                    d->lScrollCartelleObj=std::clamp(d->lScrollCartelleObj,0.0,d->lCartelleScrollMax());
+                    d->lDirty=true; return 0;
+                }
+                const int removeApp=d->lAppCartellaRimuoviIn(x,y);
+                if(removeApp>=0) {
+                    d->rimuoviAppDaCartella(removeApp,d->lCartellaAperta);
+                    return 0;
+                }
+            }
+
+            // Four quick actions use the reserved area below the six pinned apps.
+            if(d->lModalita!=4 && x>=16*d->dpi && x<d->lDividerX()-16*d->dpi) {
+                const float ay=d->LH-268*d->dpi;
+                const int action=(int)((y-(ay+28*d->dpi))/(36*d->dpi));
+                if(y>=ay+28*d->dpi && y<ay+28*d->dpi+4*36*d->dpi && action>=0 && action<4) {
+                    d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                    if(action==0) ShellExecuteW(nullptr,L"open",L"wt.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                    else if(action==1) ShellExecuteW(nullptr,L"open",L"ms-screenclip:",nullptr,nullptr,SW_SHOWNORMAL);
+                    else if(action==2) ShellExecuteW(nullptr,L"open",L"taskmgr.exe",nullptr,nullptr,SW_SHOWNORMAL);
+                    else {
+                        PWSTR downloads=nullptr;
+                        if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads,0,nullptr,&downloads)) && downloads) {
+                            ShellExecuteW(nullptr,L"open",L"explorer.exe",downloads,nullptr,SW_SHOWNORMAL);
+                            CoTaskMemFree(downloads);
+                        } else ShellExecuteW(nullptr,L"open",L"shell:Downloads",nullptr,nullptr,SW_SHOWNORMAL);
+                    }
+                    return 0;
+                }
+            }
+
+            // Web search result action (search field clear is handled inside the search field).
+            if(d->lModalita==4 && d->filtrate.empty() && !d->query.empty() &&
+               x>=16*d->dpi && x<std::min(d->LW-16*d->dpi,460*d->dpi) &&
+               y>=170*d->dpi && y<212*d->dpi) {
+                const std::wstring url=L"https://www.google.com/search?q="+codificaQueryWeb(d->query);
+                d->primaDelLauncher=nullptr; d->chiudiLauncher();
+                ShellExecuteW(nullptr,L"open",url.c_str(),nullptr,nullptr,SW_SHOWNORMAL); return 0;
+            }
+
+            const int pin=d->lPinnedIn(x,y);
+            if(pin>=0 && pin<(int)d->lPinned.size()) { d->avviaAppDiretto(d->lPinned[pin]); return 0; }
+            const int i=(d->lModalita==1 || d->lModalita==4)?d->lCellaIn(x,y):-1;
+            if(i>=0) {
+                const D2D1_RECT_F riga=d->lCella(i);
+                const int appIndex=d->filtrate[i];
+                if(d->lModalita==1 && d->lVistaLista && x>=riga.right-42*d->dpi)
+                    d->togglePinned(appIndex);
+                else d->avviaApp(i);
+                return 0;
+            }
             return 0;
         }
-        case WM_RBUTTONUP: {   // il menu di Windows dell'app (amministratore, percorso, disinstalla...)
-            const int i = d->lCellaIn(x, y);
-            if (i >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuApp(i, p); }
-            else { const int k = d->lFileIn(x, y); if (k >= 0) { POINT p{(LONG)x, (LONG)y}; ClientToScreen(h, &p); d->menuFile(k, p); } }
+        case WM_RBUTTONUP: {
+            if(d->lRicercaAttiva) { d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false; KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true; }
+            if(d->lModalita==0) {
+                const int folder=d->lCartellaIn(x,y);
+                if(folder>=0) { POINT pt{(LONG)x,(LONG)y}; ClientToScreen(h,&pt); d->apriMenuCartella(folder,pt); d->lDirty=true; return 0; }
+            }
+            int indiceApp=-1;
+            if(d->lModalita==0) {
+                const int pin=d->lPinnedIn(x,y);
+                if(pin>=0 && pin<(int)d->lPinned.size()) indiceApp=d->lPinned[pin];
+            } else if(d->lModalita==1 || d->lModalita==4) {
+                const int cella=d->lCellaIn(x,y);
+                if(cella>=0 && cella<(int)d->filtrate.size()) indiceApp=d->filtrate[cella];
+            }
+            if(indiceApp>=0) {
+                POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p);
+                d->menuApp(indiceApp,p);
+            } else {
+                const int k=d->lModalita==1?d->lFileIn(x,y):-1;
+                if(k>=0) { POINT p{(LONG)x,(LONG)y}; ClientToScreen(h,&p); d->menuFile(k,p); }
+            }
             return 0;
         }
         // sottomenu del menu di Windows ("Invia a", "Apri con"...): li disegna lui
@@ -904,44 +2526,104 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             if (d->menuShell3) { LRESULT r = 0; if (SUCCEEDED(d->menuShell3->HandleMenuMsg2(m, w, l, &r))) return r; }
             else if (d->menuShell2) { if (SUCCEEDED(d->menuShell2->HandleMenuMsg(m, w, l))) return m == WM_INITMENUPOPUP ? 0 : TRUE; }
             break;
-        case WM_MOUSEWHEEL:
-            d->lSelTastiera = false;   // (la rotella ha la precedenza sulla scelta da tastiera)
-            d->lScrollObj = std::clamp(d->lScrollObj - GET_WHEEL_DELTA_WPARAM(w) / (double)WHEEL_DELTA * d->lCellaH() * 0.9, 0.0, d->lScrollMax());
-            d->lDirty = true; return 0;
-        case WM_CHAR:
-            if (w == 27) d->chiudiLauncher();
-            // Invio: con una ricerca la prima trovata (o quella scelta con le frecce); senza, quella scelta. Una riga dei
-            // file scelta con le frecce: quella. Nessuna app trovata: il primo file, se i risultati sono del testo
-            // scritto (altrimenti la ricerca completa in Esplora file, non un file di un testo vecchio)
-            else if (w == 13) {
-                if (d->lSelFile >= 0) d->apriFile(d->lSelFile);
-                else if (d->filtrate.empty() && !d->query.empty()) {
-                    const int r = d->lFileRighe();
-                    d->apriFile(r > 0 && d->lFileTesto == d->query ? 0 : r);
+        case WM_MOUSEWHEEL: {
+            d->lSelTastiera=false;
+            const double passo=GET_WHEEL_DELTA_WPARAM(w)/(double)WHEEL_DELTA;
+            if(d->lModalita==0 && x>=d->lDividerX()) {
+                d->lScrollCartelleObj=std::clamp(d->lScrollCartelleObj-passo*42*d->dpi,0.0,d->lCartelleScrollMax());
+            } else if(d->lModalita==2 || d->lModalita==3) {
+                const double top=d->lModalita==2?180*d->dpi:234*d->dpi;
+                const double bottom=d->lModalita==2?d->lFooterTop()-78*d->dpi:d->lFooterTop()-82*d->dpi;
+                const double visible=std::max(0.0,bottom-top);
+                const double total=std::ceil(d->tutteApp.size()/2.0)*35*d->dpi;
+                const double max=std::max(0.0,total-visible);
+                d->lScrollEditor=std::clamp(d->lScrollEditor-passo*42*d->dpi,0.0,max);
+            } else if(d->lModalita==1 || d->lModalita==4) {
+                d->lScrollObj=std::clamp(d->lScrollObj-passo*d->lCellaH()*0.9,0.0,d->lScrollMax());
+            }
+            d->lDirty=true; return 0;
+        }
+        case WM_CHAR: {
+            if((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo) {
+                if(w==27) { d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L); d->lDirty=true; return 0; }
+                if(w==13) { if(d->lModalita==5) d->salvaRinominaCartella(); else d->creaCartella(); return 0; }
+                if(w==8) { if(!d->lNomeNuovaCartella.empty()) d->lNomeNuovaCartella.pop_back(); d->lDirty=true; return 0; }
+                if(w>=32 && d->lNomeNuovaCartella.size()<48) {
+                    const wchar_t ch=(wchar_t)w;
+                    if(ch!=L'|' && ch!=L'/' && ch!=L'\\' && ch!=L':' && ch!=L'*' && ch!=L'?' &&
+                       ch!=L'"' && ch!=L'<' && ch!=L'>') d->lNomeNuovaCartella.push_back(ch);
+                    d->lDirty=true; return 0;
                 }
-                else d->avviaApp(!d->query.empty() || d->lSopra == d->lSel ? d->lSel : -1);
+                if(w==22 && OpenClipboard(h)) {
+                    if(HANDLE g=GetClipboardData(CF_UNICODETEXT)) {
+                        if(const wchar_t* t=(const wchar_t*)GlobalLock(g)) {
+                            for(const wchar_t* p=t;*p && *p!=L'\\r' && *p!=L'\\n' && d->lNomeNuovaCartella.size()<48;++p)
+                                if(*p>=32 && *p!=L'|' && *p!=L'/' && *p!=L'\\' && *p!=L':' && *p!=L'*' &&
+                                   *p!=L'?' && *p!=L'"' && *p!=L'<' && *p!=L'>') d->lNomeNuovaCartella.push_back(*p);
+                            GlobalUnlock(g);
+                        }
+                    }
+                    CloseClipboard(); d->lDirty=true; return 0;
+                }
+                return 0;
             }
-            else if (w == 8) { if (!d->query.empty()) { d->query.pop_back(); d->filtra(); } }
-            else if (w == 127 || (w == 8 && (GetKeyState(VK_CONTROL) & 0x8000))) {   // Ctrl+Backspace: via l'ultima parola
-                while (!d->query.empty() && d->query.back() == L' ') d->query.pop_back();
-                while (!d->query.empty() && d->query.back() != L' ') d->query.pop_back();
-                d->filtra();
+            auto attivaRicerca=[&]() {
+                d->lRicercaAttiva=true; d->lRicercaCaretVisibile=true;
+                SetTimer(h,TIMER_SEARCH_CARET_L,520,nullptr);
+            };
+            if(w==27) {
+                if(!d->query.empty()) {
+                    d->query.clear(); d->filtra(); d->lModalita=0; d->lSelFile=-1;
+                    d->lScroll=d->lScrollObj=0; d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
+                    KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
+                } else if(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) {
+                    d->lModalita=0; d->lNomeNuovoAttivo=false; d->lCaretVisibile=false; KillTimer(h,TIMER_CARET_L); d->lScrollEditor=0; d->lDirty=true;
+                } else d->chiudiLauncher();
+                return 0;
             }
-            else if (w == 22) {   // Ctrl+V: incolla (solo la prima riga)
-                if (OpenClipboard(h)) {
-                    if (HANDLE g = GetClipboardData(CF_UNICODETEXT)) {
-                        if (const wchar_t* t = (const wchar_t*)GlobalLock(g)) {
-                            for (const wchar_t* c = t; *c && *c != L'\r' && *c != L'\n' && d->query.size() < 100; c++) if (*c >= 32) d->query += *c;
+            if(w==13) {
+                if(d->lSelFile>=0) d->apriFile(d->lSelFile);
+                else if(d->filtrate.empty() && !d->query.empty()) {
+                    const int rows=d->lFileRighe();
+                    d->apriFile(rows>0 && d->lFileTesto==d->query?0:rows);
+                } else if(!d->filtrate.empty() && (d->lModalita==1 || d->lModalita==4))
+                    d->avviaApp(d->lSel);
+                return 0;
+            }
+            if(w==127 || (w==8 && (GetKeyState(VK_CONTROL)&0x8000))) {
+                while(!d->query.empty() && d->query.back()==L' ') d->query.pop_back();
+                while(!d->query.empty() && d->query.back()!=L' ') d->query.pop_back();
+                d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0; attivaRicerca(); d->lDirty=true; return 0;
+            }
+            if(w==8) {
+                if(!d->query.empty()) {
+                    d->query.pop_back(); d->filtra(); d->lModalita=d->query.empty()?0:4;
+                }
+                attivaRicerca(); d->lDirty=true; return 0;
+            }
+            if(w==22) {
+                if(OpenClipboard(h)) {
+                    if(HANDLE g=GetClipboardData(CF_UNICODETEXT)) {
+                        if(const wchar_t* t=(const wchar_t*)GlobalLock(g)) {
+                            for(const wchar_t* p=t;*p && *p!=L'\\r' && *p!=L'\\n' && d->query.size()<100;++p)
+                                if(*p>=32) d->query+=*p;
                             GlobalUnlock(g);
                         }
                     }
                     CloseClipboard();
-                    d->filtra();
+                    d->filtra(); d->lModalita=d->query.empty()?0:4; d->lScroll=d->lScrollObj=0;
+                    attivaRicerca();
                 }
+                return 0;
             }
-            else if (w >= 32) { d->query += (wchar_t)w; d->filtra(); }
+            if(w>=32) {
+                d->query+=(wchar_t)w; d->lModalita=4; d->filtra();
+                d->lScroll=d->lScrollObj=0; d->lSelFile=-1; attivaRicerca(); return 0;
+            }
             return 0;
+        }
         case WM_KEYDOWN: {
+            if(d->lModalita==2 || ((d->lModalita==3 || d->lModalita==5) && d->lNomeNuovoAttivo)) return 0;
             // Frecce su e giu' fra griglia e file: dall'ultima riga di app (o senza app) la freccia giu' entra nei file;
             // nei file su e giu' scorrono le righe, fino a "Cerca in Esplora file"; su dalla prima torna alla griglia.
             // Gli altri tasti di spostamento riportano nella griglia
@@ -957,7 +2639,7 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                         d->lDirty = true;
                         return 0;
                     }
-                    if (w == VK_DOWN && (d->filtrate.empty() || d->lSel + 6 >= (int)d->filtrate.size())) { d->lSelFile = validi ? 0 : r; d->lDirty = true; return 0; }
+                    if (w == VK_DOWN && (d->filtrate.empty() || d->lSel + (int)d->lColonne() >= (int)d->filtrate.size())) { d->lSelFile = validi ? 0 : r; d->lDirty = true; return 0; }
                 }
                 if (d->lSelFile >= 0 && (w == VK_LEFT || w == VK_RIGHT || w == VK_PRIOR || w == VK_NEXT || w == VK_HOME || w == VK_END)) {
                     d->lSelFile = -1;
@@ -967,8 +2649,11 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
             int s = d->lSel;
             // pagine: tante righe quante se ne vedono
             const int righePagina = std::max(1, (int)((d->lGrigliaBottom() - d->lGrigliaTop()) / d->lCellaH()));
-            if (w == VK_LEFT) s--; else if (w == VK_RIGHT) s++; else if (w == VK_UP) s -= 6; else if (w == VK_DOWN) s += 6;
-            else if (w == VK_PRIOR) s -= 6 * righePagina; else if (w == VK_NEXT) s += 6 * righePagina;
+            const int colonne = (int)d->lColonne();
+            if (w == VK_LEFT) s -= d->lVistaLista ? 0 : 1;
+            else if (w == VK_RIGHT) s += d->lVistaLista ? 0 : 1;
+            else if (w == VK_UP) s -= colonne; else if (w == VK_DOWN) s += colonne;
+            else if (w == VK_PRIOR) s -= colonne * righePagina; else if (w == VK_NEXT) s += colonne * righePagina;
             else if (w == VK_HOME) s = 0; else if (w == VK_END) s = (int)d->filtrate.size() - 1;
             else break;
             // senza ricerca la prima freccia mostra solo la scelta attuale; la scelta si vede come il passaggio del mouse
