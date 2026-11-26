@@ -1976,6 +1976,12 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 d->lRicercaAttiva=false; d->lRicercaCaretVisibile=false;
                 KillTimer(h,TIMER_SEARCH_CARET_L); d->lDirty=true;
             }
+            const bool clickInFolderName=(d->lModalita==3 || d->lModalita==5) &&
+                x>=d->lDividerX()+26*d->dpi && x<d->LW-26*d->dpi && y>=152*d->dpi && y<184*d->dpi;
+            if(!clickInFolderName && d->lNomeNuovoAttivo) {
+                d->lNomeNuovoAttivo=false; d->lCaretVisibile=false;
+                KillTimer(h,TIMER_CARET_L); d->lDirty=true;
+            }
             // barra di scorrimento: preso il cursore lo si trascina; un clic sul binario salta di una pagina
             const D2D1_RECT_F b = d->lRettBarra();
             if ((d->lModalita == 1 || d->lModalita == 4) && d->lScrollMax() > 0 && x >= b.left && x < b.right && y >= b.top && y < b.bottom) {
@@ -2034,6 +2040,8 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                 confermaCartella=x>=save.left && x<save.right && y>=save.top && y<save.bottom;
             }
             const bool searchBar=x>=16*d->dpi && x<d->LW-16*d->dpi && y>=14*d->dpi && y<54*d->dpi;
+            const bool folderNameField=(d->lModalita==3 || d->lModalita==5) &&
+                x>=d->lDividerX()+26*d->dpi && x<d->LW-26*d->dpi && y>=152*d->dpi && y<184*d->dpi;
             const bool searchClear=!d->query.empty() && x>=d->LW-62*d->dpi && x<d->LW-36*d->dpi && y>=14*d->dpi && y<54*d->dpi;
             const bool backHover=(d->lModalita==1 || d->lModalita==2 || d->lModalita==3 || d->lModalita==5) && x>=d->LW-98*d->dpi && x<d->LW-14*d->dpi && y>=85*d->dpi && y<115*d->dpi;
             const bool headerButtons=d->lModalita==0 && y>=85*d->dpi && y<115*d->dpi &&
@@ -2056,13 +2064,15 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
                profilo!=d->lSopraProfilo || energia!=d->lSopraEnergia ||
                explorer!=d->lSopraEsplora || settings!=d->lSopraImpostazioni ||
                cancelCartella!=d->lSopraCancelCartella || confermaCartella!=d->lSopraConfermaCartella ||
-               searchBar!=d->lSopraRicerca || searchClear!=d->lSopraCancellaRicerca || backHover!=d->lSopraIndietro || handCursor!=d->lManoCursor) {
+               searchBar!=d->lSopraRicerca || folderNameField!=d->lSopraNomeCartella ||
+               searchClear!=d->lSopraCancellaRicerca || backHover!=d->lSopraIndietro || handCursor!=d->lManoCursor) {
                 d->lSopraBarra=sb; d->lSopra=s; d->lSopraPinned=pin; d->lSopraCartella=cartella;
                 d->lSopraAppCartella=appCartella; d->lSopraRimuoviAppCartella=rimuoviApp; d->lSopraAzione=azione;
                 d->lSopraProfilo=profilo; d->lSopraEnergia=energia;
                 d->lSopraEsplora=explorer; d->lSopraImpostazioni=settings;
                 d->lSopraCancelCartella=cancelCartella; d->lSopraConfermaCartella=confermaCartella;
-                d->lSopraRicerca=searchBar; d->lSopraCancellaRicerca=searchClear; d->lSopraIndietro=backHover; d->lManoCursor=handCursor;
+                d->lSopraRicerca=searchBar; d->lSopraNomeCartella=folderNameField;
+                d->lSopraCancellaRicerca=searchClear; d->lSopraIndietro=backHover; d->lManoCursor=handCursor;
                 d->lDirty=true;
             }
             if(searchClear || handCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
@@ -2083,12 +2093,12 @@ inline LRESULT CALLBACK Motore::procLauncher(HWND h, UINT m, WPARAM w, LPARAM l)
         case WM_SETCURSOR:
             if(LOWORD(l)==HTCLIENT) {
                 if(d->lSopraCancellaRicerca || d->lManoCursor) SetCursor(LoadCursorW(nullptr,IDC_HAND));
-                else if(d->lSopraRicerca) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
+                else if(d->lSopraRicerca || d->lSopraNomeCartella) SetCursor(LoadCursorW(nullptr,IDC_IBEAM));
                 else SetCursor(LoadCursorW(nullptr,IDC_ARROW));
                 return TRUE;
             }
             break;
-        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false; d->lSopraRicerca=false; d->lSopraCancellaRicerca=false; d->lSopraIndietro=false; d->lManoCursor=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
+        case WM_MOUSELEAVE: d->lMouseDentro=false; d->lSopra=-1; d->lSopraPinned=-1; d->lSopraCartella=-1; d->lSopraAppCartella=-1; d->lSopraRimuoviAppCartella=-1; d->lSopraAzione=-1; d->lSopraVista=false; d->lSopraProfilo=false; d->lSopraFile=-1; d->lSopraEnergia=false; d->lSopraEsplora=false; d->lSopraImpostazioni=false; d->lSopraCancelCartella=false; d->lSopraConfermaCartella=false; d->lSopraRicerca=false; d->lSopraNomeCartella=false; d->lSopraCancellaRicerca=false; d->lSopraIndietro=false; d->lManoCursor=false; d->lSopraBarra=false; d->lCartellaMenuHover=-1; d->lDirty=true; return 0;
         case WM_TIMER:
             if (w == TIMER_FILE_L) { KillTimer(h, TIMER_FILE_L); d->cercaFileLauncher(); return 0; }
             if (w == TIMER_SEARCH_CARET_L) {

@@ -3586,7 +3586,7 @@ private:
     bool lSopraEnergia = false, lSopraProfilo = false, lSopraVista = false;
     bool lSopraEsplora = false, lSopraImpostazioni = false;
     bool lSopraCancelCartella = false, lSopraConfermaCartella = false;
-    bool lSopraRicerca = false, lSopraCancellaRicerca = false, lSopraIndietro = false, lManoCursor = false;
+    bool lSopraRicerca = false, lSopraNomeCartella = false, lSopraCancellaRicerca = false, lSopraIndietro = false, lManoCursor = false;
     // File e cartelle nel launcher (indice.h; issue #14: "la ricerca mostra solo le app"). Mentre si scrive, 0,2 s dopo
     // l'ultimo tasto, un thread chiede all'indice di Windows; sotto la griglia compare la sezione con i risultati del
     // testo lFileTesto e, in fondo, "Cerca in Esplora file". lFileGen scarta i risultati di un testo vecchio; lFileH e'
